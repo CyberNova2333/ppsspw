@@ -2,9 +2,9 @@
 
 基于 PPSSPP WebAssembly 的中文浏览器客户端。网页、模拟器核心及其递归依赖的源码直接保存在本仓库，便于独立维护；不需要拉取上游或应用补丁才能构建。
 
-目前实现本地游戏选择与游戏库、中文网页和模拟器界面、移动布局、触控开关、1×/2×/3×内部渲染分辨率、帧率显示，以及存档导入、导出和本机同步。运行中调整画质或触控设置会在下次启动生效。
+目前实现本地游戏选择与游戏库、CDN 分块下载与暂停续传、中文网页和模拟器界面、移动布局、触控开关、1×/2×/3×内部渲染分辨率、帧率显示，以及存档导入、导出和本机同步。运行中调整画质或触控设置会在下次启动生效。
 
-CDN 下载、图像超分和针对本作的性能优化尚未接入。提高内部渲染分辨率不会自动补齐原始纹理和二维素材的细节。
+游戏文件按需读取，读取缓存上限为 8 MiB，启动时不再将整个 ISO 复制到模拟器内存。图像超分和进一步的浏览器性能优化仍待实现；提高内部渲染分辨率不会自动补齐原始纹理和二维素材的细节。
 
 ## 源码布局
 
@@ -15,12 +15,20 @@ CDN 下载、图像超分和针对本作的性能优化尚未接入。提高内�
 | `scripts/build-ffmpeg-wasm.sh` | 浏览器电影与音频解码依赖构建 |
 | `scripts/package-player.py` | 配套核心产物与网页打包 |
 | `server/serve-player.py` | 只提供打包目录的本地预览服务器 |
+| `scripts/ci/` | 固定工具链、源码构建与发布验证脚本 |
+| `scripts/ci/` | 完整构建、部署配置注入与线上响应头验证 |
 | `upstream/source-lock.json` | 所有上游提交、导入规则和排除清单 |
 | `upstream/web/` | 上游原始工程元数据和构建入口备份 |
 
 历史上游文档、服务器、部署模板和补丁保留用于阅读；本客户端以这里的构建命令为准。`patches/` 不参与当前构建。更新上游应作为显式的源码合并和评审进行，不跟踪浮动版本。
 
-## 构建与预览
+## 正式构建与部署
+
+正式发布走 **完整源码构建 → 任务级注入保密配置 → EdgeOne Makers 直传**。构建与正式发布分开执行；发布入口以最新主线的 GitHub Actions 手动工作流为准，并检查线上构建版本、COOP/COEP/CSP 和 Wasm 响应类型。
+
+keygens 的 `build.yml` 提供 `PLAYER_DEPLOY_CONFIG_JSON`、`PLAYER_PUBLIC_ORIGIN`，`deploy.yml` 提供 `EDGEONE_PAGES_API_TOKEN`、`EDGEONE_PROJECT_NAME`。真实端点和凭据不写入源码。配置格式与权限范围见 [部署说明](docs/deployment.md)，游戏下载协议见 [下载说明](docs/game-download.md)。
+
+## 本地开发与验证
 
 需要 Node.js 24.21 或满足 `wasm-page/package.json` 的版本、npm 11.19、Python 3.9+、GNU Make、CMake、Ninja，以及已激活的 Emscripten **6.0.12**。核心构建使用 Linux；Windows 使用 WSL。工具链和 npm 包通过锁定版本安装，不把它们的安装目录入库。
 
@@ -38,11 +46,13 @@ python3 server/serve-player.py
 
 只修改网页时，重新执行网页构建和打包两条命令。Angular 构建会清空输出目录，因此每次都需要重新打包核心。`npm --prefix wasm-page start` 可开发网页，但启动真实游戏仍需配套核心产物。
 
-预览服务器仅暴露 `wasm-page/dist/ppsspp-web/`，不会提供 `resources/` 或仓库源码。它设置了 WebAssembly 线程所需的 COOP/COEP 响应头。部署时需同样提供这些头；手机通过局域网访问还需要受信任的 HTTPS，可以使用服务器的 `--bind`、`--cert` 和 `--key` 参数。`docker compose up` 仅预览已打包目录。
+本地构建仅用于开发和验证。预览服务器只暴露 `wasm-page/dist/ppsspp-web/`，不会提供 `resources/` 或仓库源码，并设置 WebAssembly 线程所需的 COOP/COEP 响应头。手机通过局域网访问需要受信任的 HTTPS，可使用 `--bind`、`--cert` 和 `--key` 参数。`docker compose up` 仅预览已打包目录。
 
 ## 使用说明
 
 - 自备游戏镜像，选择 ISO、CSO、CHD 等支持的格式。ZIP / 7z 需先解压。此仓库不含游戏本体。
+- 选择本地文件并启动不会自动将游戏复制到浏览器存储；需要保存到游戏库时，使用游戏库的添加操作。在线下载会直接保存在独立的下载缓存中。
+- 在线游戏必须下载完成后启动。暂停或刷新后可继续下载，恢复依据已落盘的校验记录跳过完成块，不会每次重新计算整个游戏的哈希。
 - 手机推荐横屏；在「画质与操作」开启触控。键盘方向键移动，`X` 对应圆圈，`Z` 对应叉，空格对应 START，`Esc` 打开模拟器菜单。
 - 启动时游戏嵌入网页显示，需要全屏时使用网页工具栏按钮；导入配置中的原生全屏设置不会在启动时自动生效。
 - 「同步到本机」保存游戏已经生成的存档文件，不能替代游戏内存档。离开前在游戏中保存，再同步或导出备份。
@@ -54,6 +64,7 @@ python3 server/serve-player.py
 ```sh
 npm --prefix wasm-page test
 python3 -m unittest discover -s server/player-tests -v
+node --test scripts/ci/prepare-deploy.test.mjs
 ```
 
 游戏镜像及提取文件统一放在被忽略的 `resources/` 中；本地截图和验证日志可放在被忽略的 `.local/` 中。不要将这些内容、依赖安装目录或构建输出添加到版本控制。

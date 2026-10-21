@@ -1,0 +1,7 @@
+# The CI image contains tools only. Local game packages never enter its context.
+**
+!scripts/
+scripts/**
+!scripts/ci/
+scripts/ci/**
+!scripts/ci/Dockerfile
