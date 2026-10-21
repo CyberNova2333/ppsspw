@@ -1,0 +1,10 @@
+**
+!server/serve.py
+!server/relay.py
+!server/relay_auth.py
+!server/relay_admin.py
+!wasm-page/
+!wasm-page/**
+wasm-page/.angular/
+wasm-page/dist/
+wasm-page/node_modules/
