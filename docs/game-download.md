@@ -1,12 +1,12 @@
 # 游戏下载与读取机制
 
-玩家从同源目录读取游戏清单，再向显式允许的资源来源下载。分块在 Worker 内校验并写入 OPFS；完整文件下载完成后才可启动游戏，不是边下载边运行。仓库内的默认目录为空，不包含游戏文件、实际分发地址或登录信息。
+下载引擎接受运行时传入的清单，不内置游戏目录、资源域名或固定线路。网页提供本地 JSON 清单导入和清单链接输入；载入成功后显示文件信息，由玩家点击下载。页面启动和构建过程都不会主动获取游戏下载清单。
 
-正式部署由 CNB 在完整构建后，从 keygens 注入配置并发布到 EdgeOne Makers，详见 [部署说明](deployment.md)。本页的本地文件路径和示例仅用于生成元数据、开发与验证；忽略本地配置文件不能替代正式部署的凭据管理。
+分块在 Worker 内校验并写入 OPFS；完整文件下载完成后才可启动游戏，不是边下载边运行。正式发布仍由 CNB 构建并直传 EdgeOne Makers，部署凭据的管理见 [部署说明](deployment.md)，与游戏下载来源无关。
 
 ## 生成清单
 
-将本地游戏文件和生成的清单暂存在已忽略的 `resources/` 下。下面的域名仅作格式示例；实际分发地址通过受控发布配置提供，不提交到源码仓库。
+将本地游戏文件和生成的清单暂存在已忽略的 `resources/` 下。下面的域名仅作格式示例；实际分发地址由清单提供，不提交到源码仓库，也不注入站点构建。
 
 ```sh
 python scripts/create-game-manifest.py resources/game.iso --id game-zh --name game.iso --source https://cdn.example/game.iso --source https://mirror.example/game.iso --output resources/deployment/game-manifests/zh.json
@@ -29,31 +29,33 @@ python scripts/create-game-manifest.py resources/game.iso --id game-zh --name ga
 
 下载来源必须使用 HTTPS，仅 `localhost`、`127.0.0.1` 和 `[::1]` 允许 HTTP 本地测试。不允许 URL 登录凭证、片段或重定向；查询参数可以使用，但具有有效期的地址过期后需要更新配置。浏览器不会携带登录凭证。续传内容身份由文件大小、块大小和块哈希确定；更换镜像地址不改变内容身份，更新游戏内容则需要重新生成清单。
 
-## 配置游戏目录
+## 运行时载入
 
-在部署目录提供同源的 `game-catalog.json`：
+在网页下载页选择 JSON 清单文件，或填写清单的 HTTPS 链接并点击载入。两种方式都限制为 1 MiB；网络载入包含超时、禁止重定向和无凭证请求。链接和游戏文件的跨域响应均需要正确的 CORS。载入失败可重新选择或输入，不会启动下载。
 
-```json
-{
-  "schemaVersion": 1,
-  "allowedOrigins": ["https://cdn.example", "https://mirror.example"],
-  "games": [
-    {"title": "中文版", "manifest": "game-manifests/zh.json"}
-  ]
-}
+清单中的来源可随时更换；正在下载或暂停收尾时，先等待任务暂停再导入。刷新页面后重新载入对应内容的清单，点击下载即可复用已校验的块。清单本身不由站点保存，下载数据和完成记录保留在当前浏览器。
+
+引擎也可独立调用，由接入方在运行时传入清单：
+
+```js
+import { GameDownload } from './game-download.js';
+
+const task = new GameDownload(manifest);
+const unsubscribe = task.subscribe(state => updateProgress(state));
+const result = await task.start();
+// result.file 可直接交给游戏的按需读取接口；暂停时结果为 null。
+unsubscribe();
 ```
 
-`manifest` 必须解析到同源且不含登录凭证的地址。目录和清单均限制为 1 MiB，不能把游戏内容内嵌进 JSON。`allowedOrigins` 使用协议、主机和可选端口组成的精确 origin，不使用通配符或文件路径；清单中的所有下载来源都必须在此列表中。
+`task.pause()` 等待当前请求和写入结束；之后可用 `task.resume()` 恢复。接入方如需限制来源，可传入 `allowedOrigins` 选项；引擎默认只接受 HTTPS 和本地回环 HTTP。网页把本次清单已经验证的来源传给下载 Worker，不依赖编译时的来源列表。
 
-网页构建会清理 `wasm-page/dist/ppsspp-web/`。正式部署步骤在构建与模拟器打包后读取 keygens 中的清单地址及 SHA-256，仅获取并校验 JSON 元数据，再生成该目录和同源清单；不修改源码内的空目录。ISO 由独立资源服务提供，不进入网页构建或发布目录。
-
-本地预览时，还需将相同 origin 加入预览服务器的 CSP：
+本地预览和正式站点的 CSP 都允许 HTTPS 连接，因此更换 HTTPS 来源不需要重新构建或修改宿主响应头。本地 HTTP 测试可额外允许回环 origin：
 
 ```sh
-python server/serve-player.py --cdn-origin https://cdn.example --cdn-origin https://mirror.example
+python server/serve-player.py --connect-origin http://127.0.0.1:17882
 ```
 
-`--cdn-origin` 可以重复，只接受无路径、凭证和通配符的 HTTP(S) origin。不配置时仍为 `connect-src 'self' blob:`。此参数只扩展允许的连接来源，不改变服务根目录；`resources/`、仓库源码和点文件仍不对外提供。正式流水线从同一份允许来源列表生成 Makers 的 `edgeone.json`，使站点 CSP 与下载清单保持一致。
+`--connect-origin` 可重复，只接受无路径、凭证和通配符的 HTTP(S) origin；旧参数 `--cdn-origin` 保留为别名。该参数只扩展连接权限，不改变服务根目录；`resources/`、仓库源码和点文件仍不对外提供。站点不会因允许连接就绕过资源服务自身的 CORS。
 
 ## 启动时按需读取
 
@@ -91,7 +93,7 @@ Access-Control-Expose-Headers: Content-Range, Content-Length, Accept-Ranges, Con
 
 | 现象 | 检查与处理 |
 | --- | --- |
-| 来源不被允许 | 同时检查目录 `allowedOrigins` 和站点 CSP；协议、主机、端口均需一致 |
+| 来源不被允许 | 使用 HTTPS；本地 HTTP 测试需在预览服务器允许回环 origin。独立接入方若传入 `allowedOrigins`，核对协议、主机和端口 |
 | CORS 错误或读不到范围 | 检查允许来源与暴露响应头，包含错误响应也应正确返回 CORS 头 |
 | 范围不匹配、整文件响应或重定向 | 修复资源服务的 Range 配置，清单指向最终文件地址 |
 | 校验失败 | 确认镜像内容相同、禁用传输压缩或转换、重新生成对应版本清单 |

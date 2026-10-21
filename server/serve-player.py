@@ -38,7 +38,7 @@ def cdn_origin(value):
         suffix = f':{port}' if port is not None and port != {'http': 80, 'https': 443}[parts.scheme] else ''
         return f'{parts.scheme}://{host}{suffix}'
     except (ValueError, UnicodeError):
-        raise argparse.ArgumentTypeError('--cdn-origin 必须是无路径、凭证和通配符的 http(s) origin') from None
+        raise argparse.ArgumentTypeError('连接来源必须是无路径、凭证和通配符的 http(s) origin') from None
 
 
 class PlayerHandler(SimpleHTTPRequestHandler):
@@ -70,8 +70,8 @@ class PlayerHandler(SimpleHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-cache')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
-        connections = "'self' blob:" + ''.join(f' {origin}' for origin in self.cdn_origins)
-        self.send_header('Content-Security-Policy', f"connect-src {connections}; form-action 'none'; frame-src 'none'")
+        connections = "'self' blob: https:" + ''.join(f' {origin}' for origin in self.cdn_origins)
+        self.send_header('Content-Security-Policy', f"connect-src {connections}; worker-src 'self' blob:; form-action 'none'; frame-src 'none'")
         super().end_headers()
 
 
@@ -81,8 +81,9 @@ def main():
     parser.add_argument('--port', type=int, default=17881)
     parser.add_argument('--cert', type=Path, help='移动设备访问需要受信任的 HTTPS 证书')
     parser.add_argument('--key', type=Path)
-    parser.add_argument('--cdn-origin', action='append', default=[], type=cdn_origin,
-                        help='允许连接的资源服务 origin，可重复；默认仅允许同源和 blob')
+    parser.add_argument('--connect-origin', '--cdn-origin', dest='connect_origins',
+                        action='append', default=[], type=cdn_origin,
+                        help='额外允许的连接 origin，可重复；默认允许 HTTPS，用于本地 HTTP 测试')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1] / 'wasm-page/dist/ppsspp-web'
     if not (root / 'index.html').is_file():
@@ -90,7 +91,7 @@ def main():
     if bool(args.cert) != bool(args.key):
         parser.error('--cert 与 --key 必须同时提供')
     server = ThreadingHTTPServer((args.bind, args.port), functools.partial(
-        PlayerHandler, directory=str(root), cdn_origins=args.cdn_origin))
+        PlayerHandler, directory=str(root), cdn_origins=args.connect_origins))
     if args.cert:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(args.cert, args.key)

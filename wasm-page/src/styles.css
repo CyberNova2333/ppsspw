@@ -1575,9 +1575,16 @@ body:not(.emulator-started) #stageMini { display: none; }
 /* Online downloads share the existing compact player panel. */
 .online-games-panel { padding: 16px; }
 .online-games-panel .panel-intro { padding: 0; }
-#onlineCatalogStatus { font-size: 12px; color: var(--muted); line-height: 1.6; }
+#onlineManifestStatus { font-size: 12px; color: var(--muted); line-height: 1.6; }
+.online-manifest-import { display: grid; gap: 8px; }
+.online-manifest-import > .btn { justify-self: start; }
+.online-manifest-import > .btn.disabled { opacity: .55; cursor: default; }
+.online-manifest-url-label { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.online-manifest-url-row { display: flex; gap: 8px; }
+.online-manifest-url-row input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid var(--border2); border-radius: 8px; color: inherit; background: var(--surface2); }
+.online-manifest-url-row button { flex: none; }
 .online-game-card { margin-top: 16px; padding: 16px; border: 1px solid var(--border2); border-radius: 12px; background: var(--surface); }
-.online-game-card h3 { margin: 0 0 8px; font-size: 16px; }
+.online-game-card h3 { margin: 0 0 8px; font-size: 16px; overflow-wrap: anywhere; }
 .online-game-card > p { overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; }
 .online-game-card progress { display: block; width: 100%; height: 10px; margin-top: 12px; accent-color: var(--accent); }
 .online-game-card .player-actions { display: flex; flex-wrap: wrap; gap: 8px; }
