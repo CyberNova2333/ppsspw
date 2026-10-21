@@ -21,11 +21,11 @@ let ASSET_DIR          = BUILD_DIR + "assets/";
 const MANIFEST         = "assets-manifest.txt";
 const USE_PRELOADED_ASSETS = true;
 const VIRTUAL_ASSETS   = "/emsdk/upstream/emscripten/cache/sysroot/share/ppsspp/assets";
-const VIRTUAL_GAME_DIR = "/games";
+const VIRTUAL_GAME_DIR = "/browser-games";
 const GAME_FILE_ACCEPT = ".iso,.cso,.chd,.pbp,.elf,.prx";
 const GAME_FILE_EXT_RE = /\.(iso|cso|chd|pbp|elf|prx)$/i;
-// This edition is a local single-player client. Old cloud/network preferences
-// must never turn external services back on during startup.
+// Cloud saves and multiplayer stay disabled. User-supplied download manifests
+// are handled separately by the download panel.
 const LOCAL_ONLY = true;
 const PLAYER_SETTINGS_KEY = "ppsspp-player-settings-v1";
 
@@ -487,6 +487,7 @@ if (!LOCAL_ONLY) setInterval(checkNetworkWhenVisible, 30000);
 /* ── State ──────────────────────────────────────────────────────── */
 let selectedGame = null;
 let selectedStoredGame = null;
+let selectedGameCached = false;
 let started      = false;
 let runtimeReady = false;
 let runtimeFailed = false;
@@ -604,21 +605,22 @@ async function opfsDelete(path) {
 }
 
 async function opfsClearAll() {
-  const root = await opfsRoot();
-  try { await root.removeEntry(OPFS_PERSIST_DIR, { recursive: true }); } catch(e) {}
-  try { await root.removeEntry(OPFS_GAMES_DIR, { recursive: true }); } catch(e) {}
-  try { await root.removeEntry(OPFS_GAME_META_DIR, { recursive: true }); } catch(e) {}
-  try { await root.removeEntry("legacy-backups", { recursive: true }); } catch (error) { if (error.name !== "NotFoundError") throw error; }
-  await playerSettingsQueue;
-  try { await root.removeEntry("player", { recursive: true }); } catch (error) { if (error.name !== "NotFoundError") throw error; }
-  preferences.removeItem(PLAYER_SETTINGS_KEY);
-  playerSettingsChanged = true;
-  refreshPlayerSettingsUI();
-  preferences.removeItem(PRELOAD_FAVORITES_KEY);
-  preferences.removeItem(PRELOAD_FAVORITES_MIGRATED_KEY);
-  await root.getDirectoryHandle(OPFS_PERSIST_DIR, { create: true });
-  await root.getDirectoryHandle(OPFS_GAMES_DIR, { create: true });
-  await root.getDirectoryHandle(OPFS_GAME_META_DIR, { create: true });
+  return globalThis.PpssppGameStorage.withExclusive(async () => {
+    await playerSettingsQueue;
+    const root = await opfsRoot();
+    for (const name of [OPFS_PERSIST_DIR, OPFS_GAMES_DIR, OPFS_GAME_META_DIR, "game-downloads", "legacy-backups", "player"]) {
+      try { await root.removeEntry(name, { recursive: true }); }
+      catch (error) { if (error.name !== "NotFoundError") throw error; }
+    }
+    preferences.removeItem(PLAYER_SETTINGS_KEY);
+    playerSettingsChanged = true;
+    refreshPlayerSettingsUI();
+    preferences.removeItem(PRELOAD_FAVORITES_KEY);
+    preferences.removeItem(PRELOAD_FAVORITES_MIGRATED_KEY);
+    await root.getDirectoryHandle(OPFS_PERSIST_DIR, { create: true });
+    await root.getDirectoryHandle(OPFS_GAMES_DIR, { create: true });
+    await root.getDirectoryHandle(OPFS_GAME_META_DIR, { create: true });
+  });
 }
 
 async function opfsWalk(base = OPFS_PERSIST_DIR, prefix = "", includeData = true) {
@@ -646,13 +648,15 @@ async function opfsWalk(base = OPFS_PERSIST_DIR, prefix = "", includeData = true
 }
 
 async function opfsPutGame(name, data) {
-  const safe = name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const { dir, name: fileName } = await opfsParent(safe, true, OPFS_GAMES_DIR);
-  const handle = await dir.getFileHandle(fileName, { create: true });
-  await writeOpfsHandle(handle, data);
-  try { await writeGameMetadata(safe, data); }
-  catch(e) { log("Library metadata failed for " + safe + ": " + e.message, "warn"); }
-  return safe;
+  return globalThis.PpssppGameStorage.withExclusive(async () => {
+    const safe = name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const { dir, name: fileName } = await opfsParent(safe, true, OPFS_GAMES_DIR);
+    const handle = await dir.getFileHandle(fileName, { create: true });
+    await writeOpfsHandle(handle, data);
+    try { await writeGameMetadata(safe, data); }
+    catch(e) { log("Library metadata failed for " + safe + ": " + e.message, "warn"); }
+    return safe;
+  });
 }
 
 async function opfsReadGame(name) {
@@ -1112,8 +1116,8 @@ async function updateStorageInfo() {
 async function downloadStoredFile(path) {
   if (path.startsWith(VIRTUAL_GAME_DIR + "/")) {
     const name = path.slice((VIRTUAL_GAME_DIR + "/").length);
-    const data = await opfsReadGame(name);
-    const url = URL.createObjectURL(new Blob([data], { type: "application/octet-stream" }));
+    const file = await opfsGetGameFile(name);
+    const url = URL.createObjectURL(file);
     Object.assign(document.createElement("a"), { href: url, download: name }).click();
     URL.revokeObjectURL(url);
     showToast("✓ 已导出 " + name);
@@ -1125,10 +1129,13 @@ async function downloadStoredFile(path) {
 async function deleteStoredFile(path) {
   if (path.startsWith(VIRTUAL_GAME_DIR + "/")) {
     const name = path.slice((VIRTUAL_GAME_DIR + "/").length);
+    if (globalThis.PpssppBrowserFiles?.has(path)) { showToast("游戏已载入，请先同步存档并重新载入页面后再删除。"); return; }
     if (!confirm("从本机游戏库中删除：\n" + name + "?")) return;
     try {
-      await opfsDeleteGame(name);
-      if (window.FS) { try { window.FS.unlink(path); } catch(e) {} }
+      await globalThis.PpssppGameStorage.withExclusive(async () => {
+        await opfsDeleteGame(name);
+        if (window.FS) { try { window.FS.unlink(path); } catch(e) {} }
+      });
       setPreloadFavorite(name, false);
       refreshEmulatorGameBrowser("deleted " + name);
       showToast("已删除 " + name);
@@ -1165,6 +1172,7 @@ async function playOrMountStoredGame(name) {
   if (!started || !window.FS) {
     selectedStoredGame = name;
     selectedGame = null;
+    selectedGameCached = true;
     if (fileLabel) fileLabel.title = name;
     updateIdleOverlay();
     const textNode = fileLabel?.firstChild;
@@ -1180,7 +1188,7 @@ async function playOrMountStoredGame(name) {
   try {
     showToast("正在载入 " + name + "…");
     FS.mkdirTree(VIRTUAL_GAME_DIR);
-    FS.writeFile(path, await opfsReadGame(name), { canOwn: true });
+    mountBrowserGame(FS, await opfsGetGameFile(name), name);
     log("Mounted stored game file from OPFS: " + path, "ok");
     refreshEmulatorGameBrowser("mounted " + name);
     showToast("✓ " + name + " 已载入");
@@ -3421,13 +3429,10 @@ async function loadGameAtRuntime(file) {
   log("Loading game at runtime: " + file.name + " → " + path, "info");
   showToast("正在载入 " + file.name + "…");
   try {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    try { FS.mkdirTree(VIRTUAL_GAME_DIR); } catch(e) {}
-    FS.writeFile(path, bytes, { canOwn: true });
-    await opfsPutGame(file.name, file);
+    mountBrowserGame(FS, file, safe);
     refreshEmulatorGameBrowser("mounted " + safe);
-    log("Game file ready at " + path + " and saved to OPFS. Open it from PPSSPP\u2019s game browser (Home \u2192 Games).", "ok");
-    showToast("✓ " + file.name + " 已载入，请从模拟器游戏列表中打开", 5000);
+    log("Game file registered for this session: " + path, "ok");
+    showToast("✓ " + file.name + " 仅本次载入，请从模拟器游戏列表中打开；需要缓存时请先退出游玩再添加到游戏库。", 6500);
     refreshLibrary();
     updateStorageInfo();
   } catch(e) { log("Runtime game load failed: " + e.message, "err"); showToast("操作未完成：" + e.message); }
@@ -4581,11 +4586,11 @@ async function preloadStoredGames(FS) {
     try {
       setStatus("正在载入游戏 " + (ok + 1) + "/" + favorites.length + ": " + name, "run");
       showLoading("正在载入游戏：" + name);
-      const data = await opfsReadGame(name);
-      FS.writeFile(target, data, { canOwn: true });
+      const file = await opfsGetGameFile(name);
+      mountBrowserGame(FS, file, name);
       ok++;
-      bytesMounted += data.byteLength || 0;
-      log("Startup preload mounted: " + target + " (" + formatBytes(data.byteLength || 0) + ")", "ok");
+      bytesMounted += file.size;
+      log("Startup registered file: " + target + " (" + formatBytes(file.size) + ")", "ok");
     } catch(e) {
       log("Startup preload failed " + name + ": " + e.message, "warn");
     }
@@ -4594,75 +4599,27 @@ async function preloadStoredGames(FS) {
   return ok;
 }
 
-let fastGameMountSeq = 0;
-function makeWorkerFsGameFile(file, safeName) {
-  if (!file || file.name === safeName || typeof File !== "function") return file;
-  return new File([file], safeName, {
-    type: file.type || "application/octet-stream",
-    lastModified: file.lastModified || Date.now(),
-  });
-}
-
-function mountGameFileFast(FS, file, safeName, label) {
-  const workerFS = globalThis.WORKERFS || window.WORKERFS;
-  if (!workerFS || !FS?.mount || typeof FileReaderSync === "undefined") return null;
-
-  const mountFile = makeWorkerFsGameFile(file, safeName);
-  const mountDir = VIRTUAL_GAME_DIR + "/.fast-" + (++fastGameMountSeq);
-  try {
-    FS.mkdirTree(VIRTUAL_GAME_DIR);
-    FS.mkdirTree(mountDir);
-    FS.mount(workerFS, { files: [mountFile] }, mountDir);
-    const path = mountDir + "/" + mountFile.name;
-    log("Fast-mounted game via WORKERFS" + (label ? " (" + label + ")" : "") + ": " + path, "ok");
-    return path;
-  } catch(e) {
-    log("Fast game mount failed, falling back to MEMFS: " + e.message, "warn");
-    try { if (FS.analyzePath?.(mountDir)?.exists) FS.rmdir(mountDir); } catch(_) {}
-    return null;
-  }
-}
-
-function persistSelectedGameInBackground(file) {
-  if (!file) return;
-  (async () => {
-    await opfsPutGame(file.name, file);
-    log("Game saved to OPFS after fast mount: " + file.name, "ok");
-    refreshLibrary();
-    updateStorageInfo();
-  })().catch(e => log("Could not persist fast-mounted game in OPFS: " + e.message, "warn"));
+function mountBrowserGame(FS, file, safeName) {
+  const files = globalThis.PpssppBrowserFiles;
+  if (!files) throw new Error("按需读取组件未准备好，请重新载入页面");
+  if (runtimeReady && !files.hasFiles()) throw new Error("请先同步存档，再刷新页面并选择游戏后启动");
+  const path = VIRTUAL_GAME_DIR + "/" + safeName;
+  if (files.has(path)) throw new Error("同名游戏已经载入，请重新载入页面后切换");
+  files.register(path, file);
+  try { files.mirror(FS, path); }
+  catch (error) { files.unregister(path); throw error; }
+  return path;
 }
 
 async function preloadGame(FS) {
   if (!selectedGame && !selectedStoredGame) return null;
-  FS.mkdirTree(VIRTUAL_GAME_DIR);
   const sourceName = selectedGame ? selectedGame.name : selectedStoredGame;
   const safe = sourceName.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const path = VIRTUAL_GAME_DIR + "/" + safe;
   setStatus("正在准备游戏：" + sourceName, "run");
   showLoading("正在准备游戏：" + sourceName);
-
-  if (selectedGame) {
-    const fastPath = mountGameFileFast(FS, selectedGame, safe, "selected file");
-    if (fastPath) {
-      persistSelectedGameInBackground(selectedGame);
-      return fastPath;
-    }
-  } else if (selectedStoredGame) {
-    const storedFile = await opfsGetGameFile(selectedStoredGame);
-    const fastPath = mountGameFileFast(FS, storedFile, safe, "OPFS");
-    if (fastPath) return fastPath;
-  }
-
-  setStatus("正在载入游戏：" + sourceName, "run");
-  showLoading("正在载入游戏：" + sourceName);
-  const bytes = selectedGame
-    ? new Uint8Array(await selectedGame.arrayBuffer())
-    : await opfsReadGame(selectedStoredGame);
-  FS.writeFile(path, bytes, { canOwn: true });
-  try { if (selectedGame) await opfsPutGame(selectedGame.name, bytes); }
-  catch(e) { log("Could not persist game in OPFS: " + e.message, "warn"); }
-  log("Game mounted in MEMFS" + (selectedGame ? " and saved to OPFS" : " from OPFS") + ": " + path, "ok");
+  const file = selectedGame || await opfsGetGameFile(selectedStoredGame);
+  const path = mountBrowserGame(FS, file, safe);
+  log("Game registered for bounded reads: " + path + " (" + formatBytes(file.size) + ")", "ok");
   return path;
 }
 
@@ -4730,6 +4687,7 @@ async function exportDiagnosticReport() {
     crossOriginIsolated: window.crossOriginIsolated, sharedArrayBuffer: typeof SharedArrayBuffer !== "undefined",
     opfsAvailable: hasOPFS(), buildDirectory: BUILD_DIR, coreRevision: BUILD_STAMP,
     runtimeReady, status: statusEl?.textContent,
+    gameReads: globalThis.PpssppBrowserFiles?.stats(),
     graphics: ["iRenderer", "iVendor", "iVersion"].map(id => ({ name: id, value: byId(id)?.textContent })),
     audio: { ...audioDebug }, configs,
     logs: [...logLines, ...pendingLines].slice(-500).map(line => line.raw
@@ -4775,6 +4733,14 @@ function failRuntime(message) {
   if (recovery) recovery.hidden = false;
 }
 
+function handleBrowserGameReadError(event) {
+  if (!started || runtimeFailed) return;
+  const detail = event.detail;
+  log("Game file read failed: " + (detail?.path || "unknown") + ": " + (detail?.message || "unknown"), "err");
+  failRuntime("游戏文件读取失败。请重新载入页面并重新选择游戏文件；若使用本机缓存，请重新下载游戏。已同步到本机的存档会保留。");
+}
+window.addEventListener("ppsspp:game-read-error", handleBrowserGameReadError);
+
 canvas?.addEventListener("webglcontextlost", event => {
   event.preventDefault();
   if (started) failRuntime("游戏画面连接已中断。请重新载入页面；已同步到本机的存档会保留。");
@@ -4816,6 +4782,24 @@ async function start() {
     // module loads on the already-running AudioContext.
     await installScriptProcessorPolyfill(preAudioCtx);
   } catch(e) { log("AUDIO: pre-init AudioContext failed: " + (e?.message || e), "warn"); }
+
+  try {
+    // Keep game snapshots stable until this page closes or reloads. Failures
+    // after mounting also keep the lease, since the core may retain references.
+    await globalThis.PpssppGameStorage.acquireShared();
+  } catch (error) {
+    started = false;
+    clearTimeout(window.ModuleStartupWatchdog);
+    document.body.classList.remove("emulator-started");
+    fileLabel?.classList.remove("disabled");
+    if (fileInput) fileInput.disabled = false;
+    if (gpuSelectEl) gpuSelectEl.disabled = false;
+    hideLoading();
+    setStartButtonMode("ready");
+    preAudioCtx?.close().catch(() => {});
+    setStatus(error.message, "err");
+    return;
+  }
 
   try { await selectBuildDir(); }
   catch (e) { failRuntime(e.message); return; }
@@ -4894,6 +4878,7 @@ async function start() {
     }],
     onRuntimeInitialized() {
       clearTimeout(window.ModuleStartupWatchdog);
+      if (runtimeFailed) return;
       log("Runtime initialized.", "ok");
       runtimeReady = true;
       setStatus(gameArg ? "模拟器已启动" : "游戏库已就绪", "ok");
@@ -4905,7 +4890,7 @@ async function start() {
       startAutoPersist();
       updateStorageInfo();
       refreshLibrary();
-      setTimeout(() => setStatus(gameArg ? "模拟器已启动" : "游戏库已就绪", "ok"), 600);
+      setTimeout(() => { if (!runtimeFailed) setStatus(gameArg ? "模拟器已启动" : "游戏库已就绪", "ok"); }, 600);
       setTimeout(describeAudio, 1000);
       setTimeout(() => reconnectKnownGamepadsForSDL("runtime ready", true), 300);
       setTimeout(() => reconnectKnownGamepadsForSDL("runtime settled", true), 1500);
@@ -5016,6 +5001,7 @@ function installTouchMouseShim() {
 on(fileInput, "change", () => {
   selectedGame = fileInput?.files?.[0] || null;
   selectedStoredGame = null;
+  selectedGameCached = false;
   if (!validateGameSelection(selectedGame)) {
     if (idleSubtitle) idleSubtitle.textContent = gameFileValidationError(selectedGame);
     return;
@@ -5239,12 +5225,14 @@ driveRemoteList?.addEventListener("click", e => {
 
 on("clearStorageBtn", "click", async () => {
   if (!confirm("清除本机的全部存档、设置和游戏缓存吗？删除后无法撤销，请先导出存档备份。")) return;
-  await opfsClearAll();
-  _lastPersistTime = 0;
-  refreshLibrary();
-  updateStorageInfo();
-  log("OPFS storage cleared.", "warn");
-  showToast("本机存储已清空");
+  try {
+    await opfsClearAll();
+    _lastPersistTime = 0;
+    refreshLibrary();
+    updateStorageInfo();
+    log("OPFS storage cleared.", "warn");
+    showToast("本机存储已清空");
+  } catch (error) { showToast("清理未完成：" + error.message, 6500); }
 });
 
 window.addEventListener("pointerdown", () => { if (started) unlockAudio(); });
@@ -5411,6 +5399,24 @@ updateStorageInfo();    // populate OPFS tab with stats on load
 refreshSavesTab();      // populate Saves tab from OPFS on load (no FS needed)
 refreshPlayerSettingsUI();
 void restorePlayerSettings();
+
+import('./online-games.js').then(({ initOnlineGames }) => initOnlineGames({
+  canPlay: () => !started,
+  reportError: message => showToast(message, 6500),
+  play(file) {
+    if (started || !validateGameSelection(file)) return;
+    selectedGame = file;
+    selectedStoredGame = null;
+    selectedGameCached = true;
+    updateIdleOverlay();
+    setPanelOpen(false);
+    start();
+  },
+})).catch(error => {
+  const status = byId('onlineCatalogStatus');
+  if (status) status.textContent = '在线下载组件加载失败，请刷新页面重试。';
+  log('Download UI load failed: ' + error.message, 'warn');
+});
 
 /* ── PWA: Service Worker registration ──────────────────────────── */
 if ("serviceWorker" in navigator) {
