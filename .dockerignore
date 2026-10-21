@@ -1,0 +1,4 @@
+# The CI image contains tools only. Local game packages never enter its context.
+**
+!.cnb/
+!.cnb/Dockerfile

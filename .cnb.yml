@@ -1,0 +1,45 @@
+.toolchain: &toolchain
+  build:
+    dockerfile: .cnb/Dockerfile
+    target: toolchain
+    versionBy:
+      - .cnb/Dockerfile
+
+.build-stage: &build-stage
+  name: 源码测试与完整构建
+  timeout: 90m
+  script: bash scripts/ci/build.sh
+
+main:
+  push:
+    - name: 检查网页与模拟器源码构建
+      docker: *toolchain
+      runner:
+        cpus: 8
+      stages:
+        - *build-stage
+
+  web_trigger_deploy:
+    - name: 构建并部署网页客户端
+      docker: *toolchain
+      runner:
+        cpus: 8
+      lock:
+        key: portable-player-production
+        wait: true
+        cancel-in-wait: true
+      stages:
+        - *build-stage
+        - name: 注入部署配置并验证静态产物
+          imports: "${BUILD_CONFIG_URL}"
+          script: node scripts/ci/prepare-deploy.mjs
+        - name: 直传 EdgeOne Makers
+          image: tencentcom/deploy-eopages:latest
+          imports: "${DEPLOY_CONFIG_URL}"
+          settings:
+            project_name: $EDGEONE_PROJECT_NAME
+            api_token: $EDGEONE_PAGES_API_TOKEN
+            directory: wasm-page/dist/ppsspp-web
+        - name: 验证线上版本与浏览器隔离响应头
+          imports: "${BUILD_CONFIG_URL}"
+          script: node scripts/ci/verify-deployment.mjs

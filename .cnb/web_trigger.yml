@@ -1,0 +1,21 @@
+branch:
+  - reg: ^main$
+    buttons:
+      - name: 构建并部署网页客户端
+        description: 从仓库完整构建，注入受控配置后直传 EdgeOne Makers，并验证线上响应头
+        event: web_trigger_deploy
+        groupName: 网页客户端
+        permissions:
+          roles:
+            - master
+        inputs:
+          BUILD_CONFIG_URL:
+            name: 线上验证配置地址
+            description: 已有 build.yml 配置文件的完整地址
+            type: input
+            required: true
+          DEPLOY_CONFIG_URL:
+            name: 部署配置地址
+            description: 已有 deploy.yml 配置文件的完整地址
+            type: input
+            required: true
