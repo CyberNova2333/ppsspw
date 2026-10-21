@@ -77,6 +77,9 @@ SDLJoystick *joystick = NULL;
 #include "Common/Thread/ThreadUtil.h"
 #include "Common/StringUtils.h"
 #include "Core/System.h"
+#ifdef __EMSCRIPTEN__
+#include "Core/FileLoaders/BrowserFileLoader.h"
+#endif
 #include "Core/Core.h"
 #include "Core/Config.h"
 #include "Core/CoreTiming.h"
@@ -1041,6 +1044,14 @@ static void EmuThreadFunc(GraphicsContext *graphicsContext) {
 
 static void EmuThreadStart(GraphicsContext *context) {
 #ifdef __EMSCRIPTEN__
+	// Browser-backed discs use asynchronous Blob reads. The emulation thread
+	// may wait for them, while the main browser thread keeps rendering and
+	// servicing file promises. This must not depend on WLAN being enabled.
+	if (BrowserFileLoaderHasFiles()) {
+		emuThreadState = (int)EmuThreadState::START_REQUESTED;
+		emuThread = std::thread(&EmuThreadFunc, context);
+		return;
+	}
 #ifdef PPSSPP_WASM_THREADED_ADHOC
 	// Render queue draining stays nonblocking on the browser thread. Only
 	// the emulation worker waits for GL fences, leaving WebSocket delivery free.

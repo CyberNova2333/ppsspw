@@ -25,6 +25,9 @@
 #include "Core/FileLoaders/DiskCachingFileLoader.h"
 #include "Core/FileLoaders/HTTPFileLoader.h"
 #include "Core/FileLoaders/LocalFileLoader.h"
+#ifdef __EMSCRIPTEN__
+#include "Core/FileLoaders/BrowserFileLoader.h"
+#endif
 #include "Core/FileLoaders/RetryingFileLoader.h"
 #include "Core/FileLoaders/ZipFileLoader.h"
 #include "Core/FileSystems/MetaFileSystem.h"
@@ -51,6 +54,11 @@ struct PVD {
 };
 
 FileLoader *ConstructFileLoader(const Path &filename) {
+#ifdef __EMSCRIPTEN__
+	if (BrowserFileLoader::SupportsPath(filename)) {
+		return new BrowserFileLoader(filename);
+	}
+#endif
 	if (filename.Type() == PathType::HTTP) {
 		FileLoader *baseLoader = new RetryingFileLoader(new HTTPFileLoader(filename));
 		// For headless, avoid disk caching since it's usually used for tests that might mutate.
