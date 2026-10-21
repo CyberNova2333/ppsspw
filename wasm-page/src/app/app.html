@@ -102,9 +102,13 @@
 
     <div class="tab-panel" id="tabOnline">
       <div class="online-games-panel">
-        <div class="panel-intro"><h2>在线下载</h2><p>下载到本机后游玩，暂停或刷新页面后可以继续。</p></div>
-        <button id="onlineRefreshBtn" type="button"><i data-lucide="refresh-cw"></i>刷新游戏列表</button>
-        <p id="onlineCatalogStatus" role="status" aria-live="polite">正在读取在线游戏列表…</p>
+        <div class="panel-intro"><h2>在线下载</h2><p>载入下载清单后，选择线路下载。重新载入同一份清单可以继续进度。</p></div>
+        <div class="online-manifest-import">
+          <label class="btn" id="onlineManifestFileLabel"><i data-lucide="file-json"></i>选择清单文件<input id="onlineManifestFile" type="file" accept=".json,application/json" aria-label="选择 JSON 下载清单"></label>
+          <label class="online-manifest-url-label" for="onlineManifestURL">或输入清单地址</label>
+          <div class="online-manifest-url-row"><input id="onlineManifestURL" type="url" placeholder="HTTPS 清单地址" autocomplete="off" spellcheck="false"><button id="onlineManifestLoadBtn" type="button">载入</button></div>
+        </div>
+        <p id="onlineManifestStatus" role="status" aria-live="polite">选择 JSON 清单文件，或输入清单地址后点击载入。</p>
         <div id="onlineGameList"></div>
       </div>
     </div>

@@ -5413,7 +5413,7 @@ import('./online-games.js').then(({ initOnlineGames }) => initOnlineGames({
     start();
   },
 })).catch(error => {
-  const status = byId('onlineCatalogStatus');
+  const status = byId('onlineManifestStatus');
   if (status) status.textContent = '在线下载组件加载失败，请刷新页面重试。';
   log('Download UI load failed: ' + error.message, 'warn');
 });

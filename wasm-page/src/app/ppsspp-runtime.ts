@@ -6,6 +6,7 @@ import {
   Download,
   Eye,
   ExternalLink,
+  FileJson,
   FolderOpen,
   FolderPlus,
   Gamepad2,
@@ -36,6 +37,7 @@ const PPSSPP_ICONS = {
   Download,
   Eye,
   ExternalLink,
+  FileJson,
   FolderOpen,
   FolderPlus,
   Gamepad2,
@@ -58,7 +60,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = 'ppsspp-player-download-v2';
+const RUNTIME_ASSET_VERSION = 'ppsspp-player-v4';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {

@@ -9,7 +9,7 @@
  * The cache is versioned; old caches are pruned on activate.
  */
 
-const CACHE_VERSION = "ppsspp-player-download-v2";
+const CACHE_VERSION = "ppsspp-player-v4";
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [
@@ -57,7 +57,7 @@ self.addEventListener("fetch", event => {
 
   const pathname = url.pathname;
 
-  // Range responses and deployment catalogs must never enter the shell cache.
+  // Range responses and user-provided manifests must never enter the shell cache.
   // A cached 206 or stale manifest could otherwise corrupt resumed downloads.
   if (request.headers.has('Range') || request.cache === 'no-store') return;
 
@@ -71,7 +71,6 @@ self.addEventListener("fetch", event => {
                   pathname.endsWith("/online-games.js") ||
                   pathname.endsWith("/game-download.js") ||
                   pathname.endsWith("/download-worker.js") ||
-                  pathname.endsWith("/game-catalog.json") ||
                   pathname.endsWith("/build-info.json") ||
                   pathname.endsWith("/assets-manifest.txt");
 
