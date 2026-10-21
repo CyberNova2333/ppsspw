@@ -1,0 +1,8 @@
+# Keep build entry points executable by Linux / WSL after a Windows clone.
+*.sh text eol=lf
+/Makefile text eol=lf
+configure text eol=lf
+*.py text eol=lf
+*.pl text eol=lf
+*.mjs text eol=lf
+/wasm-page/package-lock.json text eol=lf
