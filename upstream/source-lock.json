@@ -1,0 +1,1685 @@
+{
+  "schemaVersion": 1,
+  "importPolicy": "Pinned tracked sources; recursive submodules expanded into ordinary source directories; no Git history or untracked build outputs. Explicitly listed upstream FFmpeg precompiled archives are omitted; corresponding sources, build scripts and licenses are retained.",
+  "repositories": [
+    {
+      "path": ".",
+      "source": "https://github.com/root-hunter/ppsspp-web.git",
+      "commit": "dbb273baee573025875593786fd22967ae81d91f",
+      "tree": "5174c44fc09f44c2f077e8cbd895ebb81bc21e1e",
+      "trackedBlobCount": 116,
+      "metadataRemappedTo": "upstream/web",
+      "note": "Root project README and LICENSE retained; root integration files may be adapted. The core gitlink is expanded at deps/ppsspp-wasm."
+    },
+    {
+      "path": "deps/ppsspp-wasm",
+      "source": "https://github.com/root-hunter/ppsspp-wasm.git",
+      "commit": "e536386db3edc73d0b94c64f0cfdf1656cdda654",
+      "tree": "fbf17251aaaed7e9aee4ce86c31d54147a5bbb1c",
+      "parent": null,
+      "trackedBlobCount": 2476,
+      "trackedBlobBytes": 105838675,
+      "trackedBlobManifestSha256": "9a9386bb8fb51cc839cbcccc6d781cffc17d92a50956cfa240e7647b0dd953f4",
+      "symlinks": [
+        {
+          "path": "ext/vulkan/libvulkan.so",
+          "target": "libvulkan.so.1",
+          "gitBlob": "2a67c929c81c56294f43c50e47817ef64c82ffcf",
+          "representation": "materialized-file",
+          "materializedTarget": "ext/vulkan/libvulkan.so.1.3.236"
+        },
+        {
+          "path": "ext/vulkan/libvulkan.so.1",
+          "target": "libvulkan.so.1.3.236",
+          "gitBlob": "88154c3f9526fc041370ecbdc811270629e6fd97",
+          "representation": "materialized-file",
+          "materializedTarget": "ext/vulkan/libvulkan.so.1.3.236"
+        }
+      ],
+      "executableFiles": [
+        "Core/Dialog/PSPMsgDialog.cpp",
+        "Core/Dialog/PSPOskDialog.cpp",
+        "Core/Dialog/PSPSaveDialog.cpp",
+        "SDL/macbundle.sh",
+        "Tools/langtool/unused-heuristic.sh",
+        "Tools/tag_release.sh",
+        "android/ab-ant.sh",
+        "android/ab.sh",
+        "android/git-version-gen.sh",
+        "b-appstore.sh",
+        "b-ios.sh",
+        "b.sh",
+        "build_fontatlas.sh",
+        "build_ppgeatlas.sh",
+        "copyrelease.sh",
+        "copysym.sh",
+        "ext/native/tools/b.sh",
+        "ext/vulkan/iOS/Frameworks/libMoltenVK.dylib",
+        "ext/vulkan/macOS/Frameworks/libMoltenVK.dylib",
+        "gradlew",
+        "icons/icon-114.png",
+        "ios/iCade/iCadeReaderView.h",
+        "ios/iCade/iCadeReaderView.m",
+        "ios/iCade/iCadeState.h",
+        "ios/iosbundle.sh",
+        "link_readme.py",
+        "tesselationhwON-mesa3drun.sh",
+        "test.py"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/SDL/macOS",
+      "source": "https://github.com/hrydgard/ppsspp-mac-sdl",
+      "commit": "c387d93ab5910b5a6be78b4840a5bbbc452f3ac8",
+      "tree": "d3b5635b6f65c01c246de0a85be08a95c298de2c",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 79,
+      "trackedBlobBytes": 5435276,
+      "trackedBlobManifestSha256": "0a847d8ed5f6b5a7cf684b1d8a1056a229166d635150374ef752b53d74221ad9",
+      "symlinks": [
+        {
+          "path": "SDL2.framework/Headers",
+          "target": "Versions/Current/Headers",
+          "gitBlob": "a177d2a6b92600696030834c319f5e1434f9ee6a",
+          "representation": "materialized-directory",
+          "materializedTarget": "SDL/macOS/SDL2.framework/Versions/A/Headers"
+        },
+        {
+          "path": "SDL2.framework/Resources",
+          "target": "Versions/Current/Resources",
+          "gitBlob": "953ee36f3bb709faf58a351e0b33c353e337c0a2",
+          "representation": "materialized-directory",
+          "materializedTarget": "SDL/macOS/SDL2.framework/Versions/A/Resources"
+        },
+        {
+          "path": "SDL2.framework/SDL2",
+          "target": "Versions/Current/SDL2",
+          "gitBlob": "9dd4e4fbb81e87c27e8f529b9cc4d05e8cc9afad",
+          "representation": "materialized-file",
+          "materializedTarget": "SDL/macOS/SDL2.framework/Versions/A/SDL2"
+        },
+        {
+          "path": "SDL2.framework/Versions/Current",
+          "target": "A",
+          "gitBlob": "8c7e5a667f1b771847fe88c01c3de34413a1b220",
+          "representation": "materialized-directory",
+          "materializedTarget": "SDL/macOS/SDL2.framework/Versions/A"
+        }
+      ],
+      "executableFiles": [
+        "SDL2.framework/Versions/A/SDL2"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/assets/debugger",
+      "source": "https://github.com/unknownbrackets/ppsspp-debugger.git",
+      "commit": "9776332f720c854ef26f325a0cf9e32c02115a9c",
+      "tree": "475a7e604c503b1d8c13305efd6e7a776816b134",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 11,
+      "trackedBlobBytes": 2982400,
+      "trackedBlobManifestSha256": "f35046c41d25bf1003cce2f7e33ca924e18dc907d6967e4a0e24f2c94afdbda3",
+      "symlinks": [],
+      "executableFiles": []
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/OpenXR-SDK",
+      "source": "https://github.com/KhronosGroup/OpenXR-SDK.git",
+      "commit": "be392bf6949adeeabad5082aa79d12aacbda781f",
+      "tree": "833c5f7b62c6195f822d4e7ba2427dc616ddd102",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 408,
+      "trackedBlobBytes": 3604522,
+      "trackedBlobManifestSha256": "9245374b0a0d585113e401c2f4862d374d4c99e5cdb3447de898283b7b88ece6",
+      "symlinks": [],
+      "executableFiles": [
+        "src/external/jsoncpp/amalgamate.py",
+        "src/external/jsoncpp/reformat.sh"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/SPIRV-Cross",
+      "source": "https://github.com/KhronosGroup/SPIRV-Cross.git",
+      "commit": "4212eef67ed0ca048cb726a6767185504e7695e5",
+      "tree": "ba2893fa4e0298d4d974e899449f37458e5b8470",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 4107,
+      "trackedBlobBytes": 10351674,
+      "trackedBlobManifestSha256": "598fa28bc4470013f1fa0e1946dde8da46c8c24be54664980efea79ed453ecae",
+      "symlinks": [],
+      "executableFiles": [
+        ".clang-format",
+        "build_glslang_spirv_tools.sh",
+        "checkout_glslang_spirv_tools.sh",
+        "format_all.sh",
+        "shaders/frag/ground.frag",
+        "shaders/vert/ground.vert",
+        "test_shaders.py",
+        "test_shaders.sh",
+        "update_test_shaders.sh"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/aemu_postoffice",
+      "source": "https://github.com/root-hunter/aemu_postoffice.git",
+      "commit": "2d2ae91ef968eafb3e13c07f4bdf644040851508",
+      "tree": "3248d54d477548e7f593faa78bb1d9c4cdfda6fc",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 60,
+      "trackedBlobBytes": 398262,
+      "trackedBlobManifestSha256": "ec4f911c0c0ecd00aec2c7778da6cf23fdfba9e218ad81fee11e081ed9a3a292",
+      "symlinks": [],
+      "executableFiles": [
+        "client/postoffice_client.exp"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/armips",
+      "source": "https://github.com/root-hunter/armips.git",
+      "commit": "579cf92e62c9ebbc02a7aef63b92ac2578a36029",
+      "tree": "5832d847253b7617a9ad3b6b72a96bb144b04a31",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 241,
+      "trackedBlobBytes": 1106042,
+      "trackedBlobManifestSha256": "358ead4b4d21690a22c2dedd07f795b9a3c2624742f98cf63c9dda8ce507f1dc",
+      "symlinks": [],
+      "executableFiles": [
+        "Tests/SuperH/Immediates/expected.bin",
+        "ext/tinyformat/bloat_test.sh"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/armips/ext/filesystem",
+      "source": "https://github.com/root-hunter/filesystem.git",
+      "commit": "3b3cd3e6d78d498601b9bdaa6dde418c8a2eb501",
+      "tree": "34689ccaa23b6dd784d00598146ed136ee4488f0",
+      "parent": "deps/ppsspp-wasm/ext/armips",
+      "trackedBlobCount": 33,
+      "trackedBlobBytes": 833264,
+      "trackedBlobManifestSha256": "0401ad1704c3da8ece3a280a5384b1eb7a1644b73066b4bbad375f125ae63ba0",
+      "symlinks": [],
+      "executableFiles": [
+        ".ci/unix-build.sh",
+        ".ci/unix-test.sh"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/cpu_features",
+      "source": "https://github.com/google/cpu_features.git",
+      "commit": "fd4ffc1632db7b4e763bd28ffa6fc9d761cf3587",
+      "tree": "2643bb06c4954bde4ad7bb6bf7ec99bfa0d8f216",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 109,
+      "trackedBlobBytes": 572068,
+      "trackedBlobManifestSha256": "af8776edd2e906488deb927bb9f24cf14f5a29421330a0fd89e9b51bc920a29b",
+      "symlinks": [],
+      "executableFiles": [
+        "cmake/ci/doc/generate_image.sh",
+        "scripts/generate_badges.d",
+        "scripts/make_release.sh",
+        "scripts/run_integration.sh",
+        "scripts/test_integration.sh"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/discord-rpc",
+      "source": "https://github.com/discordapp/discord-rpc.git",
+      "commit": "963aa9f3e5ce81a4682c6ca3d136cddda614db33",
+      "tree": "85aac7652923a8fc0a0d2ac43ecdd62f1caa8106",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 83,
+      "trackedBlobBytes": 2868232,
+      "trackedBlobManifestSha256": "218013a1c448371142c9ce79024b06601b10de6f8e79836093e491d4f0a51b06",
+      "symlinks": [],
+      "executableFiles": [
+        "build.py"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/freetype",
+      "source": "https://github.com/hrydgard/freetype.git",
+      "commit": "063ed27f481f0bcd3962fd468e1546739d7d285a",
+      "tree": "fbe7cb237b8bd87a7d2d6af92a893f2d42666f15",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 744,
+      "trackedBlobBytes": 11178420,
+      "trackedBlobManifestSha256": "1ea1f6fef802a4e352c03e037e70ce3eef743d658c91919cc23a2d6df8433acb",
+      "symlinks": [],
+      "executableFiles": [
+        "autogen.sh",
+        "builds/atari/gen-purec-patch.sh",
+        "builds/cmake/testbuild.sh",
+        "builds/mac/ascii2mpw.py",
+        "configure",
+        "src/tools/chktrcmp.py",
+        "src/tools/make_distribution_archives.py",
+        "src/tools/update-copyright",
+        "src/tools/update-copyright-year",
+        "tests/scripts/download-test-fonts.py"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/freetype/subprojects/dlg",
+      "source": "https://github.com/nyorain/dlg.git",
+      "commit": "395ccad2c1e0daae535c4d20bb0a3f2424648e17",
+      "tree": "2cb75941a2859cf0801048f5b613a1e02f500184",
+      "parent": "deps/ppsspp-wasm/ext/freetype",
+      "trackedBlobCount": 28,
+      "trackedBlobBytes": 918104,
+      "trackedBlobManifestSha256": "585ede43bb476689c1fa525b3f6378cbdda2929d2090eac21729a94829d6b852",
+      "symlinks": [],
+      "executableFiles": []
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/glslang",
+      "source": "https://github.com/hrydgard/glslang.git",
+      "commit": "50e0708ec3a5c16020c4f845c654b80b8edb80bd",
+      "tree": "cfca3d5614f06af80059eeafc5240ef0ca81ae98",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 2759,
+      "trackedBlobBytes": 37508669,
+      "trackedBlobManifestSha256": "ca1d098d33b05f4c1351543020324e67a655ece96b32a9dffc0a03f164d2cea0",
+      "symlinks": [],
+      "executableFiles": [
+        "Test/baseResults/link.vk.inconsistentGLPerVertex.0.vert.out",
+        "Test/baseResults/spv.nullInit.comp.out",
+        "Test/baseResults/spv.terminate.frag.out",
+        "Test/baseResults/terminate.frag.out",
+        "Test/baseResults/terminate.vert.out",
+        "Test/baseResults/vk.relaxed.changeSet.vert.out",
+        "Test/baseResults/vk.relaxed.stagelink.0.0.vert.out",
+        "Test/bump",
+        "Test/glslangValidator",
+        "Test/link.vk.inconsistentGLPerVertex.0.geom",
+        "Test/link.vk.inconsistentGLPerVertex.0.vert",
+        "Test/runtests",
+        "Test/validate-shaders.sh",
+        "Test/vk.relaxed.changeSet.frag",
+        "Test/vk.relaxed.changeSet.vert",
+        "Test/vk.relaxed.stagelink.0.0.frag",
+        "Test/vk.relaxed.stagelink.0.0.vert",
+        "Test/vk.relaxed.stagelink.0.1.frag",
+        "Test/vk.relaxed.stagelink.0.1.vert",
+        "Test/vk.relaxed.stagelink.0.2.frag",
+        "Test/vk.relaxed.stagelink.0.2.vert",
+        "Test/web.runtests",
+        "build_info.py",
+        "gen_extension_headers.py",
+        "glslang/updateGrammar",
+        "kokoro/android-ndk-build/build-docker.sh",
+        "kokoro/android-ndk-build/build.sh",
+        "kokoro/license-check/build-docker.sh",
+        "kokoro/license-check/build.sh",
+        "kokoro/linux-clang-cmake/build-docker.sh",
+        "kokoro/linux-clang-cmake/build.sh",
+        "kokoro/linux-clang-gn/build-docker.sh",
+        "kokoro/linux-clang-gn/build.sh",
+        "kokoro/linux-gcc-cmake/build-docker.sh",
+        "kokoro/linux-gcc-cmake/build.sh",
+        "update_glslang_sources.py"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/libadrenotools",
+      "source": "https://github.com/bylaws/libadrenotools.git",
+      "commit": "8fae8ce254dfc1344527e05301e43f37dea2df80",
+      "tree": "be9ea825da63c65c0ff1e412df1ee6cb155a17c6",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 43,
+      "trackedBlobBytes": 541293,
+      "trackedBlobManifestSha256": "82b697ec5dcc7ea0c15c2352c856cd2a632a30faf480c1a27fea33572d6e6cc5",
+      "symlinks": [],
+      "executableFiles": [
+        "build_asm.sh",
+        "tools/blob-patcher.py"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/libadrenotools/lib/linkernsbypass",
+      "source": "https://github.com/bylaws/liblinkernsbypass/",
+      "commit": "aa3975893d83ef1bc84c321ec60c65fbf1287887",
+      "tree": "29d66e90dac2a2df5f49c838cd3297d419ed9deb",
+      "parent": "deps/ppsspp-wasm/ext/libadrenotools",
+      "trackedBlobCount": 7,
+      "trackedBlobBytes": 17617,
+      "trackedBlobManifestSha256": "a81fc20c031de6dbcaaad51d5f92f6ecfae767a0a767758c3c63025fa2a5d7e5",
+      "symlinks": [],
+      "executableFiles": []
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/libchdr",
+      "source": "https://github.com/rtissera/libchdr.git",
+      "commit": "8bba7745d758627258b315997a860039244cedaf",
+      "tree": "550e9e36c100627998c27fd0b8ba2d60c1c298f3",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 947,
+      "trackedBlobBytes": 13755473,
+      "trackedBlobManifestSha256": "d64ead091454f3c615aeb825bb34b68771ef5d5bc05b27be476e13ec0eb7cd39",
+      "symlinks": [],
+      "executableFiles": []
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/lua",
+      "source": "https://github.com/hrydgard/ppsspp-lua.git",
+      "commit": "7648485f14e8e5ee45e8e39b1eb4d3206dbd405a",
+      "tree": "b141d1551e26b3c9a5ad0e985466bfeb9787b7ed",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 64,
+      "trackedBlobBytes": 875315,
+      "trackedBlobManifestSha256": "ede9063e9f16401db31775e7f9fa59839d407a577d1f211dace7c1b80c0f93ad",
+      "symlinks": [],
+      "executableFiles": []
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/miniupnp",
+      "source": "https://github.com/miniupnp/miniupnp.git",
+      "commit": "27d13ca9beeb5541f5fbf11959dced03dac39972",
+      "tree": "38a9e80b7c7ff5037da287034a27813f9d70ae03",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 371,
+      "trackedBlobBytes": 1953662,
+      "trackedBlobManifestSha256": "6cd2e2af1d1ec7dd4d45a83d7a1fe50f7a193bfcaeb01c9d39ab9f92e02e728b",
+      "symlinks": [
+        {
+          "path": "minissdpd/LICENSE",
+          "target": "../LICENSE",
+          "gitBlob": "ea5b60640b01f74e295037aa8a6b7d4ea278a739",
+          "representation": "materialized-file",
+          "materializedTarget": "ext/miniupnp/LICENSE"
+        },
+        {
+          "path": "minissdpd/getifaddr.c",
+          "target": "../miniupnpd/getifaddr.c",
+          "gitBlob": "89ecd3a43ebe0956c3df9cc3ac60eafb466c9cf2",
+          "representation": "materialized-file",
+          "materializedTarget": "ext/miniupnp/miniupnpd/getifaddr.c"
+        },
+        {
+          "path": "minissdpd/getifaddr.h",
+          "target": "../miniupnpd/getifaddr.h",
+          "gitBlob": "206ac6379be5483729d906d0a09cd20212acbee7",
+          "representation": "materialized-file",
+          "materializedTarget": "ext/miniupnp/miniupnpd/getifaddr.h"
+        },
+        {
+          "path": "miniupnpc/LICENSE",
+          "target": "../LICENSE",
+          "gitBlob": "ea5b60640b01f74e295037aa8a6b7d4ea278a739",
+          "representation": "materialized-file",
+          "materializedTarget": "ext/miniupnp/LICENSE"
+        },
+        {
+          "path": "miniupnpd/LICENSE",
+          "target": "../LICENSE",
+          "gitBlob": "ea5b60640b01f74e295037aa8a6b7d4ea278a739",
+          "representation": "materialized-file",
+          "materializedTarget": "ext/miniupnp/LICENSE"
+        }
+      ],
+      "executableFiles": [
+        "minissdpd/submit_to_minissdpd.py",
+        "minissdpd/testminissdpd.sh",
+        "minissdpd/testminissdpdnotif.sh",
+        "miniupnpc/external-ip.sh",
+        "miniupnpc/java/testjava.bat",
+        "miniupnpc/java/testjava.sh",
+        "miniupnpc/pymoduletest.py",
+        "miniupnpc/pymoduletest3.py",
+        "miniupnpc/setup.py",
+        "miniupnpc/setupmingw32.py",
+        "miniupnpc/testminiwget.sh",
+        "miniupnpc/testupnpigd.py",
+        "miniupnpc/testupnpreplyparse.sh",
+        "miniupnpc/updateminiupnpcstrings.sh",
+        "miniupnpd/configure",
+        "miniupnpd/netfilter/ip6tables_display.sh",
+        "miniupnpd/netfilter/ip6tables_flush.sh",
+        "miniupnpd/netfilter/ip6tables_init.sh",
+        "miniupnpd/netfilter/ip6tables_removeall.sh",
+        "miniupnpd/netfilter/iptables_display.sh",
+        "miniupnpd/netfilter/iptables_display_miniupnpd.sh",
+        "miniupnpd/netfilter/iptables_flush.sh",
+        "miniupnpd/netfilter/iptables_init.sh",
+        "miniupnpd/netfilter/iptables_removeall.sh",
+        "miniupnpd/netfilter/miniupnpd_functions.sh",
+        "miniupnpd/netfilter_nft/scripts/miniupnpd_functions.sh",
+        "miniupnpd/netfilter_nft/scripts/nft_delete_chain.sh",
+        "miniupnpd/netfilter_nft/scripts/nft_display.sh",
+        "miniupnpd/netfilter_nft/scripts/nft_flush.sh",
+        "miniupnpd/netfilter_nft/scripts/nft_init.sh",
+        "miniupnpd/netfilter_nft/scripts/nft_removeall.sh",
+        "miniupnpd/testgetifaddr.sh",
+        "miniupnpd/testupnppermissions.sh"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/naett",
+      "source": "https://github.com/erkkah/naett.git",
+      "commit": "5f695cfa9fcbf30668a4d3ac4b4abf1cd89a1302",
+      "tree": "043efad2e1f7645f54f1e83c4e995a149cfa0747",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 40,
+      "trackedBlobBytes": 194018,
+      "trackedBlobManifestSha256": "1a062ef69f082a24296823481146c6c43c0ab421481b344568af29993bed966c",
+      "symlinks": [],
+      "executableFiles": [
+        "src/bundle.sh",
+        "testrig/android/gradlew",
+        "testrig/android/run.sh"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/nanosvg",
+      "source": "https://github.com/hrydgard/nanosvg.git",
+      "commit": "478dbb8f7ed11c3d9b20b3986a8ee2283f483ef7",
+      "tree": "32fa923f2f36bef74e77c42be049453c5ba01726",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 16,
+      "trackedBlobBytes": 479684,
+      "trackedBlobManifestSha256": "25d7ebb4c2eb68d8fa7edf681fee07534de20b72796b4a6d47e673334d8b5267",
+      "symlinks": [],
+      "executableFiles": []
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/rapidjson",
+      "source": "https://github.com/Tencent/rapidjson.git",
+      "commit": "73063f5002612c6bf64fe24f851cd5cc0d83eef9",
+      "tree": "62d722d5e877a6465ce5e465197acc8ed5076c22",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 299,
+      "trackedBlobBytes": 3211766,
+      "trackedBlobManifestSha256": "b033bc16605d03f749c85ab225f0e0e83e7a4513911c6fcda1eae46f8e398e95",
+      "symlinks": [],
+      "executableFiles": [
+        "bin/jsonschema/bin/jsonschema_suite",
+        "travis-doxygen.sh"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/rapidjson/thirdparty/gtest",
+      "source": "https://github.com/google/googletest.git",
+      "commit": "0a439623f75c029912728d80cb7f1b8b48739ca4",
+      "tree": "fb39b50c555771d81f02301b4df090a73459a6fe",
+      "parent": "deps/ppsspp-wasm/ext/rapidjson",
+      "trackedBlobCount": 323,
+      "trackedBlobBytes": 5761268,
+      "trackedBlobManifestSha256": "7f037534cce4e9915edd4f04f677b12abd4559147cdca157fe7b1ec3a139dce0",
+      "symlinks": [],
+      "executableFiles": [
+        "googlemock/scripts/fuse_gmock_files.py",
+        "googlemock/scripts/generator/cpp/__init__.py",
+        "googlemock/scripts/generator/cpp/ast.py",
+        "googlemock/scripts/generator/cpp/gmock_class.py",
+        "googlemock/scripts/generator/cpp/gmock_class_test.py",
+        "googlemock/scripts/generator/cpp/keywords.py",
+        "googlemock/scripts/generator/cpp/tokenize.py",
+        "googlemock/scripts/generator/cpp/utils.py",
+        "googlemock/scripts/generator/gmock_gen.py",
+        "googlemock/scripts/gmock-config.in",
+        "googlemock/scripts/gmock_doctor.py",
+        "googlemock/scripts/upload.py",
+        "googlemock/scripts/upload_gmock.py",
+        "googlemock/test/gmock_leak_test.py",
+        "googlemock/test/gmock_output_test.py",
+        "googlemock/test/gmock_test_utils.py",
+        "googletest/scripts/fuse_gtest_files.py",
+        "googletest/scripts/gen_gtest_pred_impl.py",
+        "googletest/scripts/gtest-config.in",
+        "googletest/scripts/pump.py",
+        "googletest/scripts/release_docs.py",
+        "googletest/scripts/upload.py",
+        "googletest/scripts/upload_gtest.py",
+        "googletest/test/gtest_break_on_failure_unittest.py",
+        "googletest/test/gtest_catch_exceptions_test.py",
+        "googletest/test/gtest_color_test.py",
+        "googletest/test/gtest_env_var_test.py",
+        "googletest/test/gtest_filter_unittest.py",
+        "googletest/test/gtest_help_test.py",
+        "googletest/test/gtest_list_tests_unittest.py",
+        "googletest/test/gtest_output_test.py",
+        "googletest/test/gtest_shuffle_test.py",
+        "googletest/test/gtest_test_utils.py",
+        "googletest/test/gtest_throw_on_failure_test.py",
+        "googletest/test/gtest_uninitialized_test.py",
+        "googletest/test/gtest_xml_outfiles_test.py",
+        "googletest/test/gtest_xml_output_unittest.py",
+        "googletest/test/gtest_xml_test_utils.py",
+        "googletest/xcode/Scripts/versiongenerate.py",
+        "travis.sh"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/rcheevos",
+      "source": "https://github.com/RetroAchievements/rcheevos.git",
+      "commit": "ebfe8ca1bf944358e27200d66964fcb4e00e2487",
+      "tree": "ed6d9112ddf6a48d83734e2e6c57d5fffc15344f",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 117,
+      "trackedBlobBytes": 3118688,
+      "trackedBlobManifestSha256": "5ac64865ce0755e206417414f9abe442d07573de46ea89f3500a4a2bf11d8f31",
+      "symlinks": [],
+      "executableFiles": []
+    },
+    {
+      "path": "deps/ppsspp-wasm/ext/zstd",
+      "source": "https://github.com/facebook/zstd.git",
+      "commit": "f8745da6ff1ad1e7bab384bd1f9d742439278e99",
+      "tree": "1a3cb277e9b9b37b01811a3c65f6c25d46a8f241",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 639,
+      "trackedBlobBytes": 8348276,
+      "trackedBlobManifestSha256": "8e094b06e5d9688b356c2713eb4fe97b7b4a9f11e5788758da37fcb7c66070fc",
+      "symlinks": [
+        {
+          "path": "tests/cli-tests/bin/unzstd",
+          "target": "zstd",
+          "gitBlob": "613f917fd7cc85716e148ab41b695e43f96c2fde",
+          "representation": "materialized-file",
+          "materializedTarget": "ext/zstd/tests/cli-tests/bin/zstd"
+        },
+        {
+          "path": "tests/cli-tests/bin/zstdcat",
+          "target": "zstd",
+          "gitBlob": "613f917fd7cc85716e148ab41b695e43f96c2fde",
+          "representation": "materialized-file",
+          "materializedTarget": "ext/zstd/tests/cli-tests/bin/zstd"
+        }
+      ],
+      "executableFiles": [
+        "build/single_file_libs/build_decoder_test.sh",
+        "build/single_file_libs/build_library_test.sh",
+        "build/single_file_libs/combine.py",
+        "build/single_file_libs/combine.sh",
+        "build/single_file_libs/create_single_file_decoder.sh",
+        "build/single_file_libs/create_single_file_library.sh",
+        "build/single_file_libs/examples/testcard.png",
+        "contrib/cleanTabs",
+        "contrib/freestanding_lib/freestanding.py",
+        "contrib/gen_html/gen-zstd-manual.sh",
+        "contrib/linux-kernel/btrfs-benchmark.sh",
+        "contrib/linux-kernel/btrfs-extract-benchmark.sh",
+        "contrib/linux-kernel/squashfs-benchmark.sh",
+        "contrib/linux-kernel/test/macro-test.sh",
+        "programs/zstdgrep",
+        "programs/zstdless",
+        "tests/DEPRECATED-test-zstd-speed.py",
+        "tests/check_size.py",
+        "tests/cli-tests/basic/args.sh",
+        "tests/cli-tests/basic/help.sh",
+        "tests/cli-tests/basic/memlimit.sh",
+        "tests/cli-tests/basic/output_dir.sh",
+        "tests/cli-tests/basic/version.sh",
+        "tests/cli-tests/bin/cmp_size",
+        "tests/cli-tests/bin/datagen",
+        "tests/cli-tests/bin/die",
+        "tests/cli-tests/bin/println",
+        "tests/cli-tests/bin/zstd",
+        "tests/cli-tests/bin/zstdgrep",
+        "tests/cli-tests/bin/zstdless",
+        "tests/cli-tests/cltools/setup",
+        "tests/cli-tests/cltools/zstdgrep.sh",
+        "tests/cli-tests/cltools/zstdless.sh",
+        "tests/cli-tests/compression/adapt.sh",
+        "tests/cli-tests/compression/basic.sh",
+        "tests/cli-tests/compression/compress-literals.sh",
+        "tests/cli-tests/compression/format.sh",
+        "tests/cli-tests/compression/golden.sh",
+        "tests/cli-tests/compression/gzip-compat.sh",
+        "tests/cli-tests/compression/levels.sh",
+        "tests/cli-tests/compression/long-distance-matcher.sh",
+        "tests/cli-tests/compression/multi-threaded.sh",
+        "tests/cli-tests/compression/multiple-files.sh",
+        "tests/cli-tests/compression/row-match-finder.sh",
+        "tests/cli-tests/compression/setup",
+        "tests/cli-tests/compression/stream-size.sh",
+        "tests/cli-tests/compression/verbose-wlog.sh",
+        "tests/cli-tests/compression/window-resize.sh",
+        "tests/cli-tests/decompression/detectErrors.sh",
+        "tests/cli-tests/decompression/golden.sh",
+        "tests/cli-tests/decompression/pass-through.sh",
+        "tests/cli-tests/dict-builder/empty-input.sh",
+        "tests/cli-tests/dict-builder/no-inputs.sh",
+        "tests/cli-tests/dictionaries/dictionary-mismatch.sh",
+        "tests/cli-tests/dictionaries/golden.sh",
+        "tests/cli-tests/dictionaries/setup",
+        "tests/cli-tests/dictionaries/setup_once",
+        "tests/cli-tests/file-handling/directory-mirror.sh",
+        "tests/cli-tests/file-stat/compress-file-to-dir-without-write-perm.sh",
+        "tests/cli-tests/file-stat/compress-file-to-file.sh",
+        "tests/cli-tests/file-stat/compress-file-to-stdout.sh",
+        "tests/cli-tests/file-stat/compress-stdin-to-file.sh",
+        "tests/cli-tests/file-stat/compress-stdin-to-stdout.sh",
+        "tests/cli-tests/file-stat/decompress-file-to-file.sh",
+        "tests/cli-tests/file-stat/decompress-file-to-stdout.sh",
+        "tests/cli-tests/file-stat/decompress-stdin-to-file.sh",
+        "tests/cli-tests/file-stat/decompress-stdin-to-stdout.sh",
+        "tests/cli-tests/progress/no-progress.sh",
+        "tests/cli-tests/progress/progress.sh",
+        "tests/cli-tests/run.py",
+        "tests/cli-tests/zstd-symlinks/setup",
+        "tests/cli-tests/zstd-symlinks/zstdcat.sh",
+        "tests/fuzz/fuzz.py",
+        "tests/gzip/gzip-env.sh",
+        "tests/libzstd_builds.sh",
+        "tests/playTests.sh",
+        "tests/rateLimiter.py",
+        "tests/test-license.py",
+        "tests/test-variants.sh",
+        "tests/test-zstd-versions.py"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ffmpeg",
+      "source": "https://github.com/hrydgard/ppsspp-ffmpeg.git",
+      "commit": "1e3b4965632f60b1d85360261d1b9dd45444bc71",
+      "tree": "afecedfd2a7fc86ae26fa63c066b51854a14f15c",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 8129,
+      "trackedBlobBytes": 1512315518,
+      "trackedBlobManifestSha256": "bdf2e31db89632bda022a82e5d61035198216abadeecdf32251aec4c92be9c99",
+      "symlinks": [],
+      "excludedPrecompiledArtifacts": [
+        {
+          "path": "Windows/aarch64/lib/avcodec.lib",
+          "gitBlob": "bda75c3f0ec45d83fdbe5dc87c4e00b8632234fe",
+          "bytes": 17865936,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/aarch64/lib/avformat.lib",
+          "gitBlob": "ef7e33e14b9b50f6d9f399e9cd5b4f465449a27e",
+          "bytes": 4402158,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/aarch64/lib/avutil.lib",
+          "gitBlob": "5230814258b31150eeb38c49e2e532a715e189cb",
+          "bytes": 2511618,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/aarch64/lib/swresample.lib",
+          "gitBlob": "2445489240968285b0fdfe87f59a3d2128c9303d",
+          "bytes": 509702,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/aarch64/lib/swscale.lib",
+          "gitBlob": "7352ec8268b37046ba5652441019340cba86b401",
+          "bytes": 2651190,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/arm/lib/avcodec.lib",
+          "gitBlob": "dce9f84496b364495a9527c254ca11ba70f349db",
+          "bytes": 17760660,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/arm/lib/avformat.lib",
+          "gitBlob": "8f66c36697cb013a249ccf76d18608dfcdd5e71a",
+          "bytes": 4375094,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/arm/lib/avutil.lib",
+          "gitBlob": "5cf8167c1def244962c5644927e7913cf246e2bb",
+          "bytes": 2450184,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/arm/lib/swresample.lib",
+          "gitBlob": "67bb34fe5fa4d3198a891f05a41124c8b23b8d7b",
+          "bytes": 505950,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/arm/lib/swscale.lib",
+          "gitBlob": "fc7b7d097c43cb784648784e1d1fcd552c0140e8",
+          "bytes": 2761618,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/x86/lib/avcodec.lib",
+          "gitBlob": "d71afa86e19b0ea5130abb3654db833aa8656711",
+          "bytes": 20489770,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/x86/lib/avformat.lib",
+          "gitBlob": "96a20913a64a78c6eea546f07eaf89e0faf29c05",
+          "bytes": 4932940,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/x86/lib/avutil.lib",
+          "gitBlob": "358b6b53e2b1d37595b9af6ba639f12c0fc409d2",
+          "bytes": 2949470,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/x86/lib/swresample.lib",
+          "gitBlob": "41b9b998bcc570d1236822da1ad84d6d24ff51ac",
+          "bytes": 676186,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/x86/lib/swscale.lib",
+          "gitBlob": "3a5f865f244d6aab7ffb73cd79f02ddfe25bcc4b",
+          "bytes": 3057044,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/x86_64/lib/avcodec.lib",
+          "gitBlob": "8e8f250ae4cded30eb97c003309b115972825db7",
+          "bytes": 21049572,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/x86_64/lib/avformat.lib",
+          "gitBlob": "5a40a11337dfc4ee15fb55e359535909a63e60cb",
+          "bytes": 5028824,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/x86_64/lib/avutil.lib",
+          "gitBlob": "403fa95c7f629ce8578f03faccd7c8b4025797b3",
+          "bytes": 2951916,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/x86_64/lib/swresample.lib",
+          "gitBlob": "fa953774a33c72e01540459b23283e4bcd4d04f4",
+          "bytes": 732850,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows/x86_64/lib/swscale.lib",
+          "gitBlob": "6004ccb3e4c6fe6461d7dd4f6c33ba4d1f5ddea7",
+          "bytes": 3229400,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/ARM/lib/libavcodec.a",
+          "gitBlob": "4fd833dbccca7cc64dcce1b577a84e5692e368b1",
+          "bytes": 80128520,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/ARM/lib/libavdevice.a",
+          "gitBlob": "9b3397891e6aa67997ff7abd0e241cc997e11f99",
+          "bytes": 472176,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/ARM/lib/libavfilter.a",
+          "gitBlob": "1ddd7ee79994c1d601c4779764124a9f0e69c3bc",
+          "bytes": 17025562,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/ARM/lib/libavformat.a",
+          "gitBlob": "4fe50a90cdf29bc6bd1254ef9d41915a77fffcb8",
+          "bytes": 48114498,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/ARM/lib/libavutil.a",
+          "gitBlob": "02760ee6d7ab1dfe5f5aead93969888758f9e3c9",
+          "bytes": 2759334,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/ARM/lib/libswresample.a",
+          "gitBlob": "04bceae4be1c0aca1e6cf7f9dc6426fd463774be",
+          "bytes": 574252,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/ARM/lib/libswscale.a",
+          "gitBlob": "70ce46373a9a286d16f6cfad3f8e685c2400133e",
+          "bytes": 2911786,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/ARM64/lib/libavcodec.a",
+          "gitBlob": "535f3ae3357e7bea615ec3d8f4b694e7d22d040e",
+          "bytes": 67785048,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/ARM64/lib/libavdevice.a",
+          "gitBlob": "2785d649514a25283102353026b193bb0794ba8b",
+          "bytes": 363308,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/ARM64/lib/libavfilter.a",
+          "gitBlob": "8046c00b1562a33883e4f8f1498072d40fe90d87",
+          "bytes": 13194662,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/ARM64/lib/libavformat.a",
+          "gitBlob": "fc25cff8357373155d4ea6ace96c6ef43dd75544",
+          "bytes": 39041282,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/ARM64/lib/libavutil.a",
+          "gitBlob": "4a88b3ed684f3b9ef4b19d481fb7dde568b5bb0b",
+          "bytes": 2493580,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/ARM64/lib/libswresample.a",
+          "gitBlob": "74ac935e2f9f1afcc6fd2551ae872965d52ffd32",
+          "bytes": 514102,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/ARM64/lib/libswscale.a",
+          "gitBlob": "35e8dcd30a09d5d659952cd64548b36474c3c979",
+          "bytes": 2683122,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/x64/lib/libavcodec.a",
+          "gitBlob": "6e7b10cb321a60d970d181c09c49a4b0449c15d7",
+          "bytes": 87729696,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/x64/lib/libavdevice.a",
+          "gitBlob": "f9e6c52e7d7e62e73967796272d8f6bbb49cad81",
+          "bytes": 478556,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/x64/lib/libavfilter.a",
+          "gitBlob": "7a3aa8cb1663b497275e13b6d4f8e87d5bae4fb4",
+          "bytes": 18142622,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/x64/lib/libavformat.a",
+          "gitBlob": "7a2adcc447272b1c991eb3527cbec4f350c2ce81",
+          "bytes": 48356530,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/x64/lib/libavutil.a",
+          "gitBlob": "726ac07f2b39a5345dcd81a506840e223f444d83",
+          "bytes": 2974878,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/x64/lib/libswresample.a",
+          "gitBlob": "f5bd087f9c1f2a7c2404ce4c80257ef2dc55855a",
+          "bytes": 773244,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/x64/lib/libswscale.a",
+          "gitBlob": "38d02b76229e7ad98b5377de0743dbb608eca368",
+          "bytes": 3341092,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/x86/lib/libavcodec.a",
+          "gitBlob": "6e9f02f8316ecbf7b0eab07fd557da9a38ffb0cf",
+          "bytes": 84232876,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/x86/lib/libavdevice.a",
+          "gitBlob": "80f7a50b3cce01ded4cafeac938ae34ca16f816f",
+          "bytes": 469908,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/x86/lib/libavfilter.a",
+          "gitBlob": "bb0fe1b6482249e73f9b557dfbeda2df025309e1",
+          "bytes": 17737252,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/x86/lib/libavformat.a",
+          "gitBlob": "3629e76654b410d870e8cf29cd321d5d03265b58",
+          "bytes": 47400964,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/x86/lib/libavutil.a",
+          "gitBlob": "7a3238c253d3bd667f575d70f590449bcab7239a",
+          "bytes": 2893718,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/x86/lib/libswresample.a",
+          "gitBlob": "ec8637373551bc004e44a8c3414ba726a6d3174c",
+          "bytes": 703282,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "Windows10/x86/lib/libswscale.a",
+          "gitBlob": "24ee08ddcc548496c522f1214d6b715d0727fc30",
+          "bytes": 3105196,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/arm64/lib/libavcodec.a",
+          "gitBlob": "7326977eb0cd2f073a36c24ff3be360d104b919d",
+          "bytes": 23250072,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/arm64/lib/libavformat.a",
+          "gitBlob": "3aaf45da182a43530008231b018820cd661543f2",
+          "bytes": 4564258,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/arm64/lib/libavutil.a",
+          "gitBlob": "b43f79c0250e6d268742eb487d35132bee179e17",
+          "bytes": 2150982,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/arm64/lib/libswresample.a",
+          "gitBlob": "cca1b9cb4f150e54961390c2561e5501d4959311",
+          "bytes": 493096,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/arm64/lib/libswscale.a",
+          "gitBlob": "628bcb4e5775f8de26f8cabc931e42e82f213228",
+          "bytes": 4495874,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/armv7/lib/libavcodec.a",
+          "gitBlob": "99e13f482a649f154f797e8dc0cf7e6ee286667e",
+          "bytes": 17116236,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/armv7/lib/libavformat.a",
+          "gitBlob": "cacbb35e7a22080f996fed0d2f90cb1b3b7002f0",
+          "bytes": 3542426,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/armv7/lib/libavutil.a",
+          "gitBlob": "6da9098155f7e9d18cd649384046095ebd0284d5",
+          "bytes": 1393458,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/armv7/lib/libswresample.a",
+          "gitBlob": "f9266792974c22fe5369d25800e8e276828574fc",
+          "bytes": 322100,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/armv7/lib/libswscale.a",
+          "gitBlob": "5613b34a2a91820e1a669cb019aadf284c119c9d",
+          "bytes": 2316386,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/x86/lib/libavcodec.a",
+          "gitBlob": "3f4278e25a477b16848ab04beaf860bdc6adeb4f",
+          "bytes": 12768370,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/x86/lib/libavformat.a",
+          "gitBlob": "f98e0654310927a5d34110d937825c1abb8d78f6",
+          "bytes": 3501486,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/x86/lib/libavutil.a",
+          "gitBlob": "46493494928f7dd84a86c8668c356d13ab17e3e9",
+          "bytes": 1316696,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/x86/lib/libswresample.a",
+          "gitBlob": "8e7ebe09a557e97b18267ae512dad01c68297203",
+          "bytes": 318636,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/x86/lib/libswscale.a",
+          "gitBlob": "0a8b9c8e7ba23407d06ae08d0a05816d2e11c7e8",
+          "bytes": 2044522,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/x86_64/lib/libavcodec.a",
+          "gitBlob": "4272741b6ba88e323ff3cda0e452fc5d42702646",
+          "bytes": 17024868,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/x86_64/lib/libavformat.a",
+          "gitBlob": "13e8ea931929592e9aa9262c42a4ca8df0f2bacf",
+          "bytes": 3889698,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/x86_64/lib/libavutil.a",
+          "gitBlob": "53f48306934dc7e241ae9715dfb815eb62da5ace",
+          "bytes": 1589324,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/x86_64/lib/libswresample.a",
+          "gitBlob": "a8a0fa67d713a06a8a03aafe349935b79310963f",
+          "bytes": 491836,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "android/x86_64/lib/libswscale.a",
+          "gitBlob": "33f4e6ca460cccb20e16e84fc2ed7e9d55658eba",
+          "bytes": 3537576,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "blackberry/armv7/lib/libavcodec.a",
+          "gitBlob": "768eeb05d34f408fcb8765ec0d45c857fe3abcbe",
+          "bytes": 20458876,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "blackberry/armv7/lib/libavformat.a",
+          "gitBlob": "4ca3b77cbbfdd8256cbdc317f68f013dd46e67c7",
+          "bytes": 2926458,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "blackberry/armv7/lib/libavutil.a",
+          "gitBlob": "85fb3cf05076a4e607f58626b0d1ae0f661f78a0",
+          "bytes": 1312080,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "blackberry/armv7/lib/libswresample.a",
+          "gitBlob": "a183099c2c1e741a6fe98528ee233ac184580b3e",
+          "bytes": 312568,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "blackberry/armv7/lib/libswscale.a",
+          "gitBlob": "5cb3355a235b84d3bb82c7f4fefadbc291c59cce",
+          "bytes": 3331962,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "ios/universal/lib/libavcodec.a",
+          "gitBlob": "d51cb2d1143047148ce383837a509b57f35a6f6b",
+          "bytes": 49506712,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "ios/universal/lib/libavdevice.a",
+          "gitBlob": "6dcfcf1772f852c86007d1013488d73363623a7f",
+          "bytes": 461656,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "ios/universal/lib/libavformat.a",
+          "gitBlob": "0487399595ce7be2da5b6110f090edefcf736583",
+          "bytes": 8940248,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "ios/universal/lib/libavutil.a",
+          "gitBlob": "b61d5dffb040d7d5faa4ecd249fa35359fbf7a56",
+          "bytes": 4624976,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "ios/universal/lib/libswresample.a",
+          "gitBlob": "af0f39073651d3b7cab74c4235bbc68dd47213af",
+          "bytes": 1199016,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "ios/universal/lib/libswscale.a",
+          "gitBlob": "38eed937c2af190196a4a7c3078520cc8c72c463",
+          "bytes": 8132840,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/aarch64/lib/libavcodec.a",
+          "gitBlob": "6c4a56c8f77446652099f5d19b5c62bb76ea0093",
+          "bytes": 25914936,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/aarch64/lib/libavformat.a",
+          "gitBlob": "dc555ba423cdb5498f3b0d3cbb2fc3010ef2665a",
+          "bytes": 4479354,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/aarch64/lib/libavutil.a",
+          "gitBlob": "8f0ee309d7b342f305133a68820e5dfa58f157ab",
+          "bytes": 2213522,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/aarch64/lib/libswresample.a",
+          "gitBlob": "8f77dc6930206edee79b562a8ac16665e2db3cf7",
+          "bytes": 486096,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/aarch64/lib/libswscale.a",
+          "gitBlob": "3e07daddc3b4b8c18c4846c44001593aedd94380",
+          "bytes": 4105914,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/armv7/lib/libavcodec.a",
+          "gitBlob": "b7d81f96ad7ce4fb4f3ed1e4644f412ecbdbe1b5",
+          "bytes": 22012400,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/armv7/lib/libavformat.a",
+          "gitBlob": "6878d070faebb09a851ef3e19e9e1f2fce10efdd",
+          "bytes": 3257682,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/armv7/lib/libavutil.a",
+          "gitBlob": "c738e6b623c15aa57f2381fc8ea6ffcc166f9628",
+          "bytes": 1815124,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/armv7/lib/libswresample.a",
+          "gitBlob": "4e9575373a53059c9710512d45b7d3ff579c5b02",
+          "bytes": 404480,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/armv7/lib/libswscale.a",
+          "gitBlob": "4f0b8ac5281bdd99db099fb28ffa2a8ff1b3686c",
+          "bytes": 3577374,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/loongarch64/lib/libavcodec.a",
+          "gitBlob": "4309cd770afd0fddb14a3dc6ea345ebf9fd6bbbe",
+          "bytes": 23941246,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/loongarch64/lib/libavformat.a",
+          "gitBlob": "e7abf1b21f85f7c00c4f2893034a647246ddb40e",
+          "bytes": 4279132,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/loongarch64/lib/libavutil.a",
+          "gitBlob": "f19d40518189a2577295a609ab8ff06a81364795",
+          "bytes": 1941010,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/loongarch64/lib/libswresample.a",
+          "gitBlob": "007ea7c655ab802e4a49e94d8759e2cf91e639fe",
+          "bytes": 484216,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/loongarch64/lib/libswscale.a",
+          "gitBlob": "97cc74782e6cbafe57b895cf60757e92ad1d25f9",
+          "bytes": 4611906,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/mips32/lib/libavcodec.a",
+          "gitBlob": "6f61cd15e3369f7a3efd15796aae07e24da2d0af",
+          "bytes": 19080850,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/mips32/lib/libavformat.a",
+          "gitBlob": "adce39911a40fc215dbd95c9c192aad6ec11f261",
+          "bytes": 3499938,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/mips32/lib/libavutil.a",
+          "gitBlob": "a9f8752cf3200f0a5c90376253e45f6643d7edab",
+          "bytes": 1585186,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/mips32/lib/libswresample.a",
+          "gitBlob": "f8efb093c60dbbac10f62fb5a77fc9e4b77d7157",
+          "bytes": 333792,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/mips32/lib/libswscale.a",
+          "gitBlob": "56968c4c3f530f6fcd293ac7b878bf06135e34b9",
+          "bytes": 2694296,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/riscv64/lib/libavcodec.a",
+          "gitBlob": "3a2041bf123ef98e00e82e57ef2f05931eab3eb2",
+          "bytes": 96420926,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/riscv64/lib/libavformat.a",
+          "gitBlob": "8deb930b8c2ca1943318bad594fc9a09b34864ac",
+          "bytes": 11520132,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/riscv64/lib/libavutil.a",
+          "gitBlob": "c04f395085e7900dba2294fafab9af780b909473",
+          "bytes": 8074642,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/riscv64/lib/libswresample.a",
+          "gitBlob": "e5ba1de6c567c90e3a117f8b510084bd77f97bbf",
+          "bytes": 1762088,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/riscv64/lib/libswscale.a",
+          "gitBlob": "101b9f4f693347cf02d94ae4d54caf860cbb2eb3",
+          "bytes": 15715962,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/webos/lib/libavcodec.a",
+          "gitBlob": "a3a205df74a7aff9574a825e4e68c2cd611b00f1",
+          "bytes": 19086416,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/webos/lib/libavformat.a",
+          "gitBlob": "d2c5e0648851f4f4fb9ec8adaa3cf3ecf0465067",
+          "bytes": 3145270,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/webos/lib/libavutil.a",
+          "gitBlob": "4e1842c5dc00107dc97b384540d575567fbe96ec",
+          "bytes": 1759428,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/webos/lib/libswresample.a",
+          "gitBlob": "62328c717d0a6bcb690bccd438ecc96e640f961f",
+          "bytes": 349232,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/webos/lib/libswscale.a",
+          "gitBlob": "035b9b18458b5f9bcc9cb8a2feb001cbf9305541",
+          "bytes": 2701350,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/x86/lib/libavcodec.a",
+          "gitBlob": "973fc4a2e53c945f6be8e13e2051bd7e925e5202",
+          "bytes": 19443524,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/x86/lib/libavformat.a",
+          "gitBlob": "ce1410c4a33c0e7320b002bd5bd951141c69aff0",
+          "bytes": 3283426,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/x86/lib/libavutil.a",
+          "gitBlob": "f988acbc230487ffcb53e4b76c80d54746d15e99",
+          "bytes": 1688362,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/x86/lib/libswresample.a",
+          "gitBlob": "7fb948e0a72fa43ec5673ef15ade8fc8f6129332",
+          "bytes": 369804,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/x86/lib/libswscale.a",
+          "gitBlob": "a45ffd3dd7589304b130b1e3be55b01d80d59898",
+          "bytes": 2994688,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/x86_64/lib/libavcodec.a",
+          "gitBlob": "9a8caf7850ff259158e6822e106e81ddc37acc70",
+          "bytes": 33778200,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/x86_64/lib/libavformat.a",
+          "gitBlob": "cada35364c159152ca6622df222ada3df419a8e9",
+          "bytes": 4935482,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/x86_64/lib/libavutil.a",
+          "gitBlob": "af7cc1080e01e79266a5c2f4c6e7dc8940a50647",
+          "bytes": 2293430,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/x86_64/lib/libswresample.a",
+          "gitBlob": "a28ab522dea9f225bbca28899a40b1e3c8965d42",
+          "bytes": 537260,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "linux/x86_64/lib/libswscale.a",
+          "gitBlob": "4289c9a57f9d3e21c2f58cc0902f0c3801a26397",
+          "bytes": 5725476,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "macosx/universal/lib/libavcodec.a",
+          "gitBlob": "aca32160a0a10a4422eade7fe899ee33dd2564de",
+          "bytes": 34674968,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "macosx/universal/lib/libavdevice.a",
+          "gitBlob": "0b9b951900d0aae849dff5cdb5ebba6a703d2494",
+          "bytes": 243280,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "macosx/universal/lib/libavformat.a",
+          "gitBlob": "f48c4d97607c4370cd33b872a8001809eb2167d3",
+          "bytes": 4989600,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "macosx/universal/lib/libavutil.a",
+          "gitBlob": "99453e2735af568b7f4f2b632f05963fcf4fbba4",
+          "bytes": 2688224,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "macosx/universal/lib/libswresample.a",
+          "gitBlob": "81e1f09f7127f328f1e5a2f08927281948d3b9d6",
+          "bytes": 740832,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "macosx/universal/lib/libswscale.a",
+          "gitBlob": "95725139a10f58431085fb2f264f27ac0e5dca7c",
+          "bytes": 6078960,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "symbian/armv6/lib/avcodec.lib",
+          "gitBlob": "81ef464f418d8523840f658c3966e9ff9250510f",
+          "bytes": 18539590,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "symbian/armv6/lib/avformat.lib",
+          "gitBlob": "c4328ca44b3ec9e795ebb0373cab49a2493ebe1a",
+          "bytes": 3623818,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "symbian/armv6/lib/avutil.lib",
+          "gitBlob": "42c0d580fafc4d5c6b456c0979a7552badcc27aa",
+          "bytes": 1853344,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "symbian/armv6/lib/swresample.lib",
+          "gitBlob": "1012f8db6de055e93bdeb33788aa4018ce78eb2c",
+          "bytes": 366510,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "symbian/armv6/lib/swscale.lib",
+          "gitBlob": "f15887e9602c80317a499b64fd05c90949c13995",
+          "bytes": 2761754,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "tvos/arm64/lib/libavcodec.a",
+          "gitBlob": "0da6d8f13cb0aa5b97a8b662a6d7a54b41c525f3",
+          "bytes": 13802304,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "tvos/arm64/lib/libavdevice.a",
+          "gitBlob": "e50f275bfe9a5a84aa945fbef0ce855089b98d97",
+          "bytes": 122992,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "tvos/arm64/lib/libavformat.a",
+          "gitBlob": "163b2f87df277afc2585f130910bd50d765e64b9",
+          "bytes": 2620056,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "tvos/arm64/lib/libavutil.a",
+          "gitBlob": "52f424e89bd056ab3a798913bc716b9fd47f5e1e",
+          "bytes": 1427880,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "tvos/arm64/lib/libswresample.a",
+          "gitBlob": "ac6212a46d6472998792ee6e248eb1db77374872",
+          "bytes": 344520,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "tvos/arm64/lib/libswscale.a",
+          "gitBlob": "8c9483bf7f8b56f9adbdfe9a0b4d8271eaef8c3e",
+          "bytes": 2717344,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "wiiu/lib/libavcodec.a",
+          "gitBlob": "c8e60386995d67a22e3022f465fb8ccb7bab254e",
+          "bytes": 35236404,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "wiiu/lib/libavformat.a",
+          "gitBlob": "077471c3260b89a0b250636dcfa4c21eaef820fa",
+          "bytes": 5136258,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "wiiu/lib/libavutil.a",
+          "gitBlob": "68cd36de4dcc1b38b93c528a2b51444cc53dcc9b",
+          "bytes": 3423950,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "wiiu/lib/libswresample.a",
+          "gitBlob": "8a2c6df3224dc03d81d1fdf3ea62befd067abd7d",
+          "bytes": 564780,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        },
+        {
+          "path": "wiiu/lib/libswscale.a",
+          "gitBlob": "f6dffa7125f55a3940b19e18f84bd2aaeb4e46bd",
+          "bytes": 4964886,
+          "reason": "上游预编译产物；对应源码完整保留；本项目从源码构建。"
+        }
+      ],
+      "importedBlobCount": 7988,
+      "importedBlobBytes": 74461292,
+      "executableFiles": [
+        "android_arm64-v8a.sh",
+        "android_armeabi-v7a.sh",
+        "android_x86.sh",
+        "android_x86_64.sh",
+        "blackberry-build.sh",
+        "compat/plan9/head",
+        "compat/plan9/printf",
+        "compat/solaris/make_sunver.pl",
+        "compat/windows/makedef",
+        "compat/windows/mslink",
+        "configure",
+        "doc/doxy-wrapper.sh",
+        "ios-build.sh",
+        "linux_arm.sh",
+        "linux_arm64.sh",
+        "linux_arm64_native.sh",
+        "linux_armhf.sh",
+        "linux_loongarch64.sh",
+        "linux_mips32.sh",
+        "linux_riscv64.sh",
+        "linux_rpi.sh",
+        "linux_webos.sh",
+        "linux_x86-64.sh",
+        "linux_x86.sh",
+        "mac-build.sh",
+        "shared_options.sh",
+        "switch.sh",
+        "symbian-build.sh",
+        "tests/copycooker.sh",
+        "tests/fate-run.sh",
+        "tests/fate.sh",
+        "tests/fate/source-check.sh",
+        "tests/ffserver-regression.sh",
+        "tests/lavf-regression.sh",
+        "tests/regression-funcs.sh",
+        "tools/bisect-create",
+        "tools/clean-diff",
+        "tools/dvd2concat",
+        "tools/gen-rc",
+        "tools/make_chlayout_test",
+        "tools/missing_codec_desc",
+        "tools/normalize.py",
+        "tools/patcheck",
+        "tools/plotframes",
+        "tools/unwrap-diff",
+        "tools/zmqshell.py",
+        "tvos-build.sh",
+        "uwp_ARM-build.sh",
+        "uwp_ARM64-build.sh",
+        "uwp_x64-build.sh",
+        "uwp_x86-build.sh",
+        "version.sh",
+        "wiiu.sh",
+        "windows_arm-build.sh",
+        "windows_arm64-build.sh",
+        "windows_x64-build.sh",
+        "windows_x86-build.sh"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ffmpeg/gas-preprocessor",
+      "source": "https://github.com/FFmpeg/gas-preprocessor.git",
+      "commit": "cbe88474ec196370161032a3863ec65050f70ba4",
+      "tree": "a07f2b893f073c74b9ed94be5ff5d9abdd73412b",
+      "parent": "deps/ppsspp-wasm/ffmpeg",
+      "trackedBlobCount": 5,
+      "trackedBlobBytes": 44345,
+      "trackedBlobManifestSha256": "f6a9ebb7de814805b7d565b9563565b1602cbfdba77a62c4ebe5fddc9ee0b4ec",
+      "symlinks": [],
+      "executableFiles": [
+        "gas-preprocessor.pl"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/ios/MoltenVK",
+      "source": "https://github.com/hrydgard/ppsspp-moltenvk.git",
+      "commit": "0bf904d2d1d159eb95bdefcd8432eee79ee1da14",
+      "tree": "34467bfe9480bbdd923b5927569c947a73ce990d",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 3,
+      "trackedBlobBytes": 9578593,
+      "trackedBlobManifestSha256": "dfa1d264d5394d74b92af8f83263aaa36eab463a4959f517d95652c59ec86585",
+      "symlinks": [],
+      "executableFiles": []
+    },
+    {
+      "path": "deps/ppsspp-wasm/libretro/libretro-common",
+      "source": "https://github.com/libretro/libretro-common.git",
+      "commit": "76a3d54feb0ee0ce9d59b90aa24694f3782063d3",
+      "tree": "31f7e1d15fbb62b1d5ab4c54390c34023985f3c4",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 394,
+      "trackedBlobBytes": 3977605,
+      "trackedBlobManifestSha256": "baac42fedf48fda53a415f200297e5fc98d21f8c50dad3a412107a73924b9c81",
+      "symlinks": [],
+      "executableFiles": [
+        "audio/dsp_filters/configure",
+        "glsym/glgen.py",
+        "glsym/rglgen.py"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/pspautotests",
+      "source": "https://github.com/hrydgard/pspautotests.git",
+      "commit": "4374348477b425f48f99c8fd58a853c439f78acd",
+      "tree": "d0761a151397f450d75b4d25dc3645e654de51a7",
+      "parent": "deps/ppsspp-wasm",
+      "trackedBlobCount": 1881,
+      "trackedBlobBytes": 127106723,
+      "trackedBlobManifestSha256": "257cf775392ceee5d1217d4e227ee121818e660928191f956e39b2567ff688c5",
+      "symlinks": [],
+      "executableFiles": [
+        "tests/gpu/ge/queue.prx"
+      ]
+    },
+    {
+      "path": "deps/ppsspp-wasm/pspautotests/common/ext/zstd",
+      "source": "https://github.com/facebook/zstd.git",
+      "commit": "e47e674cd09583ff0503f0f6defd6d23d8b718d3",
+      "tree": "26861146b0d50513119a11cb745d7c4a33b30a16",
+      "parent": "deps/ppsspp-wasm/pspautotests",
+      "trackedBlobCount": 488,
+      "trackedBlobBytes": 7088808,
+      "trackedBlobManifestSha256": "c3545f4c2501db37b3dee3d067c7036091b9354fbfda4ef7ad9adb994d9a5d88",
+      "symlinks": [],
+      "executableFiles": [
+        "build/single_file_libs/build_decoder_test.sh",
+        "build/single_file_libs/build_library_test.sh",
+        "build/single_file_libs/combine.sh",
+        "build/single_file_libs/create_single_file_decoder.sh",
+        "build/single_file_libs/create_single_file_library.sh",
+        "build/single_file_libs/examples/testcard.png",
+        "contrib/cleanTabs",
+        "contrib/freestanding_lib/freestanding.py",
+        "contrib/gen_html/gen-zstd-manual.sh",
+        "contrib/linux-kernel/btrfs-benchmark.sh",
+        "contrib/linux-kernel/btrfs-extract-benchmark.sh",
+        "contrib/linux-kernel/squashfs-benchmark.sh",
+        "contrib/linux-kernel/test/macro-test.sh",
+        "programs/zstdgrep",
+        "programs/zstdless",
+        "tests/DEPRECATED-test-zstd-speed.py",
+        "tests/fuzz/fuzz.py",
+        "tests/gzip/gzip-env.sh",
+        "tests/libzstd_builds.sh",
+        "tests/playTests.sh",
+        "tests/rateLimiter.py",
+        "tests/test-license.py",
+        "tests/test-variants.sh",
+        "tests/test-zstd-versions.py"
+      ]
+    }
+  ]
+}
