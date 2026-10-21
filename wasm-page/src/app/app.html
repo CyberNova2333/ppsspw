@@ -79,11 +79,11 @@
     <div class="panel-tab-select-wrap">
       <label class="panel-section-caption" for="panelTabSelect">游玩面板</label>
       <select id="panelTabSelect" class="panel-tab-select" aria-label="选择面板栏目">
-        <option value="library">游戏库</option><option value="settings">画质与操作</option><option value="saves">我的存档</option><option value="storage">本机存储</option><option value="info">系统诊断</option><option value="log">运行日志</option><option value="about">关于与许可</option>
+        <option value="library">游戏库</option><option value="online">在线下载</option><option value="settings">画质与操作</option><option value="saves">我的存档</option><option value="storage">本机存储</option><option value="info">系统诊断</option><option value="log">运行日志</option><option value="about">关于与许可</option>
       </select>
     </div>
     <div class="tabs" aria-hidden="true">
-      <div class="tab active" data-tab="library">游戏库</div><div class="tab" data-tab="settings">画质与操作</div><div class="tab" data-tab="saves">我的存档</div><div class="tab" data-tab="storage">本机存储</div><div class="tab" data-tab="info">系统诊断</div><div class="tab" data-tab="log">运行日志</div><div class="tab" data-tab="about">关于与许可</div>
+      <div class="tab active" data-tab="library">游戏库</div><div class="tab" data-tab="online">在线下载</div><div class="tab" data-tab="settings">画质与操作</div><div class="tab" data-tab="saves">我的存档</div><div class="tab" data-tab="storage">本机存储</div><div class="tab" data-tab="info">系统诊断</div><div class="tab" data-tab="log">运行日志</div><div class="tab" data-tab="about">关于与许可</div>
     </div>
 
     <div class="tab-panel active" id="tabLibrary">
@@ -97,6 +97,15 @@
         </div>
         <div id="libraryEmpty">游戏库还是空的。<br>添加本地游戏文件，就可以从这里开始。</div>
         <div id="libraryGrid" class="library-grid" style="display:none"></div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tabOnline">
+      <div class="online-games-panel">
+        <div class="panel-intro"><h2>在线下载</h2><p>下载到本机后游玩，暂停或刷新页面后可以继续。</p></div>
+        <button id="onlineRefreshBtn" type="button"><i data-lucide="refresh-cw"></i>刷新游戏列表</button>
+        <p id="onlineCatalogStatus" role="status" aria-live="polite">正在读取在线游戏列表…</p>
+        <div id="onlineGameList"></div>
       </div>
     </div>
 

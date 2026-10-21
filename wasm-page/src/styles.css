@@ -1571,3 +1571,14 @@ body:not(.emulator-started) #stageMini { display: none; }
   .player-header #fileLabel, .player-header #startBtn, .player-header #runtimeIsoLabel, .player-header #fullscreenBtn, .player-header #panelToggleBtn { width: 36px; min-width: 36px; max-width: 36px; }
   .player-header .logo .brand-logo { display: none; }
 }
+
+/* Online downloads share the existing compact player panel. */
+.online-games-panel { padding: 16px; }
+.online-games-panel .panel-intro { padding: 0; }
+#onlineCatalogStatus { font-size: 12px; color: var(--muted); line-height: 1.6; }
+.online-game-card { margin-top: 16px; padding: 16px; border: 1px solid var(--border2); border-radius: 12px; background: var(--surface); }
+.online-game-card h3 { margin: 0 0 8px; font-size: 16px; }
+.online-game-card > p { overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; }
+.online-game-card progress { display: block; width: 100%; height: 10px; margin-top: 12px; accent-color: var(--accent); }
+.online-game-card .player-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.online-game-card .setting-field { margin-top: 12px; }

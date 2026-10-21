@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import test from 'node:test';
 import ts from 'typescript';
+import '../public/browser-storage.js';
+import { storageLocks } from './storage-locks.mjs';
 
 // Load the actual runtime functions without running browser startup side effects.
 const source = readFileSync(new URL('../public/ppsspp-runtime.js', import.meta.url), 'utf8');
@@ -186,6 +188,7 @@ test('import stores the File/Blob directly and never enables startup preload', a
   blob.arrayBuffer = () => { throw new Error('whole-file allocation'); };
   let stored;
   const ctx = load(['opfsPutGame', 'writeOpfsHandle'], {
+    PpssppGameStorage: { withExclusive: action => action() },
     OPFS_GAMES_DIR: 'games',
     opfsParent: async () => ({ name: 'game.cso', dir: { getFileHandle: async () => ({ createWritable: async () => ({ write: async value => { stored = value; }, close: async () => {} }) }) } }),
     writeGameMetadata: async () => {}, log: () => {},
@@ -240,7 +243,8 @@ test('startup mounts explicitly selected favorites of any size, skipping the gam
       { path: 'playing.iso', size: 500 * 1024 ** 2 }, { path: 'unselected.iso', size: 80 },
     ],
     prunePreloadFavorites: () => ['large.iso', 'small.iso', 'playing.iso'],
-    opfsReadGame: async name => { loaded.push(name); return new Uint8Array(40); },
+    opfsGetGameFile: async name => { loaded.push(name); return { name, size: 1800 * 1024 ** 2, arrayBuffer() { throw new Error('must not allocate whole game'); } }; },
+    mountBrowserGame: (_FS, file, name) => written.push('/games/' + name),
     log() {}, setStatus() {}, showLoading() {}, formatBytes: String,
   });
   assert.equal(await ctx.preloadStoredGames({ mkdirTree() {}, writeFile: path => written.push(path) }), 2);
@@ -254,7 +258,8 @@ test('a failed automount does not prevent other selected games from mounting', a
     OPFS_GAMES_DIR: 'games', VIRTUAL_GAME_DIR: '/games', selectedStoredGame: null, selectedGame: null,
     opfsWalk: async () => [{ path: 'bad.iso' }, { path: 'good.iso' }],
     prunePreloadFavorites: names => names,
-    opfsReadGame: async name => { if (name === 'bad.iso') throw new Error('read failed'); return new Uint8Array(40); },
+    opfsGetGameFile: async name => { if (name === 'bad.iso') throw new Error('read failed'); return { name, size: 40 }; },
+    mountBrowserGame: (_FS, file, name) => written.push('/games/' + name),
     log() {}, setStatus() {}, showLoading() {}, formatBytes: String,
   });
   assert.equal(await ctx.preloadStoredGames({ mkdirTree() {}, writeFile: path => written.push(path) }), 1);
@@ -335,6 +340,7 @@ test('failed preload never releases the dependency and starts the core without i
   const failures = [], removed = [];
   const noop = () => {};
   const ctx = load(['start', 'configureEmulatorKeyboard'], {
+    PpssppGameStorage: { acquireShared: async () => {} },
     ENV: {},
     loadNetworkConfig: () => ({ enabled: false }),
     started: false, runtimeReady: false, selectedGame: null, selectedStoredGame: null, validateGameSelection: () => true, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
@@ -354,12 +360,17 @@ test('failed preload never releases the dependency and starts the core without i
   await new Promise(r => setTimeout(r, 0));
   assert.deepEqual(removed, []);
   assert.match(failures[0], /asset missing/);
+  ctx.runtimeFailed = true;
+  ctx.clearTimeout = noop;
+  ctx.Module.onRuntimeInitialized();
+  assert.equal(ctx.runtimeReady, false, 'a late core callback must not clear the failure state');
 });
 
 test('direct game launch also runs library automount before releasing startup', async () => {
   const events = [];
   const noop = () => {};
   const ctx = load(['start', 'configureEmulatorKeyboard'], {
+    PpssppGameStorage: { acquireShared: async () => {} },
     ENV: {}, loadNetworkConfig: () => ({ enabled: false }),
     started: false, runtimeReady: false, selectedGame: null, selectedStoredGame: null, validateGameSelection: () => true, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
     SharedArrayBuffer, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
@@ -856,4 +867,117 @@ test('unsupported archive selection never starts the core or enters game import 
   assert.equal(ctx.gameFileValidationError({ name: 'game.ISO' }), '');
   assert.equal(ctx.gameFileValidationError('game.cso'), '');
   assert.match(ctx.gameFileValidationError({ name: 'image.png' }), /不支持/);
+});
+
+test('game leases can coexist but prevent cache mutation until every page releases its lease', async () => {
+  const { locks, held } = storageLocks();
+  const storage = globalThis.PpssppGameStorage;
+  const releaseFirst = await storage.acquireShared(locks);
+  const releaseSecond = await storage.acquireShared(locks);
+  assert.equal(held.get('ppsspp-game-storage').count, 2);
+  await assert.rejects(storage.withExclusive(() => assert.fail('mutation entered'), locks), { code: 'BUSY' });
+  releaseFirst(); await new Promise(resolve => setTimeout(resolve, 0));
+  await assert.rejects(storage.withExclusive(() => assert.fail('other page still playing'), locks), { code: 'BUSY' });
+  releaseSecond(); await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(await storage.withExclusive(() => 'safe', locks), 'safe');
+  assert.equal(held.size, 0);
+});
+
+test('library writes, deletion and complete cache clearing are blocked by another playing page', async () => {
+  const { locks } = storageLocks();
+  const release = await globalThis.PpssppGameStorage.acquireShared(locks);
+  const messages = [];
+  const ctx = load(['opfsPutGame', 'opfsClearAll', 'deleteStoredFile'], {
+    PpssppGameStorage: { withExclusive: action => globalThis.PpssppGameStorage.withExclusive(action, locks) },
+    VIRTUAL_GAME_DIR: '/browser-games', confirm: () => true,
+    opfsRoot: () => assert.fail('storage changed'), opfsParent: () => assert.fail('game overwritten'),
+    opfsDeleteGame: () => assert.fail('game deleted'), showToast: message => messages.push(message), log() {},
+  });
+  try {
+    await assert.rejects(ctx.opfsPutGame('game.iso', new Blob(['x'])), { code: 'BUSY' });
+    await assert.rejects(ctx.opfsClearAll(), { code: 'BUSY' });
+    await ctx.deleteStoredFile('/browser-games/game.iso');
+    assert.match(messages.at(-1), /其他页面/);
+  } finally { release(); }
+});
+
+test('idle clearing includes downloaded games and reports deletion failures', async () => {
+  const removed = [];
+  const ctx = load(['opfsClearAll'], {
+    PpssppGameStorage: { withExclusive: action => action() }, playerSettingsQueue: Promise.resolve(),
+    OPFS_PERSIST_DIR: 'persist', OPFS_GAMES_DIR: 'games', OPFS_GAME_META_DIR: 'meta',
+    PLAYER_SETTINGS_KEY: 'settings', PRELOAD_FAVORITES_KEY: 'favorites', PRELOAD_FAVORITES_MIGRATED_KEY: 'migrated',
+    opfsRoot: async () => ({ removeEntry: async name => removed.push(name), getDirectoryHandle: async () => {} }),
+    preferences: { removeItem() {} }, refreshPlayerSettingsUI() {},
+  });
+  await ctx.opfsClearAll();
+  assert.deepEqual(removed, ['persist', 'games', 'meta', 'game-downloads', 'legacy-backups', 'player']);
+  ctx.opfsRoot = async () => ({ removeEntry: async () => { throw new DOMException('denied', 'NotAllowedError'); } });
+  await assert.rejects(ctx.opfsClearAll(), { name: 'NotAllowedError' });
+});
+
+test('a storage maintenance lease prevents startup and leaves the launch action retryable', async () => {
+  const { locks } = storageLocks();
+  const messages = [];
+  const audio = [];
+  const ctx = load(['start'], {
+    started: false, selectedGame: { name: 'game.iso' }, selectedStoredGame: null,
+    validateGameSelection: () => true, canvas: { focus() {} }, SharedArrayBuffer,
+    window: { crossOriginIsolated: true }, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
+    PpssppGameStorage: { acquireShared: () => globalThis.PpssppGameStorage.acquireShared(locks) },
+    document: { body: { classList: { add() {}, remove() {} } } },
+    setTimeout: () => 1, clearTimeout() {}, log() {}, setStartButtonMode() {},
+    fileLabel: null, fileInput: null, gpuSelectEl: null, showLoading() {}, hideLoading() {},
+    AudioContext: class { async resume() { audio.push('resume'); } async close() { audio.push('close'); } },
+    installScriptProcessorPolyfill: async () => {},
+    setStatus: message => messages.push(message),
+  });
+  await globalThis.PpssppGameStorage.withExclusive(async () => {
+    await ctx.start();
+    assert.equal(ctx.started, false);
+    assert.match(messages.at(-1), /整理缓存/);
+    assert.deepEqual(audio, ['resume', 'close']);
+  }, locks);
+});
+
+test('selected and runtime local games remain File references without implicit cache copies', async () => {
+  const file = new Blob(['game']); file.name = 'game.iso';
+  file.arrayBuffer = () => assert.fail('full file read');
+  const mounted = [], messages = [];
+  const ctx = load(['preloadGame', 'loadGameAtRuntime'], {
+    selectedGame: file, selectedStoredGame: null, VIRTUAL_GAME_DIR: '/browser-games', window: { FS: {} },
+    validateGameSelection: () => true, setStatus() {}, showLoading() {}, log() {}, formatBytes: String,
+    mountBrowserGame: (_FS, source, name) => { assert.equal(source, file); mounted.push(name); return '/browser-games/' + name; },
+    opfsPutGame: () => assert.fail('implicit cache copy'), refreshEmulatorGameBrowser() {},
+    refreshLibrary() {}, updateStorageInfo() {}, showToast: text => messages.push(text),
+  });
+  assert.equal(await ctx.preloadGame({}), '/browser-games/game.iso');
+  await ctx.loadGameAtRuntime(file);
+  assert.equal(mounted.length, 2);
+  assert.match(messages.at(-1), /仅本次载入/);
+});
+
+test('game read failures show the recovery panel once and retain the first actionable error', () => {
+  const message = { textContent: '' }, recovery = { hidden: true }, statuses = [];
+  let loadingHidden = 0;
+  const ctx = load(['handleBrowserGameReadError', 'failRuntime'], {
+    started: false, runtimeFailed: false, runtimeReady: true,
+    window: { ModuleStartupWatchdog: 1 }, clearTimeout() {}, log() {},
+    byId: id => id === 'runtimeFailureMessage' ? message : id === 'runtimeRecovery' ? recovery : null,
+    hideLoading: () => loadingHidden++, setStatus: (text, kind) => statuses.push({ text, kind }),
+  });
+  const event = { detail: { path: '/browser-games/game.iso', message: 'File snapshot is no longer readable' } };
+  ctx.handleBrowserGameReadError(event);
+  assert.equal(recovery.hidden, true);
+  ctx.started = true;
+  ctx.handleBrowserGameReadError(event);
+  assert.equal(ctx.runtimeFailed, true);
+  assert.equal(ctx.runtimeReady, false);
+  assert.equal(recovery.hidden, false);
+  assert.match(message.textContent, /游戏文件读取失败/);
+  assert.match(message.textContent, /已同步到本机的存档会保留/);
+  assert.equal(statuses[0].kind, 'err');
+  ctx.handleBrowserGameReadError(event);
+  assert.equal(statuses.length, 1);
+  assert.equal(loadingHidden, 1);
 });

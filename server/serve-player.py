@@ -3,15 +3,52 @@
 import argparse
 import functools
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+import ipaddress
 from pathlib import Path
+import re
 import ssl
 from urllib.parse import unquote, urlsplit
+
+
+def cdn_origin(value):
+    """Parse one exact CSP origin, never a wildcard or a complete file URL."""
+    try:
+        if not value or any(char.isspace() or ord(char) < 32 for char in value):
+            raise ValueError()
+        parts = urlsplit(value)
+        if (parts.scheme not in ('https', 'http') or not parts.hostname
+                or parts.username is not None or parts.password is not None
+                or parts.path not in ('', '/') or '?' in value or '#' in value):
+            raise ValueError()
+        host = parts.hostname
+        if '%' in host:
+            raise ValueError()
+        if ':' in host:
+            host = f'[{ipaddress.IPv6Address(host).compressed}]'
+        else:
+            host = host.encode('idna').decode('ascii').lower()
+            if len(host) > 253 or not re.fullmatch(r'[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?', host):
+                raise ValueError()
+            if any(not label or len(label) > 63 or label.startswith('-') or label.endswith('-')
+                   for label in host.split('.')):
+                raise ValueError()
+        port = parts.port
+        if port == 0 or parts.netloc.endswith(':'):
+            raise ValueError()
+        suffix = f':{port}' if port is not None and port != {'http': 80, 'https': 443}[parts.scheme] else ''
+        return f'{parts.scheme}://{host}{suffix}'
+    except (ValueError, UnicodeError):
+        raise argparse.ArgumentTypeError('--cdn-origin 必须是无路径、凭证和通配符的 http(s) origin') from None
 
 
 class PlayerHandler(SimpleHTTPRequestHandler):
     extensions_map = {**SimpleHTTPRequestHandler.extensions_map, '.wasm': 'application/wasm',
                       '.js': 'text/javascript; charset=utf-8', '.data': 'application/octet-stream',
                       '.webmanifest': 'application/manifest+json'}
+
+    def __init__(self, *args, cdn_origins=(), **kwargs):
+        self.cdn_origins = tuple(dict.fromkeys(cdn_origins))
+        super().__init__(*args, **kwargs)
 
     def list_directory(self, path):
         self.send_error(404)
@@ -33,7 +70,8 @@ class PlayerHandler(SimpleHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-cache')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
-        self.send_header('Content-Security-Policy', "connect-src 'self' blob:; form-action 'none'; frame-src 'none'")
+        connections = "'self' blob:" + ''.join(f' {origin}' for origin in self.cdn_origins)
+        self.send_header('Content-Security-Policy', f"connect-src {connections}; form-action 'none'; frame-src 'none'")
         super().end_headers()
 
 
@@ -43,13 +81,16 @@ def main():
     parser.add_argument('--port', type=int, default=17881)
     parser.add_argument('--cert', type=Path, help='移动设备访问需要受信任的 HTTPS 证书')
     parser.add_argument('--key', type=Path)
+    parser.add_argument('--cdn-origin', action='append', default=[], type=cdn_origin,
+                        help='允许连接的资源服务 origin，可重复；默认仅允许同源和 blob')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1] / 'wasm-page/dist/ppsspp-web'
     if not (root / 'index.html').is_file():
         parser.error('请先执行 npm --prefix wasm-page run build:pages')
     if bool(args.cert) != bool(args.key):
         parser.error('--cert 与 --key 必须同时提供')
-    server = ThreadingHTTPServer((args.bind, args.port), functools.partial(PlayerHandler, directory=str(root)))
+    server = ThreadingHTTPServer((args.bind, args.port), functools.partial(
+        PlayerHandler, directory=str(root), cdn_origins=args.cdn_origin))
     if args.cert:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(args.cert, args.key)
