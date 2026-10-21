@@ -2124,6 +2124,9 @@ int main(int argc, char *argv[]) {
 #endif
 	}
 
+	// Emscripten can replace the requested size with the canvas CSS size during
+	// SDL_CreateWindow. Initialize rendering from the actual window dimensions.
+	SDL_GetWindowSize(window, &w, &h);
 	UpdateScreenDPI(window);
 	WASM_TRACE("UpdateScreenDPI done desktopDPI=%f", g_DesktopDPI);
 
