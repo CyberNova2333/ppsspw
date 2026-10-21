@@ -1,19 +1,34 @@
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { OUTPUT, edgeoneConfig, httpsOrigin, readLimitedBody } from './prepare-deploy.mjs';
+import { OUTPUT, edgeoneConfig, httpsOrigin } from './prepare-deploy.mjs';
+
+async function readBuildInfo(response) {
+  if (!response.ok || !response.body) throw new Error('部署版本响应无效');
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 65536) throw new Error('部署版本响应超出大小限制');
+      chunks.push(value);
+    }
+    return JSON.parse(Buffer.concat(chunks, size));
+  } finally { await reader.cancel().catch(() => {}); }
+}
 
 export async function verifyDeployment(origin, { output = OUTPUT, fetcher = fetch } = {}) {
   httpsOrigin(origin);
   const expectedBuild = JSON.parse(await readFile(join(output, 'build-info.json'), 'utf8'));
-  const catalog = JSON.parse(await readFile(join(output, 'game-catalog.json'), 'utf8'));
-  const expectedHeaders = edgeoneConfig(catalog.allowedOrigins).headers[0].headers;
+  const expectedHeaders = edgeoneConfig().headers[0].headers;
   const request = (path, method) => fetcher(origin + path, { method, redirect: 'error', cache: 'no-store', credentials: 'omit', signal: AbortSignal.timeout(30000) });
   if (!/^[a-f0-9]{64}$/.test(expectedBuild.deploymentRevision || '')) throw new Error('缺少本次部署标识');
   const revision = await request('/build-info.json?verify=' + expectedBuild.deploymentRevision, 'GET');
   if (!revision.ok || Number(revision.headers.get('Content-Length') || 0) > 65536) throw new Error('部署版本响应无效');
-  const body = await readLimitedBody(revision, 65536);
-  const publishedBuild = JSON.parse(body);
+  const publishedBuild = await readBuildInfo(revision);
   if (publishedBuild.revision !== expectedBuild.revision || publishedBuild.deploymentRevision !== expectedBuild.deploymentRevision) throw new Error('线上尚未提供当前部署');
   for (const path of ['/', '/download-worker.js', '/build-wasm/PPSSPPSDL.js', '/build-wasm/PPSSPPSDL.wasm']) {
     const response = await request(path, 'HEAD');
