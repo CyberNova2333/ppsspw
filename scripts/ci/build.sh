@@ -18,4 +18,4 @@ make wasm-release WASM_JOBS=-j8 WASM_FFMPEG_JOBS=8 WASM_ENABLE_LTO=OFF
 npm --prefix wasm-page run build:pages
 python3 scripts/package-player.py
 # Push builds are independent of private configuration and never publish.
-node scripts/ci/prepare-deploy.mjs --empty
+node scripts/ci/prepare-deploy.mjs
