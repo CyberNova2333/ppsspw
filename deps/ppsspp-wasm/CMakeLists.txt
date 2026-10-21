@@ -369,6 +369,7 @@ if(EMSCRIPTEN)
 	add_link_options("-sPTHREAD_POOL_SIZE=Math.max(4,navigator.hardwareConcurrency||4)")
 	add_link_options("-sINCOMING_MODULE_JS_API=canvas,locateFile,print,printErr,setStatus,monitorRunDependencies,preRun,onRuntimeInitialized,onAbort,arguments,SDL2")
 	add_link_options("-lworkerfs.js")
+	add_link_options("--js-library" "${CMAKE_SOURCE_DIR}/SDL/BrowserFileLibrary.js")
 	if(WASM_PRELOAD_ASSETS)
 		add_link_options("--preload-file" "${CMAKE_SOURCE_DIR}/assets@${WASM_ASSETS_DIR}")
 	endif()
@@ -2574,6 +2575,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/Loaders.cpp
 	Core/Loaders.h
 	Core/FileLoaders/CachingFileLoader.cpp
+	Core/FileLoaders/BrowserFileLoader.cpp
+	Core/FileLoaders/BrowserFileLoader.h
 	Core/FileLoaders/CachingFileLoader.h
 	Core/FileLoaders/DiskCachingFileLoader.cpp
 	Core/FileLoaders/DiskCachingFileLoader.h
@@ -3189,6 +3192,9 @@ if(TargetBin)
 		target_link_options(${TargetBin} PRIVATE "-Wl,-z,max-page-size=16384")
 	endif()
 	target_link_libraries(${TargetBin} ${LinkCommon} Common)
+	if(EMSCRIPTEN)
+		set_property(TARGET ${TargetBin} APPEND PROPERTY LINK_DEPENDS "${CMAKE_SOURCE_DIR}/SDL/BrowserFileLibrary.js")
+	endif()
 endif()
 
 # installs
