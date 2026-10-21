@@ -1,4 +1,3 @@
-import { setupNetworkInvites } from './network-invites';
 import { DOCUMENT } from '@angular/common';
 import { Injectable, inject } from '@angular/core';
 import {
@@ -59,7 +58,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = '2026-10-20-network-status-v3';
+const RUNTIME_ASSET_VERSION = 'ppsspp-player-zh-v1';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {
@@ -75,7 +74,6 @@ export class PpssppRuntime {
     createIcons({ icons: PPSSPP_ICONS });
     await this.loadScript(`adhoc-transport.js?v=${RUNTIME_ASSET_VERSION}`, 'adhoc-transport');
     await this.loadScript(`ppsspp-runtime.js?v=${RUNTIME_ASSET_VERSION}`, 'ppsspp-runtime');
-    setupNetworkInvites(this.document);
   }
 
   private loadScript(src: string, id: string): Promise<void> {
@@ -88,7 +86,7 @@ export class PpssppRuntime {
       script.defer = true;
       script.dataset['runtimeId'] = id;
       script.addEventListener('load', () => resolve(), { once: true });
-      script.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), { once: true });
+      script.addEventListener('error', () => reject(new Error(`页面组件加载失败：${src}。请检查连接后刷新重试。`)), { once: true });
       this.document.body.appendChild(script);
     });
   }

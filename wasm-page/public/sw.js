@@ -9,7 +9,7 @@
  * The cache is versioned; old caches are pruned on activate.
  */
 
-const CACHE_VERSION = "ppsspp-angular-v12-network-status";
+const CACHE_VERSION = "ppsspp-player-zh-v1";
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [
@@ -99,7 +99,7 @@ async function networkFirst(request, event) {
     return response;
   } catch (_) {
     const cached = await cachedResponse(cache, request);
-    return cached ? withCrossOriginIsolation(cached) : withCrossOriginIsolation(new Response("Offline – PPSSPP Web is not cached yet.", {
+    return cached ? withCrossOriginIsolation(cached) : withCrossOriginIsolation(new Response("当前离线，尚未缓存此页面。请连接网络后重试。", {
       status: 503,
       headers: { "Content-Type": "text/plain" },
     }));
@@ -118,7 +118,7 @@ async function cacheFirst(request, event) {
     }
     return response;
   } catch (err) {
-    return withCrossOriginIsolation(new Response("Network error: " + err.message, {
+    return withCrossOriginIsolation(new Response("网络连接失败：" + err.message, {
       status: 503,
       headers: { "Content-Type": "text/plain" },
     }));

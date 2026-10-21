@@ -24,6 +24,26 @@ const VIRTUAL_ASSETS   = "/emsdk/upstream/emscripten/cache/sysroot/share/ppsspp/
 const VIRTUAL_GAME_DIR = "/games";
 const GAME_FILE_ACCEPT = ".iso,.cso,.chd,.pbp,.elf,.prx";
 const GAME_FILE_EXT_RE = /\.(iso|cso|chd|pbp|elf|prx)$/i;
+// This edition is a local single-player client. Old cloud/network preferences
+// must never turn external services back on during startup.
+const LOCAL_ONLY = true;
+const PLAYER_SETTINGS_KEY = "ppsspp-player-settings-v1";
+
+function gameFileValidationError(fileOrName) {
+  if (!fileOrName) return "";
+  const name = typeof fileOrName === "string" ? fileOrName : fileOrName.name;
+  if (typeof name === "string" && GAME_FILE_EXT_RE.test(name)) return "";
+  if (/\.(zip|7z|rar|tar|gz)$/i.test(name || "")) return "请先解压游戏压缩包，再选择其中的 ISO、CSO、CHD 或 PBP 游戏文件。";
+  return "不支持此文件格式。请选择 ISO、CSO、CHD、PBP、ELF 或 PRX 游戏文件。";
+}
+
+function validateGameSelection(fileOrName) {
+  const error = gameFileValidationError(fileOrName);
+  if (!error) return true;
+  setStatus(error, "err");
+  showToast(error, 6500);
+  return false;
+}
 
 // Persistence: PPSSPP writes config+saves to $HOME/.config/ppsspp/ on Linux/Emscripten
 const PERSIST_ROOTS       = ["/home/web_user/.config/ppsspp", "/root/.config/ppsspp"];
@@ -152,6 +172,10 @@ function isTextEntryActive() {
 function configureEmulatorKeyboard(env) {
   // SDL otherwise listens on window and prevents the form's default key actions.
   env.SDL_EMSCRIPTEN_KEYBOARD_ELEMENT = "#canvas";
+  // The core derives its memory-stick path from these variables. Use one
+  // authoritative root; legacy /root files are migrated before native startup.
+  env.HOME = "/home/web_user";
+  env.XDG_CONFIG_HOME = "/home/web_user/.config";
 }
 
 function syncViewportAfterFocus() {
@@ -223,6 +247,11 @@ function syncFullscreenOverlays() {
   const activeFullscreen = !!fullscreenElement();
   document.body?.classList.toggle("browser-fullscreen", activeFullscreen);
   if (activeFullscreen && fpsBadge) fpsBadge.style.display = "none";
+  if (fullscreenBtn) {
+    fullscreenBtn.title = activeFullscreen ? "退出全屏" : "进入全屏";
+    fullscreenBtn.setAttribute("aria-label", fullscreenBtn.title);
+    fullscreenBtn.setAttribute("aria-pressed", String(activeFullscreen));
+  }
 }
 
 function notifyRuntimeResize(options = {}) {
@@ -288,7 +317,7 @@ async function selectBuildDir() {
     log("Using emulator build: " + BUILD_DIR, "ok");
     return;
   }
-  throw new Error("Emulator files are missing. Build/publish PPSSPPSDL.js, .wasm and .data together.");
+  throw new Error("模拟器资源不完整，请重新载入页面；若仍失败，请在错误详情中导出诊断。");
 }
 
 /* ── DOM refs ───────────────────────────────────────────────────── */
@@ -408,7 +437,7 @@ on(panelToggleBtn, "click", () => {
 on("panelCloseBtn", "click", () => setPanelOpen(false));
 on("panelBackdrop", "click", () => setPanelOpen(false));
 
-importNetworkInvite();
+if (!LOCAL_ONLY) importNetworkInvite();
 updateNetworkConfigUI();
 window.PPSSPPNetworkInvites = {
   create(includeKey = false) {
@@ -453,7 +482,7 @@ for (const id of ["networkServerInput", "networkRoomInput", "networkSessionKeyIn
 }
 window.addEventListener("offline", renderNetworkStatus);
 window.addEventListener("online", () => { networkProbe = { state: "unverified" }; renderNetworkStatus(); checkNetworkWhenVisible(); });
-setInterval(checkNetworkWhenVisible, 30000);
+if (!LOCAL_ONLY) setInterval(checkNetworkWhenVisible, 30000);
 
 /* ── State ──────────────────────────────────────────────────────── */
 let selectedGame = null;
@@ -470,9 +499,9 @@ const audioDebug = {
 
 function updateIdleOverlay() {
   if (!idleOverlay || started) return;
-  let text = "Your PSP games, right here. Open a game to play, or start the emulator and explore your library.";
-  if (selectedGame) text = "Ready to launch " + selectedGame.name + ".";
-  else if (selectedStoredGame) text = "Ready to launch " + selectedStoredGame + " from your library.";
+  let text = "选择本机的游戏文件开始游玩，也可以从游戏库启动已导入的游戏。";
+  if (selectedGame) text = "准备启动 " + selectedGame.name + ".";
+  else if (selectedStoredGame) text = "准备启动 " + selectedStoredGame + "（来自游戏库）。";
   if (idleSubtitle) idleSubtitle.textContent = text;
 }
 updateIdleOverlay();
@@ -482,18 +511,18 @@ function setStartButtonMode(mode) {
   if (mode === "running") {
     startBtn.disabled = true;
     startBtn.style.display = "none";
-    startBtn.title = "PPSSPP is running";
-    startBtn.innerHTML = `${svgIcon("play")}<span class="btn-lbl"> Running</span>`;
+    startBtn.title = "模拟器正在运行";
+    startBtn.innerHTML = `${svgIcon("play")}<span class="btn-lbl"> 运行中</span>`;
   } else if (mode === "loading") {
     startBtn.disabled = true;
     startBtn.style.display = "";
-    startBtn.title = "Starting PPSSPP";
-    startBtn.innerHTML = `${svgIcon("play")}<span class="btn-lbl"> Launch</span>`;
+    startBtn.title = "正在启动模拟器";
+    startBtn.innerHTML = `${svgIcon("play")}<span class="btn-lbl"> 启动游戏</span>`;
   } else {
     startBtn.disabled = false;
     startBtn.style.display = "";
-    startBtn.title = "Launch PPSSPP";
-    startBtn.innerHTML = `${svgIcon("play")}<span class="btn-lbl"> Launch</span>`;
+    startBtn.title = "启动模拟器";
+    startBtn.innerHTML = `${svgIcon("play")}<span class="btn-lbl"> 启动游戏</span>`;
   }
 }
 
@@ -522,7 +551,7 @@ function hasOPFS() {
 }
 
 async function opfsRoot() {
-  if (!hasOPFS()) throw new Error("Origin Private File System is not available in this browser/context");
+  if (!hasOPFS()) throw new Error("此浏览器未开放本地文件存储，请检查网站存储权限");
   if (_opfsRoot) return _opfsRoot;
   const origin = await navigator.storage.getDirectory();
   _opfsRoot = await origin.getDirectoryHandle(OPFS_ROOT_DIR, { create: true });
@@ -579,6 +608,12 @@ async function opfsClearAll() {
   try { await root.removeEntry(OPFS_PERSIST_DIR, { recursive: true }); } catch(e) {}
   try { await root.removeEntry(OPFS_GAMES_DIR, { recursive: true }); } catch(e) {}
   try { await root.removeEntry(OPFS_GAME_META_DIR, { recursive: true }); } catch(e) {}
+  try { await root.removeEntry("legacy-backups", { recursive: true }); } catch (error) { if (error.name !== "NotFoundError") throw error; }
+  await playerSettingsQueue;
+  try { await root.removeEntry("player", { recursive: true }); } catch (error) { if (error.name !== "NotFoundError") throw error; }
+  preferences.removeItem(PLAYER_SETTINGS_KEY);
+  playerSettingsChanged = true;
+  refreshPlayerSettingsUI();
   preferences.removeItem(PRELOAD_FAVORITES_KEY);
   preferences.removeItem(PRELOAD_FAVORITES_MIGRATED_KEY);
   await root.getDirectoryHandle(OPFS_PERSIST_DIR, { create: true });
@@ -684,10 +719,79 @@ function fsMkdirP(FS, fullPath) {
 }
 
 function detectMemstickDir(FS) {
-  for (const root of PERSIST_ROOTS) {
-    try { if (FS.analyzePath(root).exists) return root; } catch(e) {}
+  return PERSIST_ROOTS[0];
+}
+
+function normalizePersistPath(path) {
+  if (typeof path !== "string" || path.includes("\\")) throw new Error("存档路径无效");
+  const parts = path.split("/").filter(Boolean);
+  if (parts.some(part => part === "." || part === "..")) throw new Error("存档路径无效");
+  const absolute = "/" + parts.join("/");
+  const root = PERSIST_ROOTS.find(candidate => absolute.startsWith(candidate + "/"));
+  if (!root) throw new Error("存档路径不属于此模拟器，请使用存档文件夹导入。");
+  return { sourcePath: absolute, path: PERSIST_ROOTS[0] + absolute.slice(root.length), legacy: root !== PERSIST_ROOTS[0] };
+}
+
+function persistConflictKey(path) {
+  // A savedata slot is a set of mutually-dependent files. Never mix files from
+  // an old-root slot with an already-existing current-root slot.
+  const slot = path.match(/^(.*\/PSP\/SAVEDATA\/[^/]+)\//i);
+  return slot ? slot[1] + "/" : path;
+}
+
+function selectPersistEntries(entries, existingPaths = []) {
+  const normalized = entries.map(entry => ({ ...entry, ...normalizePersistPath(entry.path) }));
+  const protectedKeys = new Set();
+  for (const path of existingPaths) {
+    const entry = normalizePersistPath(path);
+    if (!entry.legacy) protectedKeys.add(persistConflictKey(entry.path));
   }
-  return PERSIST_ROOTS[0]; // default — PPSSPP will create it on first run
+  for (const entry of normalized) {
+    if (!entry.legacy) protectedKeys.add(persistConflictKey(entry.path));
+  }
+  const selected = normalized.filter(entry => !entry.legacy || !protectedKeys.has(persistConflictKey(entry.path)));
+  const skippedEntries = normalized.filter(entry => entry.legacy && protectedKeys.has(persistConflictKey(entry.path)));
+  return { entries: selected, skipped: skippedEntries.length, skippedEntries };
+}
+
+async function archiveLegacyPersistFile(path, data) {
+  const { dir, name } = await opfsParent(path, true, "legacy-backups");
+  await writeOpfsHandle(await dir.getFileHandle(name, { create: true }), data);
+  // Only remove the active legacy copy after the backup transaction commits.
+  // Otherwise a deleted migrated slot would reappear at the next startup.
+  await opfsDelete(path);
+}
+
+async function rollbackSaveMigration(FS) {
+  let dir, file;
+  try {
+    dir = await opfsDir(["player"], false);
+    file = await (await dir.getFileHandle("save-migration.json")).getFile();
+  } catch (error) { if (error.name === "NotFoundError") return; throw error; }
+  const text = await file.text();
+  // A failed first createWritable can leave an empty journal, before any target
+  // has been touched. A nonempty invalid journal must stop startup for recovery.
+  if (text) {
+    const pending = JSON.parse(text);
+    if (pending.version !== 1 || !Array.isArray(pending.targets)) throw new Error("存档迁移记录无效");
+    const targets = pending.targets.map(path => {
+      const entry = normalizePersistPath(path);
+      if (entry.legacy || entry.path !== path) throw new Error("存档迁移记录路径无效");
+      return path;
+    });
+    for (const path of targets) {
+      try { await opfsDelete(path); } catch (error) { if (error.name !== "NotFoundError") throw error; }
+      try { FS.unlink(path); } catch (_) {}
+    }
+  }
+  await dir.removeEntry("save-migration.json");
+}
+
+async function beginSaveMigration(targets) {
+  const dir = await opfsDir(["player"], true);
+  await writeOpfsHandle(await dir.getFileHandle("save-migration.json", { create: true }),
+    JSON.stringify({ version: 1, targets }));
+  return dir;
 }
 
 function formatBytes(n) {
@@ -920,14 +1024,14 @@ async function deleteGameMetadata(name) {
 
 // Categorize an OPFS path for the file browser
 function opfsFileCategory(path) {
-  if (/\/PSP\/SAVEDATA\//i.test(path))     return "Save Data";
-  if (/\/PSP\/PPSSPP_STATE\//i.test(path)) return "Save States";
-  if (/\/PSP\/SYSTEM\//i.test(path))       return "System / Config";
-  if (/\/PSP\/GAME\//i.test(path))         return "Games (PSP)";
-  if (/\/PSP\/SCREENSHOT\//i.test(path))   return "Screenshots";
-  if (/\/PSP\/CHEATS\//i.test(path))       return "Cheats";
-  if (/\.ini$|config\.json$/i.test(path))  return "Config";
-  return "Other";
+  if (/\/PSP\/SAVEDATA\//i.test(path))     return "游戏存档";
+  if (/\/PSP\/PPSSPP_STATE\//i.test(path)) return "即时存档";
+  if (/\/PSP\/SYSTEM\//i.test(path))       return "系统设置";
+  if (/\/PSP\/GAME\//i.test(path))         return "PSP 游戏";
+  if (/\/PSP\/SCREENSHOT\//i.test(path))   return "截图";
+  if (/\/PSP\/CHEATS\//i.test(path))       return "金手指";
+  if (/\.ini$|config\.json$/i.test(path))  return "配置文件";
+  return "其他";
 }
 
 async function downloadOpfsFile(path) {
@@ -938,15 +1042,15 @@ async function downloadOpfsFile(path) {
     const url  = URL.createObjectURL(blob);
     Object.assign(document.createElement("a"), { href: url, download: name }).click();
     URL.revokeObjectURL(url);
-    showToast("✓ Downloaded " + name);
-  } catch(e) { showToast("❌ " + e.message); }
+    showToast("✓ 已导出 " + name);
+  } catch(e) { showToast("操作未完成：" + e.message); }
 }
 
 async function deleteOpfsFile(path) {
-  if (!confirm("Delete from OPFS:\n" + path.split("/").pop() + "?")) return;
+  if (!confirm("从本机存储中删除：\n" + path.split("/").pop() + "?")) return;
   try { await opfsDelete(path); } catch(e) {}
   if (window.FS) { try { window.FS.unlink(path); } catch(e) {} }
-  showToast("🗑 Deleted " + path.split("/").pop());
+  showToast("已删除 " + path.split("/").pop());
   updateStorageInfo(); refreshSavesTab();
 }
 
@@ -961,24 +1065,24 @@ async function updateStorageInfo() {
     el("iStorageFiles").className   = allFiles.length ? "info-val good" : "info-val";
     el("iStorageSize").textContent  = formatBytes(bytes);
     el("iLastSync").textContent     = _lastPersistTime
-      ? new Date(_lastPersistTime).toLocaleTimeString() : "Never";
+      ? new Date(_lastPersistTime).toLocaleTimeString() : "尚未同步";
     el("iMemstickPath").textContent = _detectedMemstick || PERSIST_ROOTS[0];
 
     // Render grouped file browser
     const listEl = document.getElementById("opfsFileList");
     if (listEl) {
       if (!allFiles.length) {
-        listEl.innerHTML = `<span class="empty-row">No files persisted yet.</span>`;
+        listEl.innerHTML = `<span class="empty-row">尚无本机存储文件。</span>`;
       } else {
         // Group by category
         const cats = new Map();
         for (const { path, data, size } of allFiles) {
-          const cat = path.startsWith(VIRTUAL_GAME_DIR + "/") ? "Game Library" : opfsFileCategory(path);
+          const cat = path.startsWith(VIRTUAL_GAME_DIR + "/") ? "游戏库" : opfsFileCategory(path);
           if (!cats.has(cat)) cats.set(cat, []);
           cats.get(cat).push({ path, size: data?.byteLength || size || 0 });
         }
         // Sort categories: Config first, then alphabetical
-        const catOrder = ["Game Library", "Config", "System / Config", "Save States", "Save Data", "Screenshots", "Cheats", "Games (PSP)", "Other"];
+        const catOrder = ["游戏库", "配置文件", "系统设置", "即时存档", "游戏存档", "截图", "金手指", "PSP 游戏", "其他"];
         const sorted = [...cats.entries()].sort((a, b) => {
           const ai = catOrder.indexOf(a[0]); const bi = catOrder.indexOf(b[0]);
           return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
@@ -993,8 +1097,8 @@ async function updateStorageInfo() {
             html += `<div class="opfs-file-name" title="${esc(path)}">${esc(name)}</div>`;
             html += `<div class="opfs-file-size">${formatBytes(size)}</div>`;
             html += `<div class="opfs-file-actions">`;
-            html += `<button title="Download" onclick="downloadStoredFile(${JSON.stringify(path)})">${svgIcon("download")}</button>`;
-            html += `<button class="del" title="Delete" onclick="deleteStoredFile(${JSON.stringify(path)})">${svgIcon("trash")}</button>`;
+            html += `<button title="导出" onclick="downloadStoredFile(${JSON.stringify(path)})">${svgIcon("download")}</button>`;
+            html += `<button class="del" title="删除" onclick="deleteStoredFile(${JSON.stringify(path)})">${svgIcon("trash")}</button>`;
             html += `</div>`;
             html += `</div>`;
           }
@@ -1012,7 +1116,7 @@ async function downloadStoredFile(path) {
     const url = URL.createObjectURL(new Blob([data], { type: "application/octet-stream" }));
     Object.assign(document.createElement("a"), { href: url, download: name }).click();
     URL.revokeObjectURL(url);
-    showToast("✓ Downloaded " + name);
+    showToast("✓ 已导出 " + name);
   } else {
     await downloadOpfsFile(path);
   }
@@ -1021,18 +1125,18 @@ async function downloadStoredFile(path) {
 async function deleteStoredFile(path) {
   if (path.startsWith(VIRTUAL_GAME_DIR + "/")) {
     const name = path.slice((VIRTUAL_GAME_DIR + "/").length);
-    if (!confirm("Delete game file from OPFS:\n" + name + "?")) return;
+    if (!confirm("从本机游戏库中删除：\n" + name + "?")) return;
     try {
       await opfsDeleteGame(name);
       if (window.FS) { try { window.FS.unlink(path); } catch(e) {} }
       setPreloadFavorite(name, false);
       refreshEmulatorGameBrowser("deleted " + name);
-      showToast("🗑 Deleted " + name);
+      showToast("已删除 " + name);
       await refreshLibrary();
       updateStorageInfo();
     } catch(e) {
       log("Delete game file failed: " + e.message, "err");
-      showToast("❌ Delete failed: " + e.message);
+      showToast("删除失败：" + e.message);
     }
   } else {
     await deleteOpfsFile(path);
@@ -1043,12 +1147,12 @@ async function togglePreloadFavorite(name) {
   const enable = !isPreloadFavorite(name);
   setPreloadFavorite(name, enable);
   if (!enable) {
-    showToast("Removed startup preload: " + name);
+    showToast("已取消启动时载入：" + name);
     await refreshLibrary();
     return;
   }
 
-  showToast("Startup preload enabled: " + name);
+  showToast("已设置启动时载入：" + name);
   if (started && window.FS && !window.FS.analyzePath?.(VIRTUAL_GAME_DIR + "/" + name)?.exists) {
     await playOrMountStoredGame(name);
   } else {
@@ -1057,6 +1161,7 @@ async function togglePreloadFavorite(name) {
 }
 
 async function playOrMountStoredGame(name) {
+  if (!validateGameSelection(name)) return;
   if (!started || !window.FS) {
     selectedStoredGame = name;
     selectedGame = null;
@@ -1064,8 +1169,8 @@ async function playOrMountStoredGame(name) {
     updateIdleOverlay();
     const textNode = fileLabel?.firstChild;
     if (textNode && textNode.nodeType === 3) textNode.textContent = "\uD83D\uDCC2 " + name + " ";
-    setStatus("Starting " + name, "run");
-    showToast("Starting " + name + "…");
+    setStatus("正在启动 " + name, "run");
+    showToast("正在启动 " + name + "…");
     start();
     return;
   }
@@ -1073,16 +1178,16 @@ async function playOrMountStoredGame(name) {
   const FS = window.FS;
   const path = VIRTUAL_GAME_DIR + "/" + name;
   try {
-    showToast("Mounting " + name + "…");
+    showToast("正在载入 " + name + "…");
     FS.mkdirTree(VIRTUAL_GAME_DIR);
     FS.writeFile(path, await opfsReadGame(name), { canOwn: true });
     log("Mounted stored game file from OPFS: " + path, "ok");
     refreshEmulatorGameBrowser("mounted " + name);
-    showToast("✓ " + name + " mounted");
+    showToast("✓ " + name + " 已载入");
     refreshLibrary();
   } catch(e) {
     log("Stored game mount failed: " + e.message, "err");
-    showToast("❌ " + e.message);
+    showToast("操作未完成：" + e.message);
   }
 }
 
@@ -1101,28 +1206,28 @@ async function showGameInfo(name) {
     const rowsEl = byId("gameInfoRows");
     const modalEl = byId("gameInfoModal");
     if (!titleEl || !coverEl || !rowsEl || !modalEl) {
-      showToast("Game details panel is not available in this page version.");
+      showToast("游戏详情面板暂不可用，请重新载入页面。");
       return;
     }
 
     titleEl.textContent = title;
     coverEl.innerHTML = cover
-      ? `<img src="${cover}" alt="${esc(title)} cover">`
+      ? `<img src="${cover}" alt="${esc(title)} 封面">`
       : `<div class="game-cover" style="height:100%;background:${gameAccent(name)}"><div class="game-cover-fallback">${esc(title.split(/\s+/).slice(0, 4).join(" "))}</div></div>`;
     rowsEl.innerHTML = [
-      ["File", name],
-      ["Format", meta.format || "Unknown"],
-      ["Size", formatBytes(stat?.size || 0)],
-      ["Stored", "OPFS /" + OPFS_GAMES_DIR + "/" + name],
-      ["Runtime", VIRTUAL_GAME_DIR + "/" + name],
-      ["Mounted", mounted ? "yes" : "no"],
-      ["Preload", preloads ? "yes" : "no"],
-      ["Cover", meta.coverType ? "yes" : "no"],
+      ["文件", name],
+      ["格式", meta.format || "未知"],
+      ["大小", formatBytes(stat?.size || 0)],
+      ["本机位置", "OPFS /" + OPFS_GAMES_DIR + "/" + name],
+      ["运行位置", VIRTUAL_GAME_DIR + "/" + name],
+      ["已载入", mounted ? "是" : "否"],
+      ["启动时载入", preloads ? "是" : "否"],
+      ["封面", meta.coverType ? "有" : "无"],
     ].map(([k, v]) => `<div class="game-info-row"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("");
 
     const favoriteBtn = byId("gameInfoFavoriteBtn");
     if (favoriteBtn) {
-      favoriteBtn.innerHTML = `${svgIcon("preload")} ${preloads ? "Preloads" : "Preload"}`;
+      favoriteBtn.innerHTML = `${svgIcon("preload")} ${preloads ? "已设为启动时载入" : "启动时载入"}`;
       favoriteBtn.classList.toggle("active", preloads);
       favoriteBtn.setAttribute("aria-pressed", preloads ? "true" : "false");
       favoriteBtn.onclick = async () => {
@@ -1133,7 +1238,7 @@ async function showGameInfo(name) {
 
     const playBtn = byId("gameInfoPlayBtn");
     if (playBtn) {
-      playBtn.textContent = started ? (mounted ? "Ready" : "Mount") : "Play";
+      playBtn.textContent = started ? (mounted ? "已载入" : "载入") : "开始游戏";
       playBtn.disabled = started && mounted;
       playBtn.onclick = () => {
         closeGameInfo();
@@ -1144,7 +1249,7 @@ async function showGameInfo(name) {
     modalEl.setAttribute("aria-hidden", "false");
   } catch(e) {
     log("Game info failed: " + e.message, "err");
-    showToast("❌ Info failed: " + e.message);
+    showToast("读取游戏详情失败：" + e.message);
   }
 }
 
@@ -1229,7 +1334,7 @@ function prunePreloadFavorites(existingNames) {
 
 function updatePreloadFavoriteSummary(count = loadPreloadFavorites().length) {
   const el = byId("libraryPreloadCount");
-  if (el) el.textContent = count + " preload";
+  if (el) el.textContent = count + " 项启动时载入";
 }
 
 async function ensureGameMetadata(name) {
@@ -1261,16 +1366,16 @@ async function refreshLibrary() {
   clearLibraryCoverURLs();
   grid.style.display = "none";
   empty.style.display = "block";
-  empty.textContent = "Loading library…";
+  empty.textContent = "正在读取游戏库…";
 
   try {
     const games = await opfsWalk(OPFS_GAMES_DIR, "", false);
     games.sort((a, b) => a.path.localeCompare(b.path));
     const preloadFavorites = new Set(prunePreloadFavorites(games.map(game => game.path)));
-    if (count) count.textContent = games.length + " game" + (games.length === 1 ? "" : "s");
+    if (count) count.textContent = games.length + " 个游戏";
 
     if (!games.length) {
-      empty.innerHTML = "No games in OPFS yet.<br>Add a game file or launch one once.";
+      empty.innerHTML = "游戏库还是空的。<br>请添加本机游戏文件，或选择文件并启动。";
       return;
     }
 
@@ -1283,25 +1388,24 @@ async function refreshLibrary() {
       const format = meta.format || (game.path.split(".").pop() || "").toUpperCase();
       const mounted = !!window.FS?.analyzePath?.(VIRTUAL_GAME_DIR + "/" + game.path).exists;
       const preloads = preloadFavorites.has(game.path);
-      const primary = started ? (mounted ? "Ready" : "Mount") : "Play";
+      const primary = started ? (mounted ? "已载入" : "载入") : "开始游戏";
       const primaryDisabled = started && mounted ? " disabled" : "";
       const fallback = title.split(/\s+/).slice(0, 4).join(" ");
       cards.push(`
         <div class="game-card">
           <div class="game-cover" style="background:${gameAccent(game.path)}">
             ${coverURL
-              ? `<img src="${coverURL}" alt="${esc(title)} cover" loading="lazy">`
+              ? `<img src="${coverURL}" alt="${esc(title)} 封面" loading="lazy">`
               : `<div class="game-cover-fallback">${esc(fallback)}</div>`}
           </div>
           <div class="game-card-body">
             <div class="game-card-title" title="${esc(title)}">${esc(title)}</div>
-            <div class="game-card-meta" title="${esc(game.path)}">${esc(format)} · ${formatBytes(game.size || 0)}${preloads ? " · Preload" : ""}</div>
+            <div class="game-card-meta" title="${esc(game.path)}">${esc(format)} · ${formatBytes(game.size || 0)}${preloads ? " · 启动时载入" : ""}</div>
             <div class="game-card-actions">
               <button data-action="play" data-game="${esc(game.path)}"${primaryDisabled}>${primary}</button>
-              <button class="icon-only preload-toggle${preloads ? " active" : ""}" title="${preloads ? "Remove from startup preload" : "Preload on startup"}" aria-pressed="${preloads ? "true" : "false"}" data-action="favorite" data-game="${esc(game.path)}">${svgIcon("preload")}</button>
-              <button class="icon-only" title="Info" data-action="info" data-game="${esc(game.path)}">${svgIcon("info")}</button>
-              <button class="icon-only drive-sync-btn" title="Upload game file to Drive" data-action="drive-upload" data-game="${esc(game.path)}">${svgIcon("cloud-upload")}</button>
-              <button class="icon-only danger" title="Delete" data-action="delete" data-game="${esc(game.path)}">${svgIcon("trash")}</button>
+              <button class="icon-only preload-toggle${preloads ? " active" : ""}" title="${preloads ? "取消启动时载入" : "启动时载入"}" aria-pressed="${preloads ? "true" : "false"}" data-action="favorite" data-game="${esc(game.path)}">${svgIcon("preload")}</button>
+              <button class="icon-only" title="详情" data-action="info" data-game="${esc(game.path)}">${svgIcon("info")}</button>
+              <button class="icon-only danger" title="删除" data-action="delete" data-game="${esc(game.path)}">${svgIcon("trash")}</button>
             </div>
           </div>
         </div>
@@ -1312,22 +1416,23 @@ async function refreshLibrary() {
     grid.style.display = "grid";
     grid.innerHTML = cards.join("");
   } catch(e) {
-    empty.textContent = "Library error: " + e.message;
-    if (count) count.textContent = "0 games";
+    empty.textContent = "读取游戏库失败：" + e.message;
+    if (count) count.textContent = "0 个游戏";
   }
 }
 
 async function addGameToLibrary(file) {
-  showToast("Adding " + file.name + "…");
+  if (!validateGameSelection(file)) return;
+  showToast("正在添加 " + file.name + "…");
   try {
     const storedName = await opfsPutGame(file.name, file);
     log("Library: added " + storedName + " to OPFS.", "ok");
-    showToast("✓ Added " + storedName);
+    showToast("✓ 已添加 " + storedName);
     await refreshLibrary();
     updateStorageInfo();
   } catch(e) {
     log("Library add failed: " + e.message, "err");
-    showToast("❌ " + e.message);
+    showToast("操作未完成：" + e.message);
   }
 }
 
@@ -1411,6 +1516,7 @@ async function storeGameResponse(name, response) {
 }
 
 async function addGameURLToLibrary(url) {
+  if (LOCAL_ONLY) { showToast("此版本只读取本机游戏文件，请使用“添加游戏”。"); return; }
   const trimmed = url.trim();
   if (!trimmed) { showToast("Paste a game URL first"); return; }
 
@@ -1436,8 +1542,8 @@ async function addGameURLToLibrary(url) {
     const storedName = stored.name;
     hideLoading();
     log("Library: downloaded " + storedName + " from " + parsed.href + " (" + formatBytes(stored.size) + ").", "ok");
-    showToast("✓ Downloaded " + storedName);
-    setStatus("Library ready", "ok");
+    showToast("✓ 已导出 " + storedName);
+    setStatus("游戏库已就绪", "ok");
     const input = document.getElementById("libraryUrlInput");
     if (input) input.value = "";
     await refreshLibrary();
@@ -1449,7 +1555,7 @@ async function addGameURLToLibrary(url) {
       : "";
     log("Library URL download failed: " + e.message + corsHint, "err");
     setStatus("Download failed", "err");
-    showToast("❌ " + e.message, 5000);
+    showToast("操作未完成：" + e.message, 5000);
   }
 }
 
@@ -1469,8 +1575,8 @@ function toDataURL(data, ext) {
 //   SAVEDATA    → <memstick>/PSP/SAVEDATA/<GAMEID_TITLE>/<files>   (subdir per game)
 //   PPSSPP_STATE → <memstick>/PSP/PPSSPP_STATE/<GAMEID>_ver_slot.ext  (FLAT, no subdir)
 const SAVE_SUBDIRS = [
-  { dir: "PSP/SAVEDATA",     flat: false, label: "Save Data"   },
-  { dir: "PSP/PPSSPP_STATE", flat: true,  label: "Save States" },
+  { dir: "PSP/SAVEDATA",     flat: false, label: "游戏存档"   },
+  { dir: "PSP/PPSSPP_STATE", flat: true,  label: "即时存档" },
 ];
 
 function readSaveSlotFiles(FS, slotDir) {
@@ -1493,17 +1599,18 @@ function readSaveSlotFiles(FS, slotDir) {
 async function buildSaveFileMap() {
   const opfsEntries = await opfsWalk();
   const map = new Map(); // path → {path, data, size, fromOPFS}
-  for (const { path, data, size } of opfsEntries) {
-    map.set(path, { path, data, size: data?.byteLength || size || 0, fromOPFS: true });
-  }
-  // Overlay with live FS if running (newer / authoritative)
   const FS = window.FS;
-  if (FS) {
-    const memstick = _detectedMemstick || detectMemstickDir(FS);
-    const fsFiles  = fsWalkDir(FS, memstick);
-    for (const { path, data } of fsFiles) {
-      map.set(path, { path, data, size: data?.byteLength || 0, fromOPFS: false });
-    }
+  const fsFiles = FS ? fsWalkDir(FS, detectMemstickDir(FS)) : [];
+  const selected = selectPersistEntries(opfsEntries, fsFiles.map(file => file.path));
+  for (const entry of selected.entries) {
+    // Before the first launch, an unmigrated legacy file is still downloaded
+    // from its original OPFS path. Once migrated its canonical copy wins.
+    const path = entry.sourcePath;
+    map.set(path, { ...entry, path, size: entry.data?.byteLength || entry.size || 0, fromOPFS: true });
+  }
+  // Overlay with live FS (newer / authoritative), using the same absolute keys.
+  for (const { path, data } of fsFiles) {
+    map.set(path, { path, data, size: data?.byteLength || 0, fromOPFS: false });
   }
   return map;
 }
@@ -1563,20 +1670,20 @@ async function refreshSavesTab() {
 
   // Show spinner while loading
   empty.style.display = "block";
-  empty.innerHTML = `<span class="saves-loading">Loading saves&hellip;</span>`;
+  empty.innerHTML = `<span class="saves-loading">正在读取存档…</span>`;
   list.style.display = "none";
 
   let fileMap;
   try { fileMap = await buildSaveFileMap(); }
-  catch(e) { empty.innerHTML = "Error reading saves: " + esc(e.message); return; }
+  catch(e) { empty.innerHTML = "读取存档失败：" + esc(e.message); return; }
 
   const slots = groupSavesBySlot(fileMap);
   const fromFS  = !!window.FS;
-  const source  = fromFS ? "live FS + OPFS" : "OPFS";
+  const source  = fromFS ? "当前游戏与本机存储" : "OPFS";
 
   if (!slots.length) {
     empty.style.display = "block";
-    empty.innerHTML = "No save data found in OPFS or FS.<br><small>Play a game, create a save, then sync.</small>";
+    empty.innerHTML = "尚未找到存档。<br><small>请先在游戏内存档，再点击“同步存档到本机”。</small>";
     list.style.display = "none";
     if (stats) stats.textContent = "";
     return;
@@ -1593,7 +1700,7 @@ async function refreshSavesTab() {
   /* ── Save Data section ── */
   if (saveDataSlots.length) {
     const sdBytes = saveDataSlots.reduce((s, sl) => s + sl.files.reduce((a, f) => a + f.size, 0), 0);
-    html += `<div class="save-section-label"><span>${svgIcon("save")} Save Data</span><span>${saveDataSlots.length} slot${saveDataSlots.length !== 1 ? "s" : ""} · ${formatBytes(sdBytes)}</span></div>`;
+    html += `<div class="save-section-label"><span>${svgIcon("save")} 游戏存档</span><span>${saveDataSlots.length} 个存档 · ${formatBytes(sdBytes)}</span></div>`;
 
     for (const { slotDir, game, files, flat } of saveDataSlots) {
       if (!files.length) continue;
@@ -1615,19 +1722,18 @@ async function refreshSavesTab() {
 
       html += `<div class="save-card">`;
       if (thumbURL) {
-        html += `<img class="save-card-thumb" src="${thumbURL}" alt="cover" loading="lazy">`;
+        html += `<img class="save-card-thumb" src="${thumbURL}" alt="存档封面" loading="lazy">`;
       } else {
         html += `<div class="save-card-thumb-placeholder">${svgIcon("save", "lucide save-ph-icon")}</div>`;
       }
       html += `<div class="save-card-body">`;
       html += `<div class="save-card-name" title="${esc(slotDir)}">${esc(game)}</div>`;
-      html += `<div class="save-card-meta">${files.length} file${files.length !== 1 ? "s" : ""} &nbsp;·&nbsp; ${formatBytes(slotBytes)}</div>`;
+      html += `<div class="save-card-meta">${files.length} 个文件 &nbsp;·&nbsp; ${formatBytes(slotBytes)}</div>`;
       if (fileSummary) html += `<div class="save-card-files" title="${esc(fileSummary)}">${esc(fileSummary)}</div>`;
       html += `</div>`;
       html += `<div class="save-card-actions">`;
-      html += `<button title="Download slot" data-save-action="download-slot" data-slot-dir="${esc(slotDir)}" data-game="${esc(game)}">${svgIcon("download")}</button>`;
-      html += `<button class="drive-sync-btn" title="Upload slot to Drive" data-save-action="drive-upload-slot" data-slot-dir="${esc(slotDir)}" data-game="${esc(game)}">${svgIcon("cloud-upload")}</button>`;
-      html += `<button class="del" title="Delete slot" data-save-action="delete-slot" data-slot-dir="${esc(slotDir)}" data-game="${esc(game)}">${svgIcon("trash")}</button>`;
+      html += `<button title="导出此存档" data-save-action="download-slot" data-slot-dir="${esc(slotDir)}" data-game="${esc(game)}">${svgIcon("download")}</button>`;
+      html += `<button class="del" title="删除此存档" data-save-action="delete-slot" data-slot-dir="${esc(slotDir)}" data-game="${esc(game)}">${svgIcon("trash")}</button>`;
       html += `</div>`;
       html += `</div>`;
     }
@@ -1641,7 +1747,7 @@ async function refreshSavesTab() {
       for (const f of files) allStateFiles.push({ f, slotDir, game, flat });
     }
     const ssBytes = allStateFiles.reduce((s, { f }) => s + f.size, 0);
-    html += `<div class="save-section-label save-section-spaced"><span>${svgIcon("gamepad")} Save States</span><span>${allStateFiles.length} state${allStateFiles.length !== 1 ? "s" : ""} · ${formatBytes(ssBytes)}</span></div>`;
+    html += `<div class="save-section-label save-section-spaced"><span>${svgIcon("gamepad")} 即时存档</span><span>${allStateFiles.length} 个文件 · ${formatBytes(ssBytes)}</span></div>`;
 
     // Pair .ppst/.sst with same-base .jpg thumbnail
     const stateByBase = new Map(); // base → { dataFile, thumbFile, slotDir, game, flat }
@@ -1664,16 +1770,15 @@ async function refreshSavesTab() {
 
       html += `<div class="save-state-row">`;
       if (thumbURL) {
-        html += `<img class="save-state-thumb" src="${thumbURL}" alt="preview" loading="lazy">`;
+        html += `<img class="save-state-thumb" src="${thumbURL}" alt="存档预览" loading="lazy">`;
       }
       html += `<div class="save-state-body">`;
       html += `<div class="save-state-name" title="${esc(main.path)}">${esc(slotLabel)}</div>`;
       html += `<div class="save-state-meta">${formatBytes(main.size)}</div>`;
       html += `</div>`;
       html += `<div class="save-state-actions">`;
-      if (dataFile) html += `<button title="Download" data-save-action="download-file" data-path="${esc(dataFile.path)}">${svgIcon("download")}</button>`;
-      html += `<button class="drive-sync-btn" title="Upload state to Drive" data-save-action="drive-upload-state" data-paths="${esc(JSON.stringify(allPaths))}" data-game="${esc(game)}">${svgIcon("cloud-upload")}</button>`;
-      html += `<button class="del" title="Delete" data-save-action="delete-pair" data-paths="${esc(JSON.stringify(allPaths))}">${svgIcon("trash")}</button>`;
+      if (dataFile) html += `<button title="导出" data-save-action="download-file" data-path="${esc(dataFile.path)}">${svgIcon("download")}</button>`;
+      html += `<button class="del" title="删除" data-save-action="delete-pair" data-paths="${esc(JSON.stringify(allPaths))}">${svgIcon("trash")}</button>`;
       html += `</div>`;
       html += `</div>`;
     }
@@ -1683,9 +1788,9 @@ async function refreshSavesTab() {
   list.style.display  = "block";
   list.innerHTML = html;
   if (stats) stats.textContent =
-    totalSlots + " slot" + (totalSlots !== 1 ? "s" : "") +
+    totalSlots + " 个存档" +
     " · " + formatBytes(totalBytes) +
-    " · source: " + source;
+    " · 来源：" + source;
 }
 
 // Read file data from FS first, fallback to OPFS
@@ -1701,8 +1806,8 @@ async function downloadSaveFile(path) {
     const name = path.split("/").pop();
     const blob = new Blob([data], { type: "application/octet-stream" });
     triggerDownload(blob, name);
-    showToast("✓ Downloaded " + name);
-  } catch(e) { showToast("❌ " + e.message); }
+    showToast("✓ 已导出 " + name);
+  } catch(e) { showToast("操作未完成：" + e.message); }
 }
 
 async function downloadSaveSlot(slotDir, gameName) {
@@ -1719,7 +1824,7 @@ async function downloadSaveSlot(slotDir, gameName) {
       }
     }
   }
-  if (!files.length) { showToast("No files in slot"); return; }
+  if (!files.length) { showToast("此存档目录中没有文件"); return; }
   const bundle = {
     version: 1, exported: new Date().toISOString(),
     slot: gameName, slotDir,
@@ -1731,7 +1836,7 @@ async function downloadSaveSlot(slotDir, gameName) {
   const blob = new Blob([JSON.stringify(bundle)], { type: "application/json" });
   triggerDownload(blob, "ppsspp-slot-" + gameName.replace(/[^a-zA-Z0-9_-]/g, "_") + ".ppsspp");
   log("Downloaded slot: " + gameName + " (" + files.length + " files)", "ok");
-  showToast("✓ Downloaded " + gameName);
+  showToast("✓ 已导出 " + gameName);
 }
 
 /* ── Individual Drive upload helpers ────────────────────────────── */
@@ -1752,7 +1857,7 @@ async function uploadSingleSaveSlotToDrive(slotDir, gameName) {
         }
       }
     }
-    if (!slotFiles.length) { showToast("No files in slot"); setDriveActivity("Idle"); return; }
+    if (!slotFiles.length) { showToast("此存档目录中没有文件"); setDriveActivity("Idle"); return; }
     const bundle = {
       version: 1, exported: new Date().toISOString(),
       slot: gameName, slotDir,
@@ -1770,7 +1875,7 @@ async function uploadSingleSaveSlotToDrive(slotDir, gameName) {
     const message = googleAuthErrorMessage(e);
     log("Drive slot upload failed: " + message, "err");
     setDriveActivity("Slot upload failed: " + message, "bad");
-    showToast("❌ " + message, 5000);
+    showToast("操作未完成：" + message, 5000);
   } finally { hideLoading(); }
 }
 
@@ -1808,7 +1913,7 @@ async function uploadSingleSaveStateToDrive(paths, gameName) {
     const message = googleAuthErrorMessage(e);
     log("Drive state upload failed: " + message, "err");
     setDriveActivity("State upload failed: " + message, "bad");
-    showToast("❌ " + message, 5000);
+    showToast("操作未完成：" + message, 5000);
   } finally { hideLoading(); }
 }
 
@@ -1828,35 +1933,35 @@ async function uploadSingleGameToDrive(gameName) {
     const message = googleAuthErrorMessage(e);
     log("Drive game upload failed: " + message, "err");
     setDriveActivity("Game upload failed: " + message, "bad");
-    showToast("❌ " + message, 5000);
+    showToast("操作未完成：" + message, 5000);
   } finally { hideLoading(); }
 }
 
 async function deleteSaveFile(path) {
-  if (!confirm("Delete file:\n" + path.split("/").pop() + "?")) return;
+  if (!confirm("删除文件：\n" + path.split("/").pop() + "?")) return;
   // Remove from OPFS
   try { await opfsDelete(path); } catch(e) {}
   // Remove from FS if running
   const FS = window.FS;
   if (FS) { try { FS.unlink(path); } catch(e) {} }
-  showToast("🗑 Deleted " + path.split("/").pop());
+  showToast("已删除 " + path.split("/").pop());
   refreshSavesTab(); updateStorageInfo();
 }
 
 async function deleteSavePair(paths) {
   const names = paths.map(p => p.split("/").pop()).join("\n");
-  if (!confirm("Delete:\n" + names + "?\n\nThis cannot be undone.")) return;
+  if (!confirm("删除：\n" + names + "？\n\n删除后无法撤销。")) return;
   const FS = window.FS;
   for (const path of paths) {
     try { await opfsDelete(path); } catch(e) {}
     if (FS) { try { FS.unlink(path); } catch(e) {} }
   }
-  showToast("🗑 Deleted " + paths.map(p => p.split("/").pop()).join(", "));
+  showToast("已删除 " + paths.map(p => p.split("/").pop()).join(", "));
   refreshSavesTab(); updateStorageInfo();
 }
 
 async function deleteSaveSlot(slotDir, gameName) {
-  if (!confirm("Delete ALL saves for:\n" + gameName + "?\n\nThis cannot be undone.")) return;
+  if (!confirm("删除以下游戏的全部存档：\n" + gameName + "？\n\n删除后无法撤销。")) return;
   // Delete all OPFS entries under this slot
   const all   = await opfsWalk();
   const paths = all.filter(e => e.path.startsWith(slotDir + "/")).map(e => e.path);
@@ -1873,16 +1978,16 @@ async function deleteSaveSlot(slotDir, gameName) {
     } catch(e) {}
   }
   log("Deleted slot: " + gameName, "warn");
-  showToast("🗑 Deleted slot: " + gameName);
+  showToast("已删除存档：" + gameName);
   refreshSavesTab(); updateStorageInfo();
 }
 
 function nativeSaveRelativePath(file) {
   const parts = (file.webkitRelativePath || "").split("/").filter(Boolean);
-  if (parts.some(part => part === "." || part === ".." || part.includes("\\"))) throw new Error("Invalid save folder path");
+  if (parts.some(part => part === "." || part === ".." || part.includes("\\"))) throw new Error("存档文件夹路径无效");
   const savedata = parts.findIndex(part => part.toUpperCase() === "SAVEDATA");
   const relative = savedata >= 0 ? parts.slice(savedata + 1) : parts;
-  if (relative.length < 2) throw new Error("Select SAVEDATA or a game's save folder, including its files.");
+  if (relative.length < 2) throw new Error("请选择 SAVEDATA 或某个游戏的完整存档文件夹。");
   return relative.join("/");
 }
 
@@ -1898,9 +2003,12 @@ async function importNativeSaveFolderNow(files) {
   try {
     const paths = Array.from(files, file => ({ file, relative: nativeSaveRelativePath(file) }));
     const root = window.FS ? detectMemstickDir(window.FS) : PERSIST_ROOTS[0];
+    const prepared = [];
     for (const { file, relative } of paths) {
+      prepared.push({ relative, data: new Uint8Array(await file.arrayBuffer()) });
+    }
+    for (const { relative, data } of prepared) {
       const path = root + "/PSP/SAVEDATA/" + relative;
-      const data = new Uint8Array(await file.arrayBuffer());
       await opfsPut(path, data);
       if (window.FS) {
         fsMkdirP(window.FS, dirname(path));
@@ -1908,10 +2016,10 @@ async function importNativeSaveFolderNow(files) {
       }
     }
     log("Imported native PSP save folder: " + paths.length + " files.", "ok");
-    showToast("Imported " + paths.length + " PSP save files.");
+    showToast("已导入 " + paths.length + " 个 PSP 存档文件。");
     await refreshSavesTab();
     await updateStorageInfo();
-  } catch (e) { showToast("Save folder import failed: " + e.message, 6000); }
+  } catch (e) { showToast("导入存档文件夹失败：" + e.message, 6000); }
 }
 on("nativeSaveFolderInput", "change", async event => {
   await importNativeSaveFolder(event.target.files);
@@ -1921,52 +2029,63 @@ on("nativeSaveFolderInput", "change", async event => {
 async function importSaveSlot(file) {
   try {
     const bundle = JSON.parse(await file.text());
-    if (!Array.isArray(bundle.files)) throw new Error("Invalid slot bundle");
-    let count = 0;
-    const FS = window.FS;
-    for (const { path, data } of bundle.files) {
-      const bytes = base64ToBytes(data);
-      // Always save to OPFS
-      await opfsPut(path, bytes);
-      // Also write to live FS if running
-      if (FS) {
-        try {
-          fsMkdirP(FS, path.substring(0, path.lastIndexOf("/")));
-          FS.writeFile(path, bytes);
-        } catch(e) {}
-      }
-      count++;
-    }
-    log("Imported slot '" + (bundle.slot || file.name) + "' (" + count + " files)", "ok");
-    showToast("✓ Imported slot: " + (bundle.slot || file.name));
-    refreshSavesTab(); updateStorageInfo();
-  } catch(e) { log("Slot import error: " + e.message, "err"); showToast("❌ Import failed: " + e.message); }
+    await importSavesBundle(bundle, bundle.slot || file.name);
+  } catch(e) { log("Slot import error: " + e.message, "err"); showToast("导入失败：" + e.message); }
 }
 
 // Restore persisted files into Emscripten FS before PPSSPP starts
 async function loadPersistedFiles(FS) {
   try {
-    const entries = await opfsWalk(OPFS_PERSIST_DIR, "", false);
-    if (!entries.length) { log("Persistence: no saved data in OPFS.", "dim"); return; }
-    let ok = 0;
-    for (const { path } of entries) {
-      try {
-        const data = await opfsRead(path);
+    await rollbackSaveMigration(FS);
+    const stored = await opfsWalk(OPFS_PERSIST_DIR, "", false);
+    if (!stored.length) { log("Persistence: no saved data in OPFS.", "dim"); return; }
+    const { entries, skipped, skippedEntries } = selectPersistEntries(stored);
+    // Read everything before changing either store. Starting with a partial
+    // restore could let the game overwrite an unreadable but valid saved slot.
+    const loaded = [];
+    for (const entry of [...entries, ...skippedEntries]) {
+      loaded.push({ ...entry, data: await opfsRead(entry.sourcePath) });
+    }
+    const selected = loaded.slice(0, entries.length);
+    const migrated = selected.filter(entry => entry.legacy);
+    let journal;
+    try {
+      // Journal only absent canonical targets. If rollback itself fails, the
+      // next startup retries it before conflict selection can see a half slot.
+      if (migrated.length) journal = await beginSaveMigration(migrated.map(entry => entry.path));
+      for (const { path, data, legacy } of selected) {
+        if (legacy) await opfsPut(path, data);
         fsMkdirP(FS, path.substring(0, path.lastIndexOf("/")));
         FS.writeFile(path, data);
-        ok++;
-      } catch(e) { log("Persist restore failed " + path + ": " + e.message, "warn"); }
+      }
+      // Removing the journal commits the complete canonical copy. Only then
+      // may legacy sources be archived and removed from the active save store.
+      if (journal) await journal.removeEntry("save-migration.json");
+    } catch (error) {
+      if (migrated.length) {
+        try { await rollbackSaveMigration(FS); }
+        catch (rollbackError) { log("Migration rollback pending: " + rollbackError.message, "err"); }
+      }
+      throw error;
     }
-    log("Persistence: restored " + ok + "/" + entries.length + " files from OPFS.", "ok");
-    showToast("✓ Restored " + ok + " saved files");
+    // Failure here must also block startup: otherwise the user could delete a
+    // slot during play and its unarchived legacy copy would return next time.
+    for (const { sourcePath, data, legacy } of loaded) {
+      if (legacy) await archiveLegacyPersistFile(sourcePath, data);
+    }
+    log("Persistence: restored " + selected.length + "/" + entries.length + " files from OPFS.", "ok");
+    if (skipped) log("Persistence: kept current-root saves over " + skipped + " legacy-root files.", "info");
+    showToast("✓ 已恢复 " + selected.length + " 个存档与设置文件");
     // Seed dirty-tracking so the first auto-sync cycle is fully incremental
     _detectedMemstick = detectMemstickDir(FS);
     const initStats = fsStatDir(FS, _detectedMemstick);
     for (const [path, { size, mtime }] of initStats)
       _persistedFileState.set(path, size + ":" + mtime);
   } catch(e) {
-    log("Persistence: OPFS load error: " + e.message, "warn");
-    showToast("Browser storage unavailable: this session's progress cannot be saved locally. Check site storage permissions.", 10000);
+    log("Persistence: restore stopped: " + e.message, "err");
+    const error = new Error("本机存档恢复未完成，已停止启动以保留原存档。请检查存储权限和空间后重新载入。" + "（" + e.message + "）");
+    error.name = "SaveRestoreError";
+    throw error;
   }
 }
 
@@ -2005,6 +2124,135 @@ function patchIniValue(text, section, key, value, overwrite = true) {
   }
 
   return lines.join("\n").replace(/\n*$/, "\n");
+}
+
+function loadPlayerSettings() {
+  let saved = {};
+  try { saved = JSON.parse(preferences.getItem(PLAYER_SETTINGS_KEY) || "{}"); } catch (_) {}
+  return {
+    resolution: [1, 2, 3].includes(Number(saved?.resolution)) ? Number(saved.resolution) : 1,
+    showFps: saved?.showFps === true,
+    touch: typeof saved?.touch === "boolean" ? saved.touch : isMobileExperience(),
+  };
+}
+
+function applyPlayerSettings(text, settings) {
+  const values = [
+    ["General", "Language", "zh_CN"],
+    ["General", "CheckForNewVersion", "False"],
+    ["General", "ReportingHost", ""],
+    ["Achievements", "AchievementsEnable", "False"],
+    ["Achievements", "AchievementsEnableRAIntegration", "False"],
+    ["Graphics", "InternalResolution", String(settings.resolution)],
+    ["Graphics", "iShowStatusFlags", settings.showFps ? "6" : "0"],
+    ["Control", "ShowTouchControls", settings.touch ? "True" : "False"],
+    ["Network", "EnableWlan", "False"],
+    ["Network", "EnableAdhocServer", "False"],
+    ["Network", "EnableUPnP", "False"],
+  ];
+  for (const [section, key, value] of values) text = patchIniValue(text, section, key, value);
+  return text;
+}
+
+function refreshPlayerSettingsUI() {
+  const settings = loadPlayerSettings();
+  const resolution = byId("player-render-resolution");
+  const fps = byId("player-show-fps");
+  const touch = byId("player-touch-controls");
+  if (resolution) resolution.value = String(settings.resolution);
+  if (fps) fps.checked = settings.showFps;
+  if (touch) touch.checked = settings.touch;
+}
+
+let playerSettingsQueue = Promise.resolve();
+let playerSettingsChanged = false;
+async function resetPlayerSettings() {
+  await playerSettingsQueue;
+  const dir = await opfsDir(["player"], true);
+  try {
+    const file = await (await dir.getFileHandle("settings.json")).getFile();
+    await writeOpfsHandle(await dir.getFileHandle("settings.recovery-backup", { create: true }), await file.text());
+    await dir.removeEntry("settings.json");
+  } catch (error) { if (error.name !== "NotFoundError") throw error; }
+  preferences.removeItem(PLAYER_SETTINGS_KEY);
+  playerSettingsChanged = true;
+  refreshPlayerSettingsUI();
+}
+
+async function restorePlayerSettings() {
+  if (playerSettingsChanged || !hasOPFS()) return;
+  try {
+    const dir = await opfsDir(["player"], false);
+    const file = await (await dir.getFileHandle("settings.json")).getFile();
+    const text = await file.text();
+    JSON.parse(text);
+    if (!playerSettingsChanged) preferences.setItem(PLAYER_SETTINGS_KEY, text);
+  } catch (error) {
+    if (error.name !== "NotFoundError") log("Player settings restore: " + error.message, "warn");
+  }
+  refreshPlayerSettingsUI();
+}
+
+function savePlayerSettings() {
+  const settings = {
+    resolution: Number(byId("player-render-resolution")?.value || 1),
+    showFps: !!byId("player-show-fps")?.checked,
+    touch: !!byId("player-touch-controls")?.checked,
+  };
+  if (![1, 2, 3].includes(settings.resolution)) settings.resolution = 1;
+  playerSettingsChanged = true;
+  preferences.setItem(PLAYER_SETTINGS_KEY, JSON.stringify(settings));
+  const task = playerSettingsQueue.then(async () => {
+    const status = byId("player-settings-status");
+    try {
+      if (!hasOPFS()) throw new Error("浏览器未开放本地存储权限");
+      const dir = await opfsDir(["player"], true);
+      await writeOpfsHandle(await dir.getFileHandle("settings.json", { create: true }), JSON.stringify(settings));
+      // The launcher owns this file only. Native INIs are patched immediately
+      // before startup, avoiding races with the running core's persistence.
+      if (status) status.textContent = started
+        ? "设置已保存，下次启动生效。请先在游戏内存档并同步到本机，再自行重新载入页面；当前游戏会继续运行。"
+        : "设置已保存，将在启动时生效。";
+    } catch (error) {
+      log("Player settings persistence failed: " + error.message, "warn");
+      if (status) status.textContent = "本地保存未完成，当前页面仍会使用这些设置。请检查网站存储权限。";
+    }
+  });
+  playerSettingsQueue = task.catch(() => {});
+  return task;
+}
+
+async function syncPlayerFiles() {
+  if (!runtimeReady || !window.FS) { showToast("请先启动游戏，再同步游戏已生成的存档。"); return; }
+  try {
+    const result = await persistFiles(window.FS, "manual");
+    if (result?.unavailable) throw new Error("浏览器未开放本地存储权限");
+    if (result?.failed) throw new Error("部分文件未能写入，请检查存储空间后重试");
+    showToast("已同步到本机。此操作保存游戏已生成的存档，不会替代游戏内存档。", 6000);
+    await refreshSavesTab();
+  } catch (error) {
+    log("Manual persistence failed: " + error.message, "err");
+    showToast("存档同步未完成，请保留当前页面并重试。可先导出存档备份。", 7000);
+  }
+}
+
+function returnToGameCanvas() {
+  if (!runtimeReady) { showToast("请先启动游戏。"); return; }
+  setPanelOpen(false, false);
+  setFullscreenMenuOpen(false, false);
+  canvas?.focus({ preventScroll: true });
+  void unlockAudio();
+}
+
+function openCoreMenu() {
+  if (!runtimeReady || !canvas) { showToast("请先启动游戏。"); return; }
+  returnToGameCanvas();
+  for (const type of ["keydown", "keyup"]) {
+    canvas.dispatchEvent(new KeyboardEvent(type, {
+      key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true,
+    }));
+  }
+  showToast("已发送菜单键。请在模拟器菜单中选择继续游戏；这不是 PSP 的 START 键。", 5000);
 }
 
 function defaultNetworkServerHost() {
@@ -2076,7 +2324,7 @@ function loadNetworkConfig() {
   } catch (_) {}
   let server = preferences.getItem(NETWORK_SERVER_KEY);
   if (!server || !server.includes("://")) server = new URL("/adhoc", location.href).href.replace(/^http/, "ws");
-  return { enabled: preferences.getItem(NETWORK_ENABLE_KEY) === "1", server,
+  return { enabled: !LOCAL_ONLY && preferences.getItem(NETWORK_ENABLE_KEY) === "1", server,
     room: preferences.getItem("ppsspp-network-room") || "public",
     sessionKey: readNetworkSessionKey(),
     nick: sanitizeNetworkNick(preferences.getItem(NETWORK_NICK_KEY)), mac: sanitizeNetworkMac(mac) };
@@ -2175,6 +2423,7 @@ function renderNetworkStatus(cfg = loadNetworkConfig()) {
 }
 
 function checkNetworkWhenVisible() {
+  if (LOCAL_ONLY) return;
   if (document.hidden || !document.body.classList.contains("panel-open") || !byId("tabNetwork")?.classList.contains("active")) return;
   renderNetworkStatus();
   if (networkDraftDirty || !loadNetworkConfig().enabled || networkLiveStatus?.state === "registered" || networkLiveStatus?.state === "connecting") return;
@@ -2183,6 +2432,7 @@ function checkNetworkWhenVisible() {
 }
 
 async function testNetworkRelay(save = true) {
+  if (LOCAL_ONLY) return;
   let probe;
   try {
     if (networkProbe.state === "checking") return;
@@ -2308,6 +2558,7 @@ async function forceGamesDirectoryConfig(FS) {
           patched = patchIniValue(patched, section, key, value, false);
         }
       }
+      patched = applyPlayerSettings(patched, loadPlayerSettings());
       const bytes = encoder.encode(patched);
       FS.writeFile(iniPath, bytes);
       await opfsPut(iniPath, bytes);
@@ -2327,13 +2578,13 @@ function persistFiles(FS, label) {
 }
 
 async function persistFilesNow(FS, label) {
-  if (!FS || !hasOPFS()) return;
+  if (!FS || !hasOPFS()) return { unavailable: true };
   _detectedMemstick = detectMemstickDir(FS);
   const currentStats = fsStatDir(FS, _detectedMemstick);
 
   if (!currentStats.size) {
     log("Persistence" + (label ? " [" + label + "]" : "") + ": nothing at " + _detectedMemstick, "dim");
-    updateStorageInfo(); return;
+    updateStorageInfo(); return { written: 0, removed: 0, failed: 0 };
   }
 
   // Collect files whose size or mtime has changed since last persist
@@ -2351,10 +2602,10 @@ async function persistFilesNow(FS, label) {
 
   if (!dirty.length && !deleted.length) {
     log("Persistence [" + (label || "auto") + "]: up-to-date, nothing to sync.", "dim");
-    return;
+    return { written: 0, removed: 0, failed: 0 };
   }
 
-  let written = 0, removed = 0;
+  let written = 0, removed = 0, failed = 0;
   try {
     for (const { path, fp } of dirty) {
       try {
@@ -2362,27 +2613,29 @@ async function persistFilesNow(FS, label) {
         await opfsPut(path, data);
         _persistedFileState.set(path, fp);
         written++;
-      } catch(e) { log("Persist write failed " + path + ": " + e.message, "warn"); }
+      } catch(e) { failed++; log("Persist write failed " + path + ": " + e.message, "warn"); }
     }
     for (const path of deleted) {
       try { await opfsDelete(path); }
       catch(e) {
         if (e.name !== "NotFoundError") {
           log("Persist delete failed " + path + ": " + e.message, "warn");
+          failed++;
           continue;
         }
       }
       _persistedFileState.delete(path);
       removed++;
     }
-    _lastPersistTime = Date.now();
+    if (!failed) _lastPersistTime = Date.now();
     const parts = [];
     if (written) parts.push(written + " written");
     if (removed) parts.push(removed + " removed");
     log("Persistence [" + (label || "manual") + "]: " + parts.join(", ") +
         " of " + currentStats.size + " total files.", "ok");
     updateStorageInfo();
-  } catch(e) { log("Persistence: OPFS write error: " + e.message, "warn"); }
+  } catch(e) { failed++; log("Persistence: OPFS write error: " + e.message, "warn"); }
+  return { written, removed, failed };
 }
 
 function startAutoPersist() {
@@ -2466,6 +2719,7 @@ async function runDriveAutoSync() {
 
 function restartDriveAutoSyncTimer() {
   if (_driveAutoSyncTimer) { clearInterval(_driveAutoSyncTimer); _driveAutoSyncTimer = null; }
+  if (LOCAL_ONLY) return;
   if (!driveAutoSyncEnabled() || !googleAccessToken) { updateDriveAutoSyncUI(); return; }
   const ms = driveAutoSyncRate() * 1000;
   _driveAutoSyncTimer = setInterval(runDriveAutoSync, ms);
@@ -2491,8 +2745,9 @@ async function buildSavesBundle() {
 }
 
 async function exportSaves() {
+  try {
   const bundle = await buildSavesBundle();
-  if (!bundle) { showToast("No save data to export."); return; }
+  if (!bundle) { showToast("暂无可以导出的存档。"); return; }
   const blob = new Blob([JSON.stringify(bundle)], { type: "application/json" });
   const url  = URL.createObjectURL(blob);
   const a    = Object.assign(document.createElement("a"), {
@@ -2500,15 +2755,29 @@ async function exportSaves() {
   });
   a.click(); URL.revokeObjectURL(url);
   log("Exported " + bundle.files.length + " files.", "ok");
-  showToast("✓ Exported " + bundle.files.length + " files");
+  showToast("✓ 已导出 " + bundle.files.length + " 个文件");
+  } catch (error) {
+    log("Save export failed: " + error.message, "err");
+    showToast("导出存档失败，请保留当前页面并重试。错误详情已记录。", 6000);
+  }
 }
 
-async function importSavesBundle(bundle, label) {
+function importSavesBundle(bundle, label) {
+  const task = persistQueue.then(() => importSavesBundleNow(bundle, label));
+  persistQueue = task.catch(() => {});
+  return task;
+}
+
+async function importSavesBundleNow(bundle, label) {
   const FS = window.FS;
-  if (!Array.isArray(bundle.files)) throw new Error("Invalid bundle format");
+  if (!Array.isArray(bundle?.files)) throw new Error("存档包格式不正确");
+  const existing = (await opfsWalk(OPFS_PERSIST_DIR, "", false)).map(file => file.path);
+  if (FS) existing.push(...fsStatDir(FS, detectMemstickDir(FS)).keys());
+  const { entries, skipped } = selectPersistEntries(bundle.files, existing);
+  // Decode the whole selected backup before replacing any existing file.
+  const decoded = entries.map(entry => ({ ...entry, bytes: base64ToBytes(entry.data) }));
   let count = 0;
-  for (const { path, data } of bundle.files) {
-    const bytes = base64ToBytes(data);
+  for (const { path, bytes } of decoded) {
     await opfsPut(path, bytes);
     if (FS) {
       fsMkdirP(FS, path.substring(0, path.lastIndexOf("/")));
@@ -2516,8 +2785,8 @@ async function importSavesBundle(bundle, label) {
     }
     count++;
   }
-  log("Imported " + count + " files from " + label, "ok");
-  showToast("✓ Imported " + count + " save files");
+  log("已导入 " + count + " files from " + label, "ok");
+  showToast("✓ 已导入 " + count + " 个存档文件" + (skipped ? "；保留已有存档，跳过 " + skipped + " 个旧目录文件。" : ""), skipped ? 6500 : 3200);
   refreshSavesTab(); updateStorageInfo();
   return count;
 }
@@ -2526,7 +2795,7 @@ async function importSaves(file) {
   try {
     const bundle = JSON.parse(await file.text());
     await importSavesBundle(bundle, file.name);
-  } catch(e) { log("Import error: " + e.message, "err"); showToast("❌ Import failed: " + e.message); }
+  } catch(e) { log("Import error: " + e.message, "err"); showToast("导入失败：" + e.message); }
 }
 
 /* ── Google Drive sync (100% client side) ───────────────────────── */
@@ -2627,6 +2896,7 @@ function handleGoogleRedirectCallback() {
 }
 
 function startGoogleRedirectLogin(clientId) {
+  if (LOCAL_ONLY) return;
   const state = window.crypto?.randomUUID?.() || String(Date.now()) + Math.random().toString(16).slice(2);
   preferences.setItem(GOOGLE_OAUTH_STATE_KEY, state);
   const params = new URLSearchParams({
@@ -2642,6 +2912,7 @@ function startGoogleRedirectLogin(clientId) {
 }
 
 async function runDriveAction(name, action) {
+  if (LOCAL_ONLY) { showToast("此版本使用本机存档，未启用云端服务。"); return; }
   activeDriveAction = name || "";
   try {
     return await action();
@@ -2713,6 +2984,7 @@ function initDriveConfigUI() {
 }
 
 function loadGoogleIdentityScript() {
+  if (LOCAL_ONLY) return Promise.reject(new Error("此版本未启用云端服务"));
   if (window.google?.accounts?.oauth2) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const existing = document.querySelector("script[data-google-gis]");
@@ -2733,6 +3005,7 @@ function loadGoogleIdentityScript() {
 }
 
 async function ensureGoogleToken(interactive) {
+  if (LOCAL_ONLY) throw new Error("此版本未启用云端服务");
   const clientId = googleClientId();
   if (!clientId) throw new Error("Set a Google OAuth Web client ID first");
   if (restoreGoogleToken()) return googleAccessToken;
@@ -2797,7 +3070,7 @@ function disconnectGoogleDrive() {
   googleDriveSavesId = "";
   googleDriveGamesId = "";
   googleDriveRemoteCache = { saves: [], games: [] };
-  if (token && window.google?.accounts?.oauth2?.revoke) {
+  if (!LOCAL_ONLY && token && window.google?.accounts?.oauth2?.revoke) {
     try { window.google.accounts.oauth2.revoke(token, () => {}); } catch(e) {}
   }
   restartDriveAutoSyncTimer(); // will stop timer since not connected
@@ -2992,7 +3265,7 @@ async function connectGoogleDrive() {
     log("Google Drive connect failed: " + message, "err");
     setDriveInfo("Connect failed", "bad");
     setDriveActivity("Connect failed: " + message, "bad");
-    showToast("❌ " + message, 5000);
+    showToast("操作未完成：" + message, 5000);
   } finally {
     hideLoading();
   }
@@ -3021,7 +3294,7 @@ async function uploadSavesToDrive() {
     const message = googleAuthErrorMessage(e);
     log("Google Drive save upload failed: " + message, "err");
     setDriveActivity("Save upload failed: " + message, "bad");
-    showToast("❌ " + message, 5000);
+    showToast("操作未完成：" + message, 5000);
   } finally {
     hideLoading();
   }
@@ -3051,7 +3324,7 @@ async function restoreDriveSave(file) {
     const message = googleAuthErrorMessage(e);
     log("Google Drive save restore failed: " + message, "err");
     setDriveActivity("Save restore failed: " + message, "bad");
-    showToast("❌ " + message, 5000);
+    showToast("操作未完成：" + message, 5000);
   } finally {
     hideLoading();
   }
@@ -3083,7 +3356,7 @@ async function uploadGamesToDrive() {
     const message = googleAuthErrorMessage(e);
     log("Google Drive game upload failed: " + message, "err");
     setDriveActivity("Game upload failed: " + message, "bad");
-    showToast("❌ " + message, 5000);
+    showToast("操作未完成：" + message, 5000);
   } finally {
     hideLoading();
   }
@@ -3101,14 +3374,14 @@ async function downloadDriveGame(file) {
     log("Google Drive: downloaded game " + storedName + " (" + formatBytes(stored.size) + ").", "ok");
     setDriveActivity("Downloaded " + storedName + " to OPFS", "ok");
     setStatus("Downloaded " + storedName + " to OPFS", "ok");
-    showToast("✓ Downloaded " + storedName);
+    showToast("✓ 已导出 " + storedName);
     await refreshLibrary();
     updateStorageInfo();
   } catch(e) {
     const message = googleAuthErrorMessage(e);
     log("Google Drive game download failed: " + message, "err");
     setDriveActivity("Game download failed: " + message, "bad");
-    showToast("❌ " + message, 5000);
+    showToast("操作未完成：" + message, 5000);
   } finally {
     hideLoading();
   }
@@ -3127,12 +3400,12 @@ async function downloadAllDriveGames() {
     }
     for (const game of games) await downloadDriveGame(game);
     setDriveActivity("Downloaded " + games.length + " remote game" + (games.length === 1 ? "" : "s"), "ok");
-    showToast("✓ Downloaded " + games.length + " remote game" + (games.length === 1 ? "" : "s"));
+    showToast("✓ 已导出 " + games.length + " remote game" + (games.length === 1 ? "" : "s"));
   } catch(e) {
     const message = googleAuthErrorMessage(e);
     log("Google Drive bulk game download failed: " + message, "err");
     setDriveActivity("Bulk game download failed: " + message, "bad");
-    showToast("❌ " + message, 5000);
+    showToast("操作未完成：" + message, 5000);
   } finally {
     hideLoading();
   }
@@ -3140,12 +3413,13 @@ async function downloadAllDriveGames() {
 
 /* ── Runtime game loading (while PPSSPP is running) ─────────────── */
 async function loadGameAtRuntime(file) {
+  if (!validateGameSelection(file)) return;
   const FS = window.FS;
-  if (!FS) { showToast("⚠ Start PPSSPP first"); return; }
+  if (!FS) { showToast("请先启动模拟器。"); return; }
   const safe = file.name.replace(/[^a-zA-Z0-9._\-]/g, "_");
   const path = VIRTUAL_GAME_DIR + "/" + safe;
   log("Loading game at runtime: " + file.name + " → " + path, "info");
-  showToast("Loading " + file.name + "…");
+  showToast("正在载入 " + file.name + "…");
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     try { FS.mkdirTree(VIRTUAL_GAME_DIR); } catch(e) {}
@@ -3153,10 +3427,10 @@ async function loadGameAtRuntime(file) {
     await opfsPutGame(file.name, file);
     refreshEmulatorGameBrowser("mounted " + safe);
     log("Game file ready at " + path + " and saved to OPFS. Open it from PPSSPP\u2019s game browser (Home \u2192 Games).", "ok");
-    showToast("✓ " + file.name + " loaded → open from PPSSPP game browser", 5000);
+    showToast("✓ " + file.name + " 已载入，请从模拟器游戏列表中打开", 5000);
     refreshLibrary();
     updateStorageInfo();
-  } catch(e) { log("Runtime game load failed: " + e.message, "err"); showToast("❌ " + e.message); }
+  } catch(e) { log("Runtime game load failed: " + e.message, "err"); showToast("操作未完成：" + e.message); }
 }
 
 /* ── AudioWorklet player ────────────────────────────────────────── */
@@ -3481,7 +3755,7 @@ async function createOrResumeAudioContext() {
 
 async function unlockAudio() {
   // Collect ALL known contexts: SDL's + any tracked
-  const sdlCtx = window.Module?.SDL2?.audioContext;
+  const sdlCtx = (window.Module?.SDL2 || window.SDL2)?.audioContext;
   const all = [...trackedAudioContexts];
   if (sdlCtx && !all.includes(sdlCtx)) all.push(sdlCtx);
   for (const ctx of all) {
@@ -3897,7 +4171,7 @@ function shortGamepadName(id) {
 function updateGamepadBadge() {
   if (!gamepadBadge) return;
   const n = connectedGamepads.size;
-  if (n === 0) { gamepadBadge.textContent = "\uD83C\uDFAE No controller"; gamepadBadge.className = "badge"; }
+  if (n === 0) { gamepadBadge.textContent = "🎮 未连接手柄"; gamepadBadge.className = "badge"; }
   else {
     const active = connectedGamepads.get(activeGamepadIndex);
     const names = activeGamepadIndex >= 0 && active
@@ -3918,21 +4192,21 @@ function updateGamepadSelector() {
 
   const auto = document.createElement("option");
   auto.value = "-1";
-  auto.textContent = "All controllers";
+  auto.textContent = "全部手柄";
   gamepadSelect.appendChild(auto);
 
   const sorted = [...connectedGamepads.values()].sort((a, b) => a.index - b.index);
   for (const gp of sorted) {
     const opt = document.createElement("option");
     opt.value = String(gp.index);
-    opt.textContent = "Pad " + (gp.index + 1) + ": " + shortGamepadName(gp.id);
+    opt.textContent = "手柄 " + (gp.index + 1) + ": " + shortGamepadName(gp.id);
     gamepadSelect.appendChild(opt);
   }
 
   if (activeGamepadIndex >= 0 && !connectedGamepads.has(activeGamepadIndex)) {
     const missing = document.createElement("option");
     missing.value = previous;
-    missing.textContent = "Pad " + (activeGamepadIndex + 1) + " (waiting)";
+    missing.textContent = "手柄 " + (activeGamepadIndex + 1) + "（等待连接）";
     gamepadSelect.appendChild(missing);
   }
 
@@ -3947,7 +4221,7 @@ function setActiveGamepadIndex(index, source = "selector") {
   preferences.setItem(GAMEPAD_SELECT_KEY, String(activeGamepadIndex));
 
   const gp = connectedGamepads.get(activeGamepadIndex);
-  const label = activeGamepadIndex < 0 ? "All controllers" : (gp ? shortGamepadName(gp.id) : "Pad " + (activeGamepadIndex + 1));
+  const label = activeGamepadIndex < 0 ? "全部手柄" : (gp ? shortGamepadName(gp.id) : "手柄 " + (activeGamepadIndex + 1));
   log("GAMEPAD active controller: " + label + " (" + source + ")", "info");
   updateGamepadSelector();
   reconnectKnownGamepadsForSDL("controller select", true);
@@ -4129,7 +4403,7 @@ function probeWebGLFeaturesWithPref(powerPreference) {
   if (!gl) {
     log("WebGL2 unavailable — GLES3/WebGL2 rendering cannot start.", "err");
     if (gpuBadge) {
-      gpuBadge.textContent = "\uD83D\uDDA5 No WebGL2";
+      gpuBadge.textContent = "不支持 WebGL2";
       gpuBadge.className = "badge error";
     }
     return;
@@ -4201,13 +4475,13 @@ async function reloadForCrossOriginIsolation(reason) {
   let attempts;
   try { attempts = Number(sessionStorage.getItem(COI_RELOAD_KEY) || "0"); }
   catch (_) {
-    setStatus("Browser session storage is blocked. Allow site data to enable the secure runtime, or use a server with COOP/COEP headers.", "err");
+    setStatus("浏览器阻止了网站存储。请允许此网站保存数据后重新载入。", "err");
     hideLoading();
     return false;
   }
   if (attempts >= 3) {
     log("Cross-origin isolation still unavailable after reload attempts. SharedArrayBuffer cannot be used on this page.", "err");
-    setStatus("SharedArrayBuffer unavailable. Check secure connection and browser site permissions, then reload.", "err");
+    setStatus("浏览器未能启用运行所需的共享内存。请检查安全连接和网站权限后重新载入。", "err");
     hideLoading();
     setStartButtonMode("idle");
     return false;
@@ -4215,19 +4489,19 @@ async function reloadForCrossOriginIsolation(reason) {
 
   if (!("serviceWorker" in navigator)) {
     log("Service workers are unavailable, cannot synthesize COOP/COEP headers for GitHub Pages.", "err");
-    setStatus("This browser cannot enable SharedArrayBuffer for GitHub Pages.", "err");
+    setStatus("此浏览器无法启用运行所需的共享内存，请使用支持的网站环境或其他浏览器。", "err");
     return false;
   }
 
   try { sessionStorage.setItem(COI_RELOAD_KEY, String(attempts + 1)); }
   catch (_) {
-    setStatus("Browser session storage is blocked. Allow site data, then reload.", "err");
+    setStatus("浏览器阻止了网站存储，请允许此网站保存数据后重新载入。", "err");
     hideLoading();
     return false;
   }
   log("Cross-origin isolation required for WASM threads; reloading through service worker" + (reason ? " (" + reason + ")" : "") + ".", "warn");
-  setStatus("Preparing SharedArrayBuffer isolation\u2026", "run");
-  showLoading("Preparing secure runtime\u2026");
+  setStatus("正在准备运行环境…", "run");
+  showLoading("正在准备运行环境…");
 
   try {
     await navigator.serviceWorker.register("sw.js", { scope: "./" });
@@ -4269,8 +4543,8 @@ async function preloadAssets(FS) {
       const i = idx++, rel = files[i];
       const target = VIRTUAL_ASSETS + "/" + rel;
       const dir = dirname(target); if (dir) FS.mkdirTree(dir);
-      setStatus("Loading asset " + (i+1) + "/" + files.length + ": " + rel, "run");
-      showLoading("Loading assets\u2026 " + (i+1) + " / " + files.length, (i+1) / files.length);
+      setStatus("正在载入资源 " + (i+1) + "/" + files.length + ": " + rel, "run");
+      showLoading("正在载入模拟器资源… " + (i+1) + " / " + files.length, (i+1) / files.length);
       const res = await fetch(ASSET_DIR + rel);
       if (!res.ok) throw new Error("Asset not found: " + rel + " (" + res.status + ")");
       FS.writeFile(target, new Uint8Array(await res.arrayBuffer()));
@@ -4305,8 +4579,8 @@ async function preloadStoredGames(FS) {
     const target = VIRTUAL_GAME_DIR + "/" + name;
     if (FS.analyzePath?.(target)?.exists) continue;
     try {
-      setStatus("Preloading game " + (ok + 1) + "/" + favorites.length + ": " + name, "run");
-      showLoading("Preloading game: " + name);
+      setStatus("正在载入游戏 " + (ok + 1) + "/" + favorites.length + ": " + name, "run");
+      showLoading("正在载入游戏：" + name);
       const data = await opfsReadGame(name);
       FS.writeFile(target, data, { canOwn: true });
       ok++;
@@ -4365,8 +4639,8 @@ async function preloadGame(FS) {
   const sourceName = selectedGame ? selectedGame.name : selectedStoredGame;
   const safe = sourceName.replace(/[^a-zA-Z0-9._-]/g, "_");
   const path = VIRTUAL_GAME_DIR + "/" + safe;
-  setStatus("Fast loading game: " + sourceName, "run");
-  showLoading("Fast loading game: " + sourceName);
+  setStatus("正在准备游戏：" + sourceName, "run");
+  showLoading("正在准备游戏：" + sourceName);
 
   if (selectedGame) {
     const fastPath = mountGameFileFast(FS, selectedGame, safe, "selected file");
@@ -4380,8 +4654,8 @@ async function preloadGame(FS) {
     if (fastPath) return fastPath;
   }
 
-  setStatus("Loading game into memory: " + sourceName, "run");
-  showLoading("Loading game: " + sourceName);
+  setStatus("正在载入游戏：" + sourceName, "run");
+  showLoading("正在载入游戏：" + sourceName);
   const bytes = selectedGame
     ? new Uint8Array(await selectedGame.arrayBuffer())
     : await opfsReadGame(selectedStoredGame);
@@ -4424,7 +4698,7 @@ let fpsFrames = 0, fpsLast = performance.now();
     fpsFrames = 0; fpsLast = now;
     if (started && fpsBadge && !fullscreenElement()) {
       fpsBadge.style.display = "block";
-      fpsBadge.textContent = fps + " Hz · browser";
+      fpsBadge.textContent = fps + " Hz · 页面刷新率";
     } else if (fpsBadge) {
       fpsBadge.style.display = "none";
     }
@@ -4466,8 +4740,8 @@ async function exportDiagnosticReport() {
 }
 
 async function resetEmulatorSettings() {
-  if (started && !runtimeFailed) { showToast("Reload first, then reset settings before starting PPSSPP."); return; }
-  if (!confirm("Reset emulator settings? Games, saves and controller mappings are kept. A backup of each settings file is retained.")) return;
+  if (started && !runtimeFailed) { showToast("请先在游戏内存档并同步到本机，再重新载入页面；启动前可以重置模拟器设置。"); return; }
+  if (!confirm("重置模拟器设置吗？游戏、存档和手柄映射会保留，原设置也会备份。")) return;
   try {
     await persistQueue;
     const entries = await opfsWalk(OPFS_PERSIST_DIR, "", false);
@@ -4478,9 +4752,10 @@ async function resetEmulatorSettings() {
       try { window.FS?.unlink(path); } catch (_) {}
       _persistedFileState.delete(path);
     }
-    showToast("Settings reset. Reload to start with defaults.", 6000);
+    await resetPlayerSettings();
+    showToast("设置已重置。重新载入页面后将使用默认设置。", 6000);
     log("Recovery: reset " + configs.length + " emulator settings file(s); saves retained.", "ok");
-  } catch (e) { showToast("Settings reset failed: " + e.message, 6000); }
+  } catch (e) { showToast("重置设置失败：" + e.message, 6000); }
 }
 on("diagnosticReportBtn", "click", exportDiagnosticReport);
 on("recoveryReportBtn", "click", exportDiagnosticReport);
@@ -4502,14 +4777,15 @@ function failRuntime(message) {
 
 canvas?.addEventListener("webglcontextlost", event => {
   event.preventDefault();
-  if (started) failRuntime("Graphics context lost. Reload to restart; stored saves are retained.");
+  if (started) failRuntime("游戏画面连接已中断。请重新载入页面；已同步到本机的存档会保留。");
 });
 
 /* ── Launch ─────────────────────────────────────────────────────── */
 async function start() {
   if (started) return;
+  if (!validateGameSelection(selectedGame || selectedStoredGame)) return;
   if (!canvas) {
-    setStatus("Runtime UI is not ready: canvas element missing", "err");
+    setStatus("游戏画面尚未准备好，请重新载入页面。", "err");
     return;
   }
   if (!window.crossOriginIsolated || typeof SharedArrayBuffer === "undefined") {
@@ -4522,14 +4798,14 @@ async function start() {
   log("Launch button clicked.", "info");
   setStartButtonMode("loading");
   const startupWatchdog = setTimeout(() => {
-    if (!runtimeReady) failRuntime("Startup timed out. Export diagnostics or reload to retry.");
+    if (!runtimeReady) failRuntime("启动等待超时，请导出错误详情，或重新载入页面后重试。");
   }, 120000);
   window.ModuleStartupWatchdog = startupWatchdog;
   fileLabel?.classList.add("disabled");
   if (fileInput) fileInput.disabled = true;
   if (gpuSelectEl) gpuSelectEl.disabled = true;
   canvas?.focus();
-  showLoading("Initializing audio\u2026");
+  showLoading("正在准备声音…");
   let preAudioCtx = null;
   try {
     preAudioCtx = new AudioContext({ latencyHint: "interactive" });
@@ -4572,10 +4848,12 @@ async function start() {
       updateAudioDebugFromLog(text);
       if (!/WASM audio (push|callback) count=/.test(text)) log("stderr: " + text);
     },
-    setStatus(text) { if (text) setStatus(text, "run"); },
+    setStatus(text) {
+      if (text) { log("Core startup: " + text, "dim"); setStatus("正在载入模拟器资源…", "run"); }
+    },
     monitorRunDependencies(left) {
       log("Run dependencies remaining: " + left);
-      if (left > 0) setStatus("Runtime init: " + left + " dependencies", "run");
+      if (left > 0) setStatus("正在准备模拟器：" + left + " 项资源待载入", "run");
     },
     preRun: [function () {
       configureEmulatorKeyboard(ENV);
@@ -4587,9 +4865,11 @@ async function start() {
         try {
           await preloadAssets(FS);
           // Restore persisted config and saves from OPFS
-          setStatus("Restoring saves from OPFS\u2026", "run");
-          showLoading("Restoring saves\u2026");
+          setStatus("正在恢复本机存档…", "run");
+          showLoading("正在恢复存档…");
           await loadPersistedFiles(FS);
+          await playerSettingsQueue;
+          await restorePlayerSettings();
           await forceGamesDirectoryConfig(FS);
           gameArg = await preloadGame(FS);
           await preloadStoredGames(FS);
@@ -4597,13 +4877,13 @@ async function start() {
           Module.arguments.push(...emulatorLaunchArgs());
           if (gameArg) Module.arguments.push(gameArg);
           log("PPSSPP arguments: " + JSON.stringify(Module.arguments), "info");
-          setStatus("Starting PPSSPP\u2026", "run");
-          showLoading("Starting PPSSPP\u2026");
+          setStatus("正在启动模拟器…", "run");
+          showLoading("正在启动模拟器…");
           prepared = true;
         } catch(err) {
           log("preRun failed: " + (err?.stack || err), "err");
           setStatus(err.message || String(err), "err");
-          failRuntime("Startup failed: " + (err.message || String(err)));
+          failRuntime("启动失败：" + (err.message || String(err)));
           window.Module?.abort?.(err);
           return;
         } finally {
@@ -4616,7 +4896,7 @@ async function start() {
       clearTimeout(window.ModuleStartupWatchdog);
       log("Runtime initialized.", "ok");
       runtimeReady = true;
-      setStatus(gameArg ? "Game running" : "Library ready", "ok");
+      setStatus(gameArg ? "模拟器已启动" : "游戏库已就绪", "ok");
       hideLoading();
       setStartButtonMode("running");
       // Show runtime game loader button
@@ -4625,7 +4905,7 @@ async function start() {
       startAutoPersist();
       updateStorageInfo();
       refreshLibrary();
-      setTimeout(() => setStatus(gameArg ? "Game running" : "Library ready", "ok"), 600);
+      setTimeout(() => setStatus(gameArg ? "模拟器已启动" : "游戏库已就绪", "ok"), 600);
       setTimeout(describeAudio, 1000);
       setTimeout(() => reconnectKnownGamepadsForSDL("runtime ready", true), 300);
       setTimeout(() => reconnectKnownGamepadsForSDL("runtime settled", true), 1500);
@@ -4635,7 +4915,7 @@ async function start() {
       setTimeout(() => { if (runtimeReady) void persistFiles(window.FS, "init"); }, 8000);
     },
     onAbort(reason) {
-      failRuntime("Runtime abort: " + reason);
+      failRuntime("模拟器运行中断：" + reason);
     }
   };
 
@@ -4648,7 +4928,7 @@ async function start() {
       log("Network: SOCKFS relay hook was not available in this build.", "warn");
     }
   };
-  script.onerror = () => failRuntime("Failed to load PPSSPPSDL.js. Check the connection and reload to retry.");
+  script.onerror = () => failRuntime("模拟器文件载入失败，请检查连接后重新载入页面。");
   document.body.appendChild(script);
 }
 
@@ -4736,13 +5016,17 @@ function installTouchMouseShim() {
 on(fileInput, "change", () => {
   selectedGame = fileInput?.files?.[0] || null;
   selectedStoredGame = null;
-  if (fileLabel) fileLabel.title = selectedGame ? selectedGame.name : "Open game";
+  if (!validateGameSelection(selectedGame)) {
+    if (idleSubtitle) idleSubtitle.textContent = gameFileValidationError(selectedGame);
+    return;
+  }
+  if (fileLabel) fileLabel.title = selectedGame ? selectedGame.name : "选择游戏文件";
   // Update the visible text node inside the label
   const textNode = fileLabel?.firstChild;
   if (textNode && textNode.nodeType === 3)
-    textNode.textContent = (selectedGame ? "\uD83D\uDCC2 " + selectedGame.name : "\uD83D\uDCC2 Open Game") + " ";
+    textNode.textContent = (selectedGame ? "\uD83D\uDCC2 " + selectedGame.name : "📂 选择游戏文件") + " ";
   updateIdleOverlay();
-  setStatus(selectedGame ? "Selected: " + selectedGame.name : "Ready. Open a game file or use Library.");
+  setStatus(selectedGame ? "已选择：" + selectedGame.name : "请选择本机游戏文件，或打开游戏库。");
 });
 
 on(startBtn, "click", () => {
@@ -4809,7 +5093,7 @@ on("savesList", "click", async e => {
       await deleteSavePair(JSON.parse(button.dataset.paths || "[]"));
     }
   } catch(err) {
-    showToast("❌ " + (err?.message || err));
+    showToast("操作未完成：" + (err?.message || err));
     log("Save action failed: " + (err?.message || err), "err");
   }
 });
@@ -4818,7 +5102,7 @@ on("importSaveSlotFile", "change", e => {
   importSaveSlot(f); e.target.value = "";
 });
 on("deleteAllSavesBtn", "click", async () => {
-  if (!confirm("Delete ALL save data and save states?\nThis cannot be undone.")) return;
+  if (!confirm("删除全部游戏存档和即时存档吗？\n删除后无法撤销，请先导出备份。")) return;
   // Delete only save-related OPFS entries (not config files or games)
   const all = await opfsWalk();
   for (const { path } of all) {
@@ -4847,17 +5131,18 @@ on("deleteAllSavesBtn", "click", async () => {
       }
     }
   }
-  showToast("🗑 All save data deleted");
+  showToast("全部存档已删除");
   refreshSavesTab(); updateStorageInfo();
 });
 
 // ── Storage panel buttons ────────────────────────────────────────
-on("syncNowBtn", "click", async () => {
-  const FS = window.FS;
-  if (!FS) { showToast("⚠ Start PPSSPP first"); return; }
-  await persistFiles(FS, "manual");
-  showToast("✓ Synced to OPFS");
-});
+on("syncNowBtn", "click", syncPlayerFiles);
+on("player-save-files", "click", syncPlayerFiles);
+on("player-pause-game", "click", openCoreMenu);
+on("player-resume-game", "click", returnToGameCanvas);
+for (const id of ["player-render-resolution", "player-show-fps", "player-touch-controls"]) {
+  on(id, "change", savePlayerSettings);
+}
 
 on("exportSavesBtn", "click", exportSaves);
 
@@ -4868,10 +5153,13 @@ on("importSavesFile", "change", e => {
 });
 
 // ── Google Drive buttons ─────────────────────────────────────────
-initDriveConfigUI();
-restartDriveAutoSyncTimer(); // restore auto-sync timer if was enabled
-if (handleGoogleRedirectCallback()) activatePanelTab("drive");
+if (!LOCAL_ONLY) {
+  initDriveConfigUI();
+  restartDriveAutoSyncTimer();
+  if (handleGoogleRedirectCallback()) activatePanelTab("drive");
+}
 window.addEventListener("storage", e => {
+  if (LOCAL_ONLY) return;
   if (e.key !== GOOGLE_TOKEN_KEY) return;
   if (restoreGoogleToken()) {
     setDriveActivity("Google connected. Reading Drive…", "run");
@@ -4913,7 +5201,7 @@ on("driveRefreshBtn", "click", async () => {
     const message = googleAuthErrorMessage(e);
     log("Google Drive refresh failed: " + message, "err");
     setDriveActivity("Refresh failed: " + message, "bad");
-    showToast("❌ " + message, 5000);
+    showToast("操作未完成：" + message, 5000);
   }
 });
 on("driveUploadSavesBtn", "click", () => runDriveAction("upload-saves", uploadSavesToDrive));
@@ -4950,13 +5238,13 @@ driveRemoteList?.addEventListener("click", e => {
 });
 
 on("clearStorageBtn", "click", async () => {
-  if (!confirm("Delete ALL saved data and stored games from OPFS? This cannot be undone.")) return;
+  if (!confirm("清除本机的全部存档、设置和游戏缓存吗？删除后无法撤销，请先导出存档备份。")) return;
   await opfsClearAll();
   _lastPersistTime = 0;
   refreshLibrary();
   updateStorageInfo();
   log("OPFS storage cleared.", "warn");
-  showToast("🗑 All saved data cleared");
+  showToast("本机存储已清空");
 });
 
 window.addEventListener("pointerdown", () => { if (started) unlockAudio(); });
@@ -5066,6 +5354,7 @@ async function togglePPSSPPFullscreen() {
   const toggleFullscreen = window.Module?._PPSSPP_ToggleFullscreen;
   if (typeof toggleFullscreen !== "function") {
     log("Fullscreen toggle requested before PPSSPP runtime is ready.", "warn");
+    showToast("浏览器暂不允许全屏，请直接点击全屏按钮重试。");
     return;
   }
   toggleFullscreen();
@@ -5120,6 +5409,8 @@ updateInfoPanel();
 refreshLibrary();
 updateStorageInfo();    // populate OPFS tab with stats on load
 refreshSavesTab();      // populate Saves tab from OPFS on load (no FS needed)
+refreshPlayerSettingsUI();
+void restorePlayerSettings();
 
 /* ── PWA: Service Worker registration ──────────────────────────── */
 if ("serviceWorker" in navigator) {
@@ -5134,7 +5425,7 @@ if ("serviceWorker" in navigator) {
         const sw = reg.installing;
         sw?.addEventListener("statechange", () => {
           if (sw.state === "installed" && navigator.serviceWorker.controller) {
-            showToast("🔄 Update available – reload to apply", 6000);
+            showToast("发现新版本。请先在游戏内存档并同步到本机，再重新载入页面。", 6000);
           }
         });
       });

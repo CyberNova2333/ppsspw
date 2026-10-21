@@ -1,14 +1,17 @@
 {
-  "name": "PPSSPP Web",
-  "short_name": "PPSSPP",
-  "description": "PPSSPP – PSP emulator running in your browser via WebAssembly",
+  "name": "PPSSPP Web · PSP 网页模拟器",
+  "short_name": "PPSSPP Web",
+  "description": "在浏览器中运行 PSP 游戏，使用中文操作面板调整画质、下载游戏并管理本机存档。",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "landscape",
   "background_color": "#101113",
   "theme_color": "#18191c",
-  "categories": ["games", "entertainment"],
+  "categories": [
+    "games",
+    "entertainment"
+  ],
   "icons": [
     {
       "src": "icons/icon-192.png",
@@ -35,21 +38,6 @@
       "purpose": "maskable"
     }
   ],
-  "screenshots": [
-    {
-      "src": "icons/screenshot-wide.png",
-      "sizes": "1280x800",
-      "type": "image/png",
-      "form_factor": "wide",
-      "label": "PPSSPP Web – desktop view"
-    },
-    {
-      "src": "icons/screenshot-mobile.png",
-      "sizes": "390x844",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "PPSSPP Web – mobile view"
-    }
-  ],
-  "prefer_related_applications": false
+  "prefer_related_applications": false,
+  "lang": "zh-CN"
 }
