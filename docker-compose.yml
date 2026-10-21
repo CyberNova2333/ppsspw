@@ -1,24 +1,12 @@
+# Build make pages first. Only the packaged player is exposed.
 services:
-  ppsspp-wasm-server:
-    build:
-      context: .
-      dockerfile: server/Dockerfile
+  player:
+    image: python:3.13-slim
+    working_dir: /app
+    command: ["python3", "server/serve-player.py", "--bind", "0.0.0.0", "--port", "17881"]
     ports:
-      - "${PPSSPP_PORT:-8081}:8081"
+      - "127.0.0.1:17881:17881"
     volumes:
-      - ${WASM_ROOT:-./deps/ppsspp-wasm}:/wasm:ro
-      - relay-tls:/certs
-      - relay-auth:/data
-    environment:
-      RELAY_AUTH_MODE: ${RELAY_AUTH_MODE:-open}
-      RELAY_AUTH_DB: /data/relay-auth.sqlite3
-      RELAY_MAX_CONNECTIONS: ${RELAY_MAX_CONNECTIONS:-512}
-      RELAY_TIMEOUT: ${RELAY_TIMEOUT:-60}
-      RELAY_LATENCY_MS: ${RELAY_LATENCY_MS:-0}
-      RELAY_JITTER_MS: ${RELAY_JITTER_MS:-0}
+      - ./server/serve-player.py:/app/server/serve-player.py:ro
+      - ./wasm-page/dist/ppsspp-web:/app/wasm-page/dist/ppsspp-web:ro
     init: true
-    stop_grace_period: 10s
-    restart: unless-stopped
-volumes:
-  relay-tls:
-  relay-auth:
