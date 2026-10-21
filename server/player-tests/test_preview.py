@@ -32,7 +32,7 @@ class PreviewTests(unittest.TestCase):
                     self.assertEqual(response.headers['Cross-Origin-Opener-Policy'], 'same-origin')
                     self.assertEqual(response.headers['Cross-Origin-Embedder-Policy'], 'require-corp')
                     self.assertEqual(response.headers['Content-Security-Policy'],
-                                     "connect-src 'self' blob:; form-action 'none'; frame-src 'none'")
+                                     "connect-src 'self' blob: https:; worker-src 'self' blob:; form-action 'none'; frame-src 'none'")
                     self.assertIn('游戏', response.read().decode())
                 with urllib.request.urlopen(base + '/core.wasm') as response:
                     self.assertEqual(response.headers.get_content_type(), 'application/wasm')
@@ -46,13 +46,13 @@ class PreviewTests(unittest.TestCase):
                 server.server_close()
                 worker.join()
 
-    def test_explicit_cdn_origins_only_extend_connections(self):
+    def test_runtime_https_sources_and_local_test_origins_only_extend_connections(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / 'public'
             root.mkdir()
             (root / 'index.html').write_text('player')
             (Path(temporary) / 'game.iso').write_bytes(b'private game')
-            origins = ['https://cdn.example', 'https://mirror.example:8443', 'https://cdn.example']
+            origins = ['http://127.0.0.1:17882', 'http://127.0.0.1:17882']
             server = ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(
                 preview.PlayerHandler, directory=str(root), cdn_origins=origins))
             worker = threading.Thread(target=server.serve_forever, daemon=True)
@@ -61,8 +61,8 @@ class PreviewTests(unittest.TestCase):
             try:
                 with urllib.request.urlopen(base + '/') as response:
                     self.assertEqual(response.headers['Content-Security-Policy'],
-                                     "connect-src 'self' blob: https://cdn.example https://mirror.example:8443; "
-                                     "form-action 'none'; frame-src 'none'")
+                                     "connect-src 'self' blob: https: http://127.0.0.1:17882; "
+                                     "worker-src 'self' blob:; form-action 'none'; frame-src 'none'")
                     self.assertEqual(response.headers['Cross-Origin-Embedder-Policy'], 'require-corp')
                 with self.assertRaises(urllib.error.HTTPError) as error:
                     urllib.request.urlopen(base + '/resources/game.iso')
