@@ -1,185 +1,147 @@
+<header class="player-header">
+  <div class="logo" aria-label="PPSSPP Web">
+    <img class="brand-logo" src="images/ppsspp-icon.png" alt="" width="30" height="30">
+    <span class="brand-name">PPSSPP Web<small>PSP 网页模拟器</small></span>
+  </div>
+  <div class="hbar-group" id="launchGroup">
+    <label class="btn" id="fileLabel" title="选择本地游戏镜像"><i data-lucide="folder-open"></i><span class="btn-lbl">选择游戏</span><input id="gameFile" aria-label="选择本地 PSP 游戏镜像" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx"></label>
+    <button id="startBtn" aria-label="开始游玩" class="primary" title="开始游玩"><i data-lucide="play"></i><span class="btn-lbl">开始游玩</span></button>
+    <label class="btn" id="runtimeIsoLabel" style="display:none" title="载入另一个游戏，然后在模拟器的游戏列表中打开"><i data-lucide="upload"></i><span class="btn-lbl">载入游戏</span><input id="runtimeIsoFile" aria-label="运行时载入游戏镜像" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx"></label>
+  </div>
+  <div class="hbar-group" id="displayGroup"><button id="fullscreenBtn" class="icon-btn" title="全屏游玩" aria-label="全屏游玩"><i data-lucide="maximize"></i></button></div>
+  <div class="hbar-end">
+    <span id="gamepadBadge" class="badge" title="手柄连接状态"><i data-lucide="gamepad-2"></i>未连接手柄</span>
+    <span id="gpuBadge" class="badge" title="图形设备"><i data-lucide="monitor"></i>检测中…</span>
+    <button id="panelToggleBtn" class="panel-btn" title="打开游戏库与设置" aria-label="打开游戏库与设置" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="panel-right"></i><span class="btn-lbl">游戏库与设置</span></button>
+  </div>
+</header>
 
-  <header>
-    <span class="logo">
-      <img class="brand-logo" src="images/ppsspp-icon.png" alt="" width="32" height="32">
-      <span class="brand-name">PPSSPP <small>WEB</small></span>
-    </span>
-
-    <div class="hbar-sep"></div>
-
-    <div class="hbar-group" id="launchGroup">
-      <label class="btn" id="fileLabel">
-        <i data-lucide="folder-open"></i><span class="btn-lbl"> Open Game</span>
-        <input id="gameFile" aria-label="Open PSP game" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx">
-      </label>
-      <button id="startBtn" aria-label="Start PPSSPP" class="primary"><i data-lucide="play"></i><span class="btn-lbl"> Start PPSSPP</span></button>
-      <label class="btn" id="runtimeIsoLabel" style="display:none" title="Load a game file while running — then open it from PPSSPP game browser">
-        <i data-lucide="upload"></i><span class="btn-lbl"> Load Game</span>
-        <input id="runtimeIsoFile" aria-label="Load PSP game" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx">
-      </label>
+<div class="body-main">
+  <button id="fsMenuBackdrop" class="fullscreen-menu-backdrop" type="button" aria-label="关闭游玩菜单" tabindex="-1" hidden></button>
+  <div class="fullscreen-toolbar">
+    <button id="fsMenuToggle" type="button" aria-label="打开游玩菜单" aria-controls="fsMenuActions" aria-expanded="false" title="游玩菜单"><span aria-hidden="true">···</span></button>
+    <div id="fsMenuActions" class="fullscreen-actions" role="group" aria-label="全屏游玩操作" hidden>
+      <button id="fsPanelBtn" type="button" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="panel-right"></i>游戏库与设置</button>
+      <button id="fsExitBtn" type="button"><i data-lucide="minimize"></i>退出全屏</button>
     </div>
+  </div>
+  <section class="stage" aria-label="游戏画面">
+    <canvas id="canvas" width="1280" height="720" tabindex="0" aria-label="游戏画面，支持键盘、手柄与触控操作"></canvas>
+    <div id="idleOverlay">
+      <div class="idle-content">
+        <div class="idle-copy">
+          <div class="idle-kicker"><span class="ready-dot" aria-hidden="true"></span>本地游玩 · 存档留在此设备</div>
+          <h1 class="idle-title">PPSSPP Web<span>PSP 网页模拟器</span></h1>
+          <p class="idle-subtitle" id="idleSubtitle">选择本地 PSP 游戏文件开始游玩。已有游戏和存档可在右上角的「游戏库与设置」中查看。</p>
+          <div class="idle-actions">
+            <label class="btn primary" for="gameFile"><i data-lucide="folder-open"></i><span>选择游戏文件</span></label>
+            <button id="idleStartBtn" type="button"><i data-lucide="play"></i><span>开始游玩</span></button>
+          </div>
+          <p class="idle-formats">支持 ISO、CSO、CHD、PBP、ELF、PRX<span>请先解压 ZIP / 7z 压缩包，再选择其中的游戏文件。</span></p>
+          <div class="play-notes">
+            <p><i data-lucide="gamepad-2"></i><span>手机推荐横屏。触控按键可在「画质与操作」中设置。</span></p>
+            <p><i data-lucide="save"></i><span>离开前先在游戏内保存，再同步存档到本机。</span></p>
+          </div>
+        </div>
+        <div class="idle-guide" aria-label="游玩步骤">
+          <div class="guide-heading">开始游玩</div>
+          <ol>
+            <li><span class="guide-number">01</span><div><strong>选择本地镜像</strong><p>游戏文件在你的设备上读取。</p></div></li>
+            <li><span class="guide-number">02</span><div><strong>开始或继续游戏</strong><p>载入后，在游戏内选择新游戏或读档。</p></div></li>
+            <li><span class="guide-number">03</span><div><strong>保存游戏进度</strong><p>存档可导出备份，方便下次继续。</p></div></li>
+          </ol>
+          <div class="guide-footnote">基于 PPSSPP · 不包含游戏镜像</div>
+        </div>
+      </div>
+    </div>
+    <div id="loadOverlay" role="status" aria-live="polite">
+      <div class="spinner" aria-hidden="true"></div>
+      <div class="load-label" id="loadLabel">正在准备游戏环境…</div>
+      <div class="progress-wrap" aria-hidden="true"><div id="progressBar"></div></div>
+    </div>
+    <div id="runtimeRecovery" class="runtime-recovery" role="alert" hidden>
+      <strong>游戏运行已中断</strong>
+      <p id="runtimeFailureMessage"></p>
+      <p>可以先导出诊断报告。若刚刚调整了画质，请重置模拟器设置后重新载入；游戏文件与已有存档会保留。</p>
+      <div class="recovery-actions">
+        <button id="recoveryReportBtn" type="button">导出诊断报告</button>
+        <button id="recoverySettingsBtn" type="button">重置模拟器设置</button>
+        <button id="recoveryReloadBtn" type="button" class="primary">重新载入</button>
+      </div>
+    </div>
+    <div id="fpsBadge" title="浏览器画面刷新频率，不代表游戏实际帧率">0 Hz · 浏览器</div>
+    <div id="stageMini"><span class="stage-dot" id="stageDot"></span><span id="stageMiniText">等待选择游戏</span></div>
+  </section>
 
-    <div class="hbar-sep"></div>
-
-    <div class="hbar-group" id="displayGroup">
-      <button id="fullscreenBtn" class="icon-btn" title="Fullscreen"><i data-lucide="maximize"></i></button>
-      <select id="gamepadSelect" class="btn" title="Active controller">
-        <option value="-1">All controllers</option>
+  <button id="panelBackdrop" type="button" aria-label="关闭游戏库与设置" tabindex="-1"></button>
+  <aside id="sidePanel" aria-label="游戏库、存档与设置">
+    <div class="status-bar"><div class="status-dot" id="statusDot"></div><span id="statusText" role="status">已就绪。选择本地游戏，或从游戏库继续。</span><button id="panelCloseBtn" class="icon-btn" type="button" aria-label="关闭面板" title="关闭面板"><i data-lucide="x"></i></button></div>
+    <div class="panel-tab-select-wrap">
+      <label class="panel-section-caption" for="panelTabSelect">游玩面板</label>
+      <select id="panelTabSelect" class="panel-tab-select" aria-label="选择面板栏目">
+        <option value="library">游戏库</option><option value="settings">画质与操作</option><option value="saves">我的存档</option><option value="storage">本机存储</option><option value="info">系统诊断</option><option value="log">运行日志</option><option value="about">关于与许可</option>
       </select>
     </div>
-
-    <div class="hbar-sep gpu-sep"></div>
-    <div class="hbar-group" id="gpuSelectWrap">
-      <select id="gpuSelect" class="btn" title="GPU preference">
-        <option value="high-performance">Dedicated GPU</option>
-        <option value="low-power">Integrated GPU</option>
-        <option value="default">Auto GPU</option>
-      </select>
+    <div class="tabs" aria-hidden="true">
+      <div class="tab active" data-tab="library">游戏库</div><div class="tab" data-tab="settings">画质与操作</div><div class="tab" data-tab="saves">我的存档</div><div class="tab" data-tab="storage">本机存储</div><div class="tab" data-tab="info">系统诊断</div><div class="tab" data-tab="log">运行日志</div><div class="tab" data-tab="about">关于与许可</div>
     </div>
 
-    <div class="hbar-end">
-      <span id="gamepadBadge" class="badge" title="Gamepad"><i data-lucide="gamepad-2"></i> No controller</span>
-      <span id="gpuBadge"     class="badge" title="GPU"><i data-lucide="monitor"></i> Detecting&hellip;</span>
-      <span id="driveBadge"   class="badge drive-badge" title="Google Drive — click to go to Drive tab" role="button" tabindex="0" style="display:none">
-        <i data-lucide="cloud"></i> <span id="driveBadgeText">Drive</span>
-      </span>
-      <a class="top-official-link" href="https://www.ppsspp.org/" target="_blank" rel="noopener" title="Original PPSSPP website">
-        <span>PPSSPP.org</span><i data-lucide="external-link"></i>
-      </a>
-      <button id="panelToggleBtn" class="panel-btn" title="Toggle console panel" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="panel-right"></i><span class="btn-lbl"> Panel</span></button>
-    </div>
-  </header>
-
-  <div class="body-main">
-    <button id="fsMenuBackdrop" class="fullscreen-menu-backdrop" type="button" aria-label="Close game menu" tabindex="-1" hidden></button>
-    <div class="fullscreen-toolbar">
-      <button id="fsMenuToggle" type="button" aria-label="Game menu" aria-controls="fsMenuActions" aria-expanded="false" title="Game menu"><span aria-hidden="true">···</span></button>
-      <div id="fsMenuActions" class="fullscreen-actions" role="group" aria-label="Game controls" hidden>
-        <button id="fsPanelBtn" type="button" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="panel-right"></i> Settings &amp; library</button>
-        <button id="fsExitBtn" type="button"><i data-lucide="minimize"></i> Exit fullscreen</button>
+    <div class="tab-panel active" id="tabLibrary">
+      <div id="libraryPanel">
+        <div class="panel-intro"><h2>你的游戏库</h2><p>保存在当前浏览器中的游戏。换设备前请另行保留原始文件。</p></div>
+        <div class="library-toolbar">
+          <label class="btn primary" id="libraryImportLabel"><i data-lucide="folder-plus"></i>添加游戏<input id="libraryImportFile" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx" aria-label="向本机游戏库添加游戏"></label>
+          <button id="refreshLibraryBtn" title="刷新本机游戏库"><i data-lucide="refresh-cw"></i>刷新</button>
+          <span class="library-preload-count" id="libraryPreloadCount">0 个预载</span><span class="library-count" id="libraryCount">0 个游戏</span>
+          <div class="legacy-integrations" hidden inert aria-hidden="true"><input id="libraryUrlInput" type="url" autocomplete="off" spellcheck="false" aria-label="已停用的网络导入"><button id="libraryDownloadUrlBtn" type="button">网络导入已停用</button></div>
+        </div>
+        <div id="libraryEmpty">游戏库还是空的。<br>添加本地游戏文件，就可以从这里开始。</div>
+        <div id="libraryGrid" class="library-grid" style="display:none"></div>
       </div>
     </div>
-    <section class="stage">
-      <canvas id="canvas" width="1280" height="720" tabindex="0"></canvas>
-      <div id="idleOverlay">
-        <div class="idle-content">
-          <div class="idle-copy">
-            <div class="idle-kicker">PlayStation Portable · Browser edition</div>
-            <h1 class="idle-title">Play your<br>PSP games.</h1>
-            <p class="idle-subtitle" id="idleSubtitle">Your PSP games, right here. Open a game to play, or start the emulator and explore your library.</p>
-            <div class="idle-actions">
-              <button id="idleStartBtn" class="primary" type="button"><i data-lucide="play"></i><span> Start PPSSPP</span></button>
-              <label class="btn" for="gameFile"><i data-lucide="folder-open"></i><span> Open Game</span></label>
-              <a class="idle-repo-link" href="https://github.com/root-hunter/ppsspp-web" target="_blank" rel="noopener" title="Open PPSSPP Web repository">
-                <i data-lucide="git-fork"></i><span> Source on GitHub</span>
-              </a>
-            </div>
-            <p class="idle-formats">ISO · CSO · CHD · PBP · ELF · PRX <span>Local files. No upload.</span></p>
-          </div>
-          <figure class="console-photo">
-            <img src="images/psp-3000.webp" alt="Silver Sony PSP-3000 console" width="1200" height="663" fetchpriority="high" decoding="async">
-            <figcaption><span>PSP–3000</span><span>Sony · PlayStation Portable</span></figcaption>
-          </figure>
+
+    <div class="tab-panel" id="tabSettings">
+      <div id="settingsPanel" class="settings-panel">
+        <div class="panel-intro"><h2>画质与操作</h2><p>让画面与操作适合你的设备。</p></div>
+        <section class="settings-section">
+          <h3>画面</h3>
+          <label class="setting-field" for="player-render-resolution"><span>渲染分辨率</span><select id="player-render-resolution"><option value="1">1× 原生 · 更轻量</option><option value="2">2× · 更清晰</option><option value="3">3× · 更精细</option></select></label>
+          <p class="setting-hint">手机先用 1×；运行流畅后再提高。更高分辨率会增加图形负载。</p>
+          <label class="setting-check"><input id="player-show-fps" type="checkbox"><span>在游戏内显示帧率</span></label>
+          <div id="gpuSelectWrap" class="setting-field"><label for="gpuSelect">图形设备偏好</label><select id="gpuSelect" class="btn" title="下次启动使用的图形设备偏好"><option value="high-performance">高性能</option><option value="low-power">节能</option><option value="default">自动选择</option></select></div>
+        </section>
+        <section class="settings-section">
+          <h3>操作</h3>
+          <label class="setting-check"><input id="player-touch-controls" type="checkbox" checked><span>显示屏幕触控按键</span></label>
+          <p class="setting-hint">手机建议横屏游玩；全屏时通过顶部「···」打开网页面板。</p>
+          <label class="setting-field" for="gamepadSelect"><span>使用的手柄</span><select id="gamepadSelect" class="btn" title="选择使用的手柄"><option value="-1">所有已连接手柄</option></select></label>
+          <p class="setting-hint">键盘、手柄映射与触控布局可在模拟器的「设置 → 控制」中调整。</p>
+        </section>
+        <p id="player-settings-status" class="settings-status" role="status" aria-live="polite">画质与触控设置用于下次启动，不会重启正在运行的游戏。</p>
+        <section class="settings-section">
+          <h3>当前游戏</h3>
+          <div class="player-actions"><button id="player-pause-game" type="button"><i data-lucide="settings"></i>模拟器菜单</button><button id="player-resume-game" type="button"><i data-lucide="play"></i>返回游戏画面</button></div>
+          <p class="setting-hint">返回画面会关闭网页面板。如仍显示模拟器菜单，请在其中选择「继续」。</p>
+          <button id="player-save-files" type="button" class="primary full-width"><i data-lucide="save"></i>同步存档到本机</button>
+          <p class="setting-hint">请先在游戏内保存。此按钮将已有存档写入浏览器存储。</p>
+        </section>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tabSaves">
+      <div id="savesPanel">
+        <div class="panel-intro inset-intro"><h2>我的存档</h2><p>先在游戏内保存，再同步到本机。重要进度建议导出一份备份。</p></div>
+        <div class="saves-toolbar">
+          <button id="refreshSavesBtn"><i data-lucide="refresh-cw"></i>刷新</button><button id="exportAllSavesBtn"><i data-lucide="download"></i>导出全部</button>
+          <label class="btn" id="importSaveSlotLabel" title="导入单个存档槽的 .ppsspp 文件"><i data-lucide="upload"></i>导入存档<input id="importSaveSlotFile" type="file" accept=".ppsspp,.json" aria-label="导入单个存档"></label>
+          <label class="btn" title="选择 PSP 的 SAVEDATA 文件夹或单个游戏存档文件夹"><i data-lucide="folder-open"></i>导入 PSP 文件夹<input id="nativeSaveFolderInput" type="file" webkitdirectory multiple aria-label="导入原生 PSP 存档文件夹"></label>
+          <button id="deleteAllSavesBtn" class="danger toolbar-push" title="删除全部存档"><i data-lucide="trash-2"></i>全部删除</button>
         </div>
-        <a class="idle-powered" href="https://github.com/root-hunter" target="_blank" rel="noopener" title="Powered by root-hunter">
-          <span class="idle-powered-dot"></span>
-          <span>Powered by</span>
-          <strong>root-hunter</strong>
-        </a>
+        <div id="savesEmpty">还没有找到存档。<br>在游戏内保存后，点「刷新」查看。</div><div id="savesList" style="display:none"></div><div class="saves-stats" id="savesStats"></div>
       </div>
-      <div id="loadOverlay">
-        <div class="spinner"></div>
-        <div class="load-label" id="loadLabel">Initializing&hellip;</div>
-        <div class="progress-wrap"><div id="progressBar"></div></div>
-      </div>
-      <div id="runtimeRecovery" class="runtime-recovery" role="alert" hidden>
-        <strong>The emulator stopped</strong>
-        <p id="runtimeFailureMessage"></p>
-        <p>Export a report to help diagnose the problem. If changing a graphics setting caused it, reset emulator settings before reloading. Games and saves are kept.</p>
-        <div class="recovery-actions">
-          <button id="recoveryReportBtn" type="button">Export report</button>
-          <button id="recoverySettingsBtn" type="button">Reset settings</button>
-          <button id="recoveryReloadBtn" type="button" class="primary">Reload</button>
-        </div>
-      </div>
-      <div id="fpsBadge" title="Browser refresh cadence; not the emulated game's frame rate">0 Hz · browser</div>
-      <div id="stageMini">
-        <span class="stage-dot" id="stageDot"></span>
-        <span id="stageMiniText">Ready</span>
-      </div>
-    </section>
+    </div>
 
-    <button id="panelBackdrop" type="button" aria-label="Close panel" tabindex="-1"></button>
-    <aside id="sidePanel" aria-label="Settings and information">
-      <div class="status-bar">
-        <div class="status-dot" id="statusDot"></div>
-        <span id="statusText">Ready. Open a game file or use Library.</span>
-        <button id="panelCloseBtn" class="icon-btn" type="button" aria-label="Close panel" title="Close panel"><i data-lucide="x"></i></button>
-      </div>
-
-      <div class="panel-tab-select-wrap">
-        <select id="panelTabSelect" class="panel-tab-select" aria-label="Panel section">
-          <option value="library">Library</option>
-          <option value="saves">Saves</option>
-          <option value="network">Network</option>
-          <option value="drive">Google Drive</option>
-          <option value="storage">OPFS Storage</option>
-          <option value="info">System</option>
-          <option value="log">Console</option>
-          <option value="about">About</option>
-        </select>
-      </div>
-
-      <div class="tabs" aria-hidden="true">
-        <div class="tab active" data-tab="library"><i data-lucide="gamepad-2"></i> Library</div>
-        <div class="tab"        data-tab="saves"><i data-lucide="save"></i> Saves</div>
-        <div class="tab"        data-tab="network"><i data-lucide="radio-tower"></i> Network</div>
-        <div class="tab"        data-tab="drive"><i data-lucide="cloud"></i> Drive</div>
-        <div class="tab"        data-tab="storage"><i data-lucide="hard-drive"></i> OPFS</div>
-        <div class="tab"        data-tab="info"><i data-lucide="settings"></i> System</div>
-        <div class="tab"        data-tab="log"><i data-lucide="terminal"></i> Console</div>
-        <div class="tab"        data-tab="about"><i data-lucide="info"></i> About</div>
-      </div>
-
-      <div class="tab-panel active" id="tabLibrary">
-        <div id="libraryPanel">
-          <div class="library-toolbar">
-            <button id="refreshLibraryBtn"><i data-lucide="refresh-cw"></i> Refresh</button>
-            <label class="btn" id="libraryImportLabel">
-              <i data-lucide="folder-plus"></i> Add Game
-              <input id="libraryImportFile" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx">
-            </label>
-            <input id="libraryUrlInput" type="url" placeholder="https://.../game.iso|cso|chd" autocomplete="off" spellcheck="false">
-            <button id="libraryDownloadUrlBtn"><i data-lucide="download"></i> Download</button>
-            <span class="library-preload-count" id="libraryPreloadCount">0 preload</span>
-            <span class="library-count" id="libraryCount">0 games</span>
-          </div>
-          <div id="libraryEmpty">No games in OPFS yet.<br>Add a game file or launch one once.</div>
-          <div id="libraryGrid" class="library-grid" style="display:none"></div>
-        </div>
-      </div>
-
-      <div class="tab-panel" id="tabSaves">
-        <div id="savesPanel">
-          <div class="saves-toolbar">
-            <button id="refreshSavesBtn"><i data-lucide="refresh-cw"></i> Refresh</button>
-            <button id="exportAllSavesBtn"><i data-lucide="download"></i> Export All</button>
-            <label class="btn" id="importSaveSlotLabel" title="Import a single save slot folder (.ppsspp)">
-              <i data-lucide="upload"></i> Import Slot
-              <input id="importSaveSlotFile" type="file" accept=".ppsspp,.json">
-            </label>
-            <label class="btn" title="Select a PSP SAVEDATA folder or one game's save folder">
-              <i data-lucide="folder-open"></i> PSP Folder
-              <input id="nativeSaveFolderInput" type="file" webkitdirectory multiple aria-label="Import native PSP save folder">
-            </label>
-            <button id="deleteAllSavesBtn" class="danger toolbar-push"><i data-lucide="trash-2"></i> All</button>
-          </div>
-          <div id="savesEmpty">Start PPSSPP and play a game,<br>then click Refresh to see your saves.</div>
-          <div id="savesList" style="display:none"></div>
-          <div class="saves-stats" id="savesStats"></div>
-        </div>
-      </div>
-
+    <div class="legacy-integrations" hidden inert aria-hidden="true"><span id="driveBadge" class="badge drive-badge" role="button" tabindex="-1"><span id="driveBadgeText">云端同步</span></span>
       <div class="tab-panel" id="tabNetwork">
         <div id="networkPanel">
           <section class="network-status" id="networkStatus" data-tone="neutral" role="status" aria-live="polite" aria-atomic="true">
@@ -287,160 +249,42 @@
         </div>
       </div>
 
-      <div class="tab-panel" id="tabStorage">
-        <div id="storagePanel">
-          <div class="info-group">
-            <h3>OPFS Persistence</h3>
-            <div class="info-row"><span class="info-key">Saved Files</span>  <span class="info-val" id="iStorageFiles">&#8212;</span></div>
-            <div class="info-row"><span class="info-key">Total Size</span>   <span class="info-val" id="iStorageSize">&#8212;</span></div>
-            <div class="info-row"><span class="info-key">Last Sync</span>    <span class="info-val" id="iLastSync">Never</span></div>
-            <div class="info-row"><span class="info-key">Auto-sync</span>    <span class="info-val good">Every 30 s</span></div>
-            <div class="info-row"><span class="info-key">Persist Path</span> <span class="info-val path-val" id="iMemstickPath">&#8212;</span></div>
-          </div>
-          <div class="storage-actions">
-            <button id="syncNowBtn"><i data-lucide="save"></i> Save Now (sync to OPFS)</button>
-            <button id="exportSavesBtn"><i data-lucide="download"></i> Export Saves (.ppsspp)</button>
-            <label class="btn" id="importSavesLabel">
-              <i data-lucide="upload"></i> Import Saves (.ppsspp)
-              <input id="importSavesFile" type="file" accept=".ppsspp,.json">
-            </label>
-            <button id="clearStorageBtn" class="danger"><i data-lucide="trash-2"></i> Clear All Saved Data</button>
-          </div>
-        </div>
-        <div class="panel-section-label">Persisted Files</div>
-        <div id="opfsFileList"><span class="empty-row">Loading&hellip;</span></div>
+
+    </div>
+
+    <div class="tab-panel" id="tabStorage">
+      <div id="storagePanel">
+        <div class="panel-intro"><h2>本机存储</h2><p>游戏、存档和设置保存在当前网站的浏览器存储中。清除网站数据会一并移除它们。</p></div>
+        <div class="info-group"><h3>存储状态</h3><div class="info-row"><span class="info-key">已保存文件</span><span class="info-val" id="iStorageFiles">—</span></div><div class="info-row"><span class="info-key">占用空间</span><span class="info-val" id="iStorageSize">—</span></div><div class="info-row"><span class="info-key">上次同步</span><span class="info-val" id="iLastSync">尚未同步</span></div><div class="info-row"><span class="info-key">自动同步</span><span class="info-val good">每 30 秒</span></div><div class="info-row"><span class="info-key">存储目录</span><span class="info-val path-val" id="iMemstickPath">—</span></div></div>
+        <div class="storage-actions"><button id="syncNowBtn"><i data-lucide="save"></i>同步到本机</button><button id="exportSavesBtn"><i data-lucide="download"></i>导出存档备份</button><label class="btn" id="importSavesLabel"><i data-lucide="upload"></i>导入存档备份<input id="importSavesFile" type="file" accept=".ppsspp,.json" aria-label="导入存档备份文件"></label><button id="clearStorageBtn" class="danger"><i data-lucide="trash-2"></i>清空全部本机数据</button></div>
       </div>
+      <div class="panel-section-label">已保存的文件</div><div id="opfsFileList"><span class="empty-row">正在读取…</span></div>
+    </div>
 
-      <div class="tab-panel" id="tabInfo">
-        <div id="infoPanel">
-          <div class="info-group">
-            <h3>Troubleshooting</h3>
-            <p class="about-text">Reports include browser details, graphics/audio settings and recent logs. Download and review before sharing; nothing is sent automatically.</p>
-            <div class="diagnostic-actions">
-              <button id="diagnosticReportBtn" type="button">Export diagnostic report</button>
-              <button id="resetEmulatorSettingsBtn" type="button">Reset emulator settings</button>
-            </div>
-            <p class="about-text">Reset settings before starting, or after a crash. Games, saved progress and controller mappings are kept.</p>
-          </div>
-          <div class="info-group">
-            <h3>WebGL / GPU</h3>
-            <div class="info-row"><span class="info-key">Renderer</span>   <span class="info-val" id="iRenderer">&#8212;</span></div>
-            <div class="info-row"><span class="info-key">Vendor</span>     <span class="info-val" id="iVendor">&#8212;</span></div>
-            <div class="info-row"><span class="info-key">Version</span>    <span class="info-val" id="iVersion">&#8212;</span></div>
-            <div class="info-row"><span class="info-key">GLSL</span>       <span class="info-val" id="iGlsl">&#8212;</span></div>
-            <div class="info-row"><span class="info-key">Max Texture</span><span class="info-val" id="iMaxTex">&#8212;</span></div>
-            <div class="info-row"><span class="info-key">Max Aniso</span>  <span class="info-val" id="iAniso">&#8212;</span></div>
-          </div>
-          <div class="info-group">
-            <h3>Extensions</h3>
-            <div class="info-row"><span class="info-key">WebGL2</span>             <span class="info-val" id="iWebgl2">&#8212;</span></div>
-            <div class="info-row"><span class="info-key">stencil_texturing</span>  <span class="info-val" id="iStencil">&#8212;</span></div>
-            <div class="info-row"><span class="info-key">multi_draw</span>         <span class="info-val" id="iMultiDraw">&#8212;</span></div>
-          </div>
-          <div class="info-group">
-            <h3>Environment</h3>
-            <div class="info-row"><span class="info-key">crossOriginIsolated</span><span class="info-val" id="iCOI">&#8212;</span></div>
-            <div class="info-row"><span class="info-key">SharedArrayBuffer</span>  <span class="info-val" id="iSAB">&#8212;</span></div>
-            <div class="info-row"><span class="info-key">HW Concurrency</span>     <span class="info-val" id="iHWC">&#8212;</span></div>
-            <div class="info-row"><span class="info-key">SIMD128</span>            <span class="info-val" id="iSIMD">&#8212;</span></div>
-          </div>
-          <div class="info-group">
-            <h3>Audio</h3>
-            <div class="info-row"><span class="info-key">AudioContext</span> <span class="info-val" id="iACtx">&#8212;</span></div>
-            <div class="info-row"><span class="info-key">Sample Rate</span>  <span class="info-val" id="iASR">&#8212;</span></div>
-            <div class="info-row"><span class="info-key">SDL Callbacks</span><span class="info-val" id="iACB">0</span></div>
-            <div class="info-row"><span class="info-key">Peak Level</span>   <span class="info-val" id="iAPeak">0</span></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="tab-panel" id="tabAbout">
-        <div id="aboutPanel">
-          <div class="about-hero">
-            <img class="about-mark" src="images/ppsspp-icon.png" alt="PPSSPP" width="40" height="40">
-            <div>
-              <div class="about-title">PPSSPP Web</div>
-              <div class="about-subtitle">Unofficial WebAssembly fork maintained for browser play.</div>
-            </div>
-          </div>
-
-          <div class="info-group">
-            <h3>Photography</h3>
-            <p class="about-text">PSP-3000 photo by <a href="https://commons.wikimedia.org/wiki/File:PSP-3000-Silver.png" target="_blank" rel="noopener">Evan-Amos / Wikimedia Commons</a>, <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener">CC BY-SA 3.0</a>. Resized and converted to WebP.</p>
-          </div>
-          <div class="info-group">
-            <h3>PPSSPP-WASM Fork</h3>
-            <div class="about-text">
-              The emulator core used here comes from <a href="https://github.com/root-hunter/ppsspp-wasm" target="_blank" rel="noopener">ppsspp-wasm</a>,
-              the WebAssembly-focused fork maintained by <a href="https://github.com/root-hunter" target="_blank" rel="noopener">root-hunter</a>.
-              It carries the PPSSPP browser build work that this web shell runs.
-            </div>
-            <div class="about-links">
-              <a href="https://github.com/root-hunter/ppsspp-wasm" target="_blank" rel="noopener">WASM fork repository</a>
-              <a href="https://github.com/root-hunter" target="_blank" rel="noopener">Maintainer</a>
-            </div>
-          </div>
-
-          <div class="info-group">
-            <h3>Web Shell</h3>
-            <div class="about-text">
-              PPSSPP Web packages that WASM build with a browser UI, GitHub Pages deployment, PWA shell, local browser storage helpers, and web-player workflow.
-            </div>
-            <div class="about-links">
-              <a href="https://root-hunter.github.io/ppsspp-web/" target="_blank" rel="noopener">Live web build</a>
-              <a href="https://www.ppsspp.org/legacybuilds/" target="_blank" rel="noopener">Official PPSSPP listing</a>
-              <a href="https://github.com/root-hunter/ppsspp-web" target="_blank" rel="noopener">Web repository</a>
-              <a href="https://github.com/root-hunter" target="_blank" rel="noopener">Maintainer</a>
-            </div>
-          </div>
-
-          <div class="info-group">
-            <h3>Original PPSSPP</h3>
-            <div class="about-text">
-              PPSSPP is a PSP emulator created by Henrik Rydgard, with additional code by many contributors.
-              This fork is not an official PPSSPP release and preserves the original project's credits and license terms.
-            </div>
-            <div class="about-links">
-              <a href="https://github.com/hrydgard/ppsspp" target="_blank" rel="noopener">Original project</a>
-            </div>
-          </div>
-
-          <div class="info-group">
-            <h3>Credits / Legal</h3>
-            <div class="about-text">
-              Games, BIOS files, and copyrighted PSP software are not included. Use your own legally obtained files.
-              See the repository license and original PPSSPP credits for full attribution.
-            </div>
-            <div class="about-links">
-              <a href="LICENSE.TXT" target="_blank" rel="noopener">License</a>
-              <a href="README.md" target="_blank" rel="noopener">README</a>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="tab-panel" id="tabLog">
-        <div id="logPanel"><pre id="log"></pre></div>
-        <div class="log-toolbar">
-          <input id="logFilter" placeholder="Filter&hellip;" type="search" autocomplete="off" spellcheck="false">
-          <button id="clearLogBtn" title="Clear"><i data-lucide="trash-2"></i></button>
-        </div>
-      </div>
-    </aside>
-  </div>
-
-  <div id="toast"></div>
-  <div id="gameInfoModal" aria-hidden="true">
-    <div class="game-info-dialog" role="dialog" aria-modal="true" aria-labelledby="gameInfoTitle">
-      <div class="game-info-cover" id="gameInfoCover"></div>
-      <div class="game-info-body">
-        <div class="game-info-title" id="gameInfoTitle"></div>
-        <div id="gameInfoRows"></div>
-      </div>
-      <div class="game-info-actions">
-        <button id="gameInfoPlayBtn" class="primary"><i data-lucide="play"></i> Play</button>
-        <button id="gameInfoFavoriteBtn"><i data-lucide="hard-drive"></i> Preload</button>
-        <button id="gameInfoCloseBtn"><i data-lucide="x"></i> Close</button>
+    <div class="tab-panel" id="tabInfo">
+      <div id="infoPanel">
+        <div class="panel-intro"><h2>系统诊断</h2><p>遇到黑屏、无声或运行中断时，可以在这里查看信息。</p></div>
+        <div class="info-group"><h3>排查与恢复</h3><p class="about-text">报告包含浏览器、图形与声音设置及近期日志。文件会下载到本机，分享前可先检查内容。</p><div class="diagnostic-actions"><button id="diagnosticReportBtn" type="button">导出诊断报告</button><button id="resetEmulatorSettingsBtn" type="button">重置模拟器设置</button></div><p class="about-text">可在启动前或运行中断后重置。游戏、已有存档和手柄映射会保留。</p></div>
+        <div class="info-group"><h3>图形设备</h3><div class="info-row"><span class="info-key">渲染设备</span><span class="info-val" id="iRenderer">—</span></div><div class="info-row"><span class="info-key">厂商</span><span class="info-val" id="iVendor">—</span></div><div class="info-row"><span class="info-key">图形接口版本</span><span class="info-val" id="iVersion">—</span></div><div class="info-row"><span class="info-key">着色器版本</span><span class="info-val" id="iGlsl">—</span></div><div class="info-row"><span class="info-key">纹理尺寸上限</span><span class="info-val" id="iMaxTex">—</span></div><div class="info-row"><span class="info-key">各向异性过滤上限</span><span class="info-val" id="iAniso">—</span></div></div>
+        <div class="info-group"><h3>图形能力</h3><div class="info-row"><span class="info-key">WebGL 2</span><span class="info-val" id="iWebgl2">—</span></div><div class="info-row"><span class="info-key">模板纹理扩展</span><span class="info-val" id="iStencil">—</span></div><div class="info-row"><span class="info-key">批量绘制扩展</span><span class="info-val" id="iMultiDraw">—</span></div></div>
+        <div class="info-group"><h3>浏览器环境</h3><div class="info-row"><span class="info-key">跨源隔离</span><span class="info-val" id="iCOI">—</span></div><div class="info-row"><span class="info-key">共享内存</span><span class="info-val" id="iSAB">—</span></div><div class="info-row"><span class="info-key">逻辑处理器数量</span><span class="info-val" id="iHWC">—</span></div><div class="info-row"><span class="info-key">向量指令支持</span><span class="info-val" id="iSIMD">—</span></div></div>
+        <div class="info-group"><h3>声音</h3><div class="info-row"><span class="info-key">音频状态</span><span class="info-val" id="iACtx">—</span></div><div class="info-row"><span class="info-key">采样率</span><span class="info-val" id="iASR">—</span></div><div class="info-row"><span class="info-key">音频回调次数</span><span class="info-val" id="iACB">0</span></div><div class="info-row"><span class="info-key">音量峰值</span><span class="info-val" id="iAPeak">0</span></div></div>
       </div>
     </div>
-  </div>
+
+    <div class="tab-panel" id="tabAbout">
+      <div id="aboutPanel">
+        <div class="about-hero"><img class="about-mark" src="images/ppsspp-icon.png" alt="PPSSPP 标识" width="40" height="40"><div><div class="about-title">PPSSPP Web</div><div class="about-subtitle">PSP 网页模拟器 · 基于 PPSSPP</div></div></div>
+        <div class="info-group"><h3>这个入口</h3><p class="about-text">在浏览器中运行 PSP 游戏，提供中文操作面板、画质设置、下载续传和本机存档管理。模拟器核心来自 PPSSPP，本站不包含游戏镜像与游戏素材。</p></div>
+        <div class="info-group"><h3>原始 PPSSPP</h3><p class="about-text">PPSSPP 由 Henrik Rydgard 创建，众多贡献者共同开发。本项目保留上游署名与许可，并非 PPSSPP 官方发行版。</p><div class="about-links"><a href="https://www.ppsspp.org/" target="_blank" rel="noopener">PPSSPP 官方网站</a><a href="https://github.com/hrydgard/ppsspp" target="_blank" rel="noopener">原始项目源码</a></div></div>
+        <div class="info-group"><h3>网页版本与维护者</h3><p class="about-text">模拟器网页构建来自 root-hunter 维护的 ppsspp-wasm；网页外壳、本机存储与播放器功能基于其 ppsspp-web 项目。</p><div class="about-links"><a href="https://github.com/root-hunter/ppsspp-wasm" target="_blank" rel="noopener">模拟器网页分支</a><a href="https://github.com/root-hunter/ppsspp-web" target="_blank" rel="noopener">上游网页源码</a><a href="https://github.com/root-hunter" target="_blank" rel="noopener">上游维护者</a></div></div>
+        <div class="info-group"><h3>许可与资源署名</h3><p class="about-text">本项目按 GPLv3 提供代码，上游保留 GPL-2.0-or-later 许可。游戏内容的权利属于各自权利人，代码许可不重新授权游戏内容。</p><div class="about-links"><a href="LICENSE" target="_blank" rel="noopener">本项目许可全文</a><a href="UPSTREAM-LICENSE.txt" target="_blank" rel="noopener">上游许可全文</a></div><details class="asset-credits"><summary>随上游保留的图片资源署名</summary><p class="about-text">PSP-3000 设备照片来自 <a href="https://commons.wikimedia.org/wiki/File:PSP-3000-Silver.png" target="_blank" rel="noopener">Evan-Amos / Wikimedia Commons</a>，采用 <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener">CC BY-SA 3.0</a>，上游已调整尺寸并转换为 WebP。</p></details></div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tabLog"><div class="panel-intro inset-intro"><h2>运行日志</h2><p>供排查问题使用，普通游玩时可以关闭此面板。</p></div><div id="logPanel"><pre id="log" aria-label="模拟器运行日志"></pre></div><div class="log-toolbar"><input id="logFilter" placeholder="筛选日志…" aria-label="筛选运行日志" type="search" autocomplete="off" spellcheck="false"><button id="clearLogBtn" title="清空日志" aria-label="清空日志"><i data-lucide="trash-2"></i></button></div></div>
+  </aside>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="gameInfoModal" aria-hidden="true"><div class="game-info-dialog" role="dialog" aria-modal="true" aria-labelledby="gameInfoTitle"><div class="game-info-cover" id="gameInfoCover"></div><div class="game-info-body"><div class="game-info-title" id="gameInfoTitle"></div><div id="gameInfoRows"></div></div><div class="game-info-actions"><button id="gameInfoPlayBtn" class="primary"><i data-lucide="play"></i>开始游玩</button><button id="gameInfoFavoriteBtn"><i data-lucide="hard-drive"></i>预载到本机</button><button id="gameInfoCloseBtn"><i data-lucide="x"></i>关闭</button></div></div></div>
