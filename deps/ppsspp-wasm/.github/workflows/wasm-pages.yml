@@ -1,0 +1,39 @@
+name: Build WASM release
+
+on:
+  push:
+    branches:
+      - wasm
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wasm-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build PPSSPP WASM
+    runs-on: ubuntu-latest
+    container:
+      image: emscripten/emsdk:5.0.7
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Configure Git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ninja-build ca-certificates
+
+      - name: Build release
+        run: make wasm-release CMAKE=/usr/bin/cmake WASM_JOBS="-j$(nproc)"

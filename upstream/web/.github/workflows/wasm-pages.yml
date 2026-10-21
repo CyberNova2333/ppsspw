@@ -1,0 +1,201 @@
+name: Build WASM, publish Pages and deploy relay
+
+on:
+  push:
+    branches:
+      - wasm
+  pull_request:
+    branches:
+      - wasm
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.event.pull_request.number || 'publish' }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build PPSSPP Web
+    runs-on: ubuntu-latest
+    container:
+      image: emscripten/emsdk:6.0.12
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: Configure Git safe directory
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/deps/ppsspp-wasm"
+
+      - name: Verify pinned PPSSPP WASM revision
+        shell: bash
+        run: |
+          expected="$(git ls-tree HEAD deps/ppsspp-wasm | awk '{print $3}')"
+          actual="$(git -C deps/ppsspp-wasm rev-parse HEAD)"
+          test -n "$expected" && test "$actual" = "$expected"
+          echo "Building pinned PPSSPP WASM revision $actual"
+
+      - name: Install build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ninja-build ca-certificates
+
+      - name: Build release
+        run: make wasm-release CMAKE=/usr/bin/cmake WASM_JOBS="-j$(nproc)"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.22.0'
+          cache: npm
+          cache-dependency-path: wasm-page/package-lock.json
+
+      - name: Install npm
+        run: npm install --global npm@12.2.0
+
+      - name: Install Angular dependencies
+        run: npm --prefix wasm-page ci
+
+      - name: Test browser runtime
+        run: npm --prefix wasm-page test
+
+      - name: Build static Pages artifact
+        run: make app-build-pages
+
+      - name: Configure GitHub Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v6
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: wasm-page/dist/ppsspp-web
+
+  deploy:
+    name: Deploy GitHub Pages
+    if: github.event_name != 'pull_request'
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5
+
+  build-relay:
+    name: Build and publish relay image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.name }}
+      digest: ${{ steps.publish.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Test relay
+        # Python matches the production image.
+        run: |
+          python3 -m unittest discover -s server/tests -v
+
+      - name: Image name
+        id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=ghcr.io/${REPOSITORY,,}/relay" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/wasm'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push relay
+        id: publish
+        uses: docker/build-push-action@v6
+        with:
+          context: ./server
+          file: ./server/relay.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/wasm' }}
+          tags: |
+            ${{ steps.image.outputs.name }}:sha-${{ github.sha }}
+            ${{ steps.image.outputs.name }}:latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=relay
+          cache-to: type=gha,mode=max,scope=relay
+
+  deploy-relay:
+    name: Deploy relay on Server
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/wasm'
+    needs: build-relay
+    runs-on: self-hosted
+    timeout-minutes: 15
+    concurrency:
+      group: oracle-relay-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    environment:
+      name: oracle-relay
+    steps:
+      - name: Checkout deployment configuration
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          sparse-checkout: deploy/relay
+
+      - name: Configure temporary Docker credentials directory
+        shell: bash
+        run: |
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/relay-docker-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR for pull
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and start relay with Caddy
+        shell: bash
+        env:
+          RELAY_IMAGE: ${{ needs.build-relay.outputs.image }}@${{ needs.build-relay.outputs.digest }}
+          RELAY_DOMAIN: ${{ secrets.RELAY_DOMAIN }}
+          ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
+          RELAY_AUTH_MODE: ${{ vars.RELAY_AUTH_MODE }}
+        run: bash deploy/relay/deploy.sh

@@ -1,0 +1,4 @@
+[submodule "ext/filesystem"]
+	path = ext/filesystem
+	url = https://github.com/root-hunter/filesystem.git
+	branch = ppsspp-web-emscripten-filesystem

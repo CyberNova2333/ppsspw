@@ -1,0 +1,24 @@
+services:
+  ppsspp-wasm-server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    ports:
+      - "${PPSSPP_PORT:-8081}:8081"
+    volumes:
+      - ${WASM_ROOT:-./deps/ppsspp-wasm}:/wasm:ro
+      - relay-tls:/certs
+      - relay-auth:/data
+    environment:
+      RELAY_AUTH_MODE: ${RELAY_AUTH_MODE:-open}
+      RELAY_AUTH_DB: /data/relay-auth.sqlite3
+      RELAY_MAX_CONNECTIONS: ${RELAY_MAX_CONNECTIONS:-512}
+      RELAY_TIMEOUT: ${RELAY_TIMEOUT:-60}
+      RELAY_LATENCY_MS: ${RELAY_LATENCY_MS:-0}
+      RELAY_JITTER_MS: ${RELAY_JITTER_MS:-0}
+    init: true
+    stop_grace_period: 10s
+    restart: unless-stopped
+volumes:
+  relay-tls:
+  relay-auth:

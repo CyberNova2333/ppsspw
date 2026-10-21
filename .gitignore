@@ -1,0 +1,31 @@
+# Local game packages, extracted assets, saves and research evidence.
+/resources/
+/.playwright-mcp/
+/.local/
+/*.iso
+/*.cso
+/*.chd
+/*.iso.zip
+
+# Generated builds and local tools; upstream source remains ordinary files.
+/node_modules/
+/wasm-page/node_modules/
+/wasm-page/.angular/
+/wasm-page/dist/
+/wasm-page/public/build-wasm/
+/wasm-page/public/build-wasm-release/
+/wasm-page/public/build-info.json
+/deps/ppsspp-wasm/build-wasm/
+/deps/ppsspp-wasm/build-wasm-release/
+/deps/ppsspp-wasm/build-ffmpeg-wasm/
+/build-wasm/
+/build-wasm-release/
+/assets/
+/certs/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Local configuration must never be published.
+/.env
+/.env.local
