@@ -1967,9 +1967,11 @@ int main(int argc, char *argv[]) {
 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
 	// Force fullscreen if the resolution is too low to run windowed.
+#if !defined(__EMSCRIPTEN__)
 	if (g_DesktopWidth < 480 * 2 && g_DesktopHeight < 272 * 2) {
 		mode |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 	}
+#endif
 
 	// If we're on mobile, don't try for windowed either.
 #if defined(MOBILE_DEVICE) && !PPSSPP_PLATFORM(SWITCH)
@@ -2041,6 +2043,14 @@ int main(int argc, char *argv[]) {
 #endif
 	NativeInit(remain_argc, (const char **)remain_argv, path, external_dir, nullptr);
 	WASM_TRACE("NativeInit done");
+
+#if defined(__EMSCRIPTEN__)
+	// The web shell owns fullscreen and sizes the canvas through CSS. Starting
+	// SDL in fullscreen (including from an imported INI) keeps screen-sized
+	// logical dimensions and bypasses its CSS resize handler on small devices.
+	g_Config.bFullScreen = false;
+	mode &= ~(SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP);
+#endif
 
 	// Use the setting from the config when initing the window.
 	if (g_Config.bFullScreen) {
