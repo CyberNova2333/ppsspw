@@ -30,9 +30,6 @@ main:
         cancel-in-wait: true
       stages:
         - *build-stage
-        - name: 注入部署配置并验证静态产物
-          imports: "${BUILD_CONFIG_URL}"
-          script: node scripts/ci/prepare-deploy.mjs
         - name: 直传 EdgeOne Makers
           image: tencentcom/deploy-eopages:latest
           imports: "${DEPLOY_CONFIG_URL}"

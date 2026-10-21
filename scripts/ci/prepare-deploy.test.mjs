@@ -1,106 +1,101 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { edgeoneConfig, fetchMetadata, prepareDeployment, validateDeployConfig, verifyStaticOutput } from './prepare-deploy.mjs';
+import { edgeoneConfig, httpsOrigin, prepareDeployment, verifyStaticOutput } from './prepare-deploy.mjs';
 import { verifyDeployment } from './verify-deployment.mjs';
 
 async function fixture(t) {
   const output = await mkdtemp(join(tmpdir(), 'player-ci-'));
   t.after(() => rm(output, { recursive: true, force: true }));
   const revision = 'a'.repeat(64);
-  for (const name of ['index.html', 'download-worker.js', 'browser-files.js', 'ppsspp-runtime.js', 'build-wasm/PPSSPPSDL.js', 'build-wasm/PPSSPPSDL.wasm', 'build-wasm/PPSSPPSDL.data']) {
+  for (const name of ['index.html', 'download-worker.js', 'game-download.js', 'online-games.js', 'browser-files.js', 'browser-storage.js', 'ppsspp-runtime.js', 'build-wasm/PPSSPPSDL.js', 'build-wasm/PPSSPPSDL.wasm', 'build-wasm/PPSSPPSDL.data']) {
     await mkdir(dirname(join(output, name)), { recursive: true });
     await writeFile(join(output, name), 'fixture');
   }
   await writeFile(join(output, 'build-info.json'), JSON.stringify({ revision }));
-  const manifest = { schemaVersion: 1, id: 'chs', name: 'game.iso', size: 65536, chunkSize: 65536,
-    sha256: ['b'.repeat(64)], sources: ['https://cdn.example/game.iso'] };
-  const bytes = Buffer.from(JSON.stringify(manifest));
-  const config = { schemaVersion: 1, allowedOrigins: ['https://cdn.example'],
-    games: [{ title: '中文版', manifestUrl: 'https://cdn.example/game.json', manifestSha256: createHash('sha256').update(bytes).digest('hex') }] };
-  return { output, revision, manifest, bytes, config };
+  return { output, revision };
 }
 
-test('production config accepts only exact HTTPS origins and pinned JSON metadata', async t => {
-  const { config } = await fixture(t);
-  assert.equal(validateDeployConfig(config).games.length, 1);
-  for (const change of [{ allowedOrigins: ['*'] }, { allowedOrigins: ['http://cdn.example'] }, { allowedOrigins: ['https://cdn.example/path'] }, { games: [] }]) {
-    assert.throws(() => validateDeployConfig({ ...config, ...change }));
-  }
-  for (const change of [{ manifestUrl: 'https://other.example/file.json' }, { manifestUrl: 'https://cdn.example/game.iso' }, { manifestUrl: 'https://user:pass@cdn.example/game.json' }, { manifestSha256: '' }]) {
-    assert.throws(() => validateDeployConfig({ ...config, games: [{ ...config.games[0], ...change }] }));
-  }
-});
-
-test('deployment prepares catalog and headers by fetching metadata only, never ISO content', async t => {
-  const { output, config, bytes } = await fixture(t);
-  const calls = [];
-  await prepareDeployment(config, { output, fetcher: async (url, options) => {
-    calls.push(url);
-    assert.equal(options.redirect, 'error');
-    assert.equal(options.credentials, 'omit');
-    return new Response(bytes);
-  } });
-  assert.deepEqual(calls, ['https://cdn.example/game.json']);
-  const catalog = JSON.parse(await readFile(join(output, 'game-catalog.json'), 'utf8'));
-  assert.deepEqual(catalog.games, [{ title: '中文版', manifest: 'game-manifests/chs.json' }]);
-  assert.deepEqual(JSON.parse(await readFile(join(output, 'edgeone.json'), 'utf8')), edgeoneConfig(config.allowedOrigins));
+test('build preparation uses no download configuration or network and permits runtime HTTPS sources', async t => {
+  const { output } = await fixture(t);
+  t.mock.method(globalThis, 'fetch', () => { throw new Error('build preparation must stay offline'); });
+  const previous = process.env.PLAYER_DEPLOY_CONFIG_JSON;
+  process.env.PLAYER_DEPLOY_CONFIG_JSON = 'obsolete configuration must not be consumed';
+  t.after(() => {
+    if (previous === undefined) delete process.env.PLAYER_DEPLOY_CONFIG_JSON;
+    else process.env.PLAYER_DEPLOY_CONFIG_JSON = previous;
+  });
+  await prepareDeployment({ output });
+  const headers = JSON.parse(await readFile(join(output, 'edgeone.json'), 'utf8'));
+  const policy = headers.headers[0].headers.find(({ key }) => key === 'Content-Security-Policy').value;
+  assert.match(policy, /^connect-src 'self' blob: https:;/);
+  assert.doesNotMatch(policy, /https:\/\//);
+  assert.equal((await readdir(output)).includes('game-catalog.json'), false);
+  assert.equal((await readdir(output)).includes('game-manifests'), false);
   await verifyStaticOutput(output);
 });
 
-test('a changed metadata digest or unapproved download source leaves existing output unchanged', async t => {
-  const { output, config, bytes, manifest } = await fixture(t);
-  await writeFile(join(output, 'game-catalog.json'), 'original');
-  await assert.rejects(prepareDeployment(config, { output, fetcher: async () => new Response(Buffer.concat([bytes, Buffer.from('\n')])) }));
-  assert.equal(await readFile(join(output, 'game-catalog.json'), 'utf8'), 'original');
-  const changed = Buffer.from(JSON.stringify({ ...manifest, sources: ['https://other.example/game.iso'] }));
-  const adjusted = { ...config, games: [{ ...config.games[0], manifestSha256: createHash('sha256').update(changed).digest('hex') }] };
-  await assert.rejects(prepareDeployment(adjusted, { output, fetcher: async () => new Response(changed) }));
-  assert.equal(await readFile(join(output, 'game-catalog.json'), 'utf8'), 'original');
-});
-
-test('metadata size limits cancel the stream instead of reading an arbitrary asset', async () => {
-  let cancelled = false;
-  const fetcher = async () => new Response(new ReadableStream({ pull(controller) { controller.enqueue(new Uint8Array(1024 * 1024 + 1)); }, cancel() { cancelled = true; } }));
-  await assert.rejects(fetchMetadata('https://cdn.example/game.json', fetcher));
-  assert.equal(cancelled, true);
-});
-
-test('reconfiguration removes stale generated manifests from the publish directory', async t => {
-  const { output, config, bytes } = await fixture(t);
+test('preparation removes legacy generated catalogs and manifests from reused output', async t => {
+  const { output } = await fixture(t);
   await mkdir(join(output, 'game-manifests'));
-  await writeFile(join(output, 'game-manifests/obsolete.json'), '{}');
-  await prepareDeployment(config, { output, fetcher: async () => new Response(bytes) });
-  assert.deepEqual(await readdir(join(output, 'game-manifests')), ['chs.json']);
+  await writeFile(join(output, 'game-manifests/obsolete.json'), '{"sources":["https://old.example/game.iso"]}');
+  await writeFile(join(output, 'game-catalog.json'), '{"allowedOrigins":["https://old.example"]}');
+  await prepareDeployment({ output });
+  assert.equal((await readdir(output)).includes('game-catalog.json'), false);
+  assert.equal((await readdir(output)).includes('game-manifests'), false);
+  assert.doesNotMatch(await readFile(join(output, 'edgeone.json'), 'utf8'), /old\.example/);
 });
 
-test('static output verification rejects accidental game packages and mismatched CSP', async t => {
-  const { output, config, bytes } = await fixture(t);
-  await prepareDeployment(config, { output, fetcher: async () => new Response(bytes) });
-  await writeFile(join(output, 'mistake.iso'), 'not-for-publish');
+test('legacy cleanup rejects unknown contents without deleting them', async t => {
+  const { output } = await fixture(t);
+  await mkdir(join(output, 'game-manifests'));
+  await writeFile(join(output, 'game-manifests/unexpected.txt'), 'preserve');
+  await assert.rejects(prepareDeployment({ output }));
+  assert.equal(await readFile(join(output, 'game-manifests/unexpected.txt'), 'utf8'), 'preserve');
+});
+
+test('public deployment validation accepts only exact HTTPS origins', () => {
+  assert.equal(httpsOrigin('https://player.example'), 'https://player.example');
+  for (const origin of ['http://player.example', 'https://player.example/path', 'https://user:pass@player.example', '*', undefined]) {
+    assert.throws(() => httpsOrigin(origin));
+  }
+});
+
+test('static output verification rejects game packages, fixed catalogs, missing runtime, and changed CSP', async t => {
+  const { output } = await fixture(t);
+  await prepareDeployment({ output });
+  for (const name of ['mistake.iso', 'game-catalog.json']) {
+    await writeFile(join(output, name), 'not-for-publish');
+    await assert.rejects(verifyStaticOutput(output));
+    await rm(join(output, name));
+  }
+  await rm(join(output, 'game-download.js'));
   await assert.rejects(verifyStaticOutput(output));
-  await rm(join(output, 'mistake.iso'));
-  await writeFile(join(output, 'edgeone.json'), JSON.stringify(edgeoneConfig([])));
+  await writeFile(join(output, 'game-download.js'), 'fixture');
+  const headers = edgeoneConfig();
+  headers.headers[0].headers.find(({ key }) => key === 'Content-Security-Policy').value = "connect-src 'self'";
+  await writeFile(join(output, 'edgeone.json'), JSON.stringify(headers));
   await assert.rejects(verifyStaticOutput(output));
 });
 
-test('production verification checks current revision and actual host isolation headers', async t => {
-  const { output, config, bytes, revision } = await fixture(t);
-  await prepareDeployment(config, { output, fetcher: async () => new Response(bytes) });
+test('production verification checks this deployment and isolation headers without a game catalog', async t => {
+  const { output, revision } = await fixture(t);
+  await prepareDeployment({ output });
   const buildInfo = JSON.parse(await readFile(join(output, 'build-info.json'), 'utf8'));
-  const configured = Object.fromEntries(edgeoneConfig(config.allowedOrigins).headers[0].headers.map(({ key, value }) => [key, value]));
+  const configured = Object.fromEntries(edgeoneConfig().headers[0].headers.map(({ key, value }) => [key, value]));
   const request = async (url, options) => {
     assert.equal(options.redirect, 'error');
+    assert.equal(options.credentials, 'omit');
+    assert.equal(new URL(url).origin, 'https://player.example');
     if (url.includes('build-info.json')) return new Response(JSON.stringify(buildInfo));
     assert.equal(options.method, 'HEAD');
     return new Response(null, { headers: { ...configured, 'Content-Type': 'application/wasm' } });
   };
   await verifyDeployment('https://player.example', { output, fetcher: request });
   await assert.rejects(verifyDeployment('https://player.example', { output, fetcher: async (url, options) => {
-    if (url.includes('build-info.json')) return new Response(JSON.stringify({ revision: 'old' }));
+    if (url.includes('build-info.json')) return new Response(JSON.stringify({ revision: 'old', deploymentRevision: buildInfo.deploymentRevision }));
     return request(url, options);
   } }));
   await assert.rejects(verifyDeployment('https://player.example', { output, fetcher: async (url, options) => {
@@ -113,13 +108,24 @@ test('production verification checks current revision and actual host isolation 
   } }));
 });
 
-test('preparing a new deployment changes its identity even when the emulator core is unchanged', async t => {
-  const { output, config, bytes, revision } = await fixture(t);
-  const options = { output, fetcher: async () => new Response(bytes) };
-  await prepareDeployment(config, options);
+test('online version response limits cancel an oversized stream', async t => {
+  const { output } = await fixture(t);
+  await prepareDeployment({ output });
+  let cancelled = false;
+  const fetcher = async () => new Response(new ReadableStream({
+    pull(controller) { controller.enqueue(new Uint8Array(65537)); },
+    cancel() { cancelled = true; },
+  }));
+  await assert.rejects(verifyDeployment('https://player.example', { output, fetcher }));
+  assert.equal(cancelled, true);
+});
+
+test('a new deployment changes its identity even when the emulator core is unchanged', async t => {
+  const { output, revision } = await fixture(t);
+  await prepareDeployment({ output });
   const previous = JSON.parse(await readFile(join(output, 'build-info.json'), 'utf8'));
   await writeFile(join(output, 'index.html'), 'updated web page');
-  await prepareDeployment(config, options);
+  await prepareDeployment({ output });
   const current = JSON.parse(await readFile(join(output, 'build-info.json'), 'utf8'));
   assert.equal(current.revision, revision);
   assert.match(current.deploymentRevision, /^[a-f0-9]{64}$/);
