@@ -1602,8 +1602,11 @@ else()
 		SDL/SDLMain.cpp
 		SDL/SDLGLGraphicsContext.cpp
 	)
-	if(EMSCRIPTEN AND WASM_ADHOC_TESTS)
-		list(APPEND nativeExtra SDL/WasmAdhocProbe.cpp)
+	if(EMSCRIPTEN)
+		list(APPEND nativeExtra SDL/WasmPerformance.cpp)
+		if(WASM_ADHOC_TESTS)
+			list(APPEND nativeExtra SDL/WasmAdhocProbe.cpp)
+		endif()
 	endif()
 	if(NOT USE_LIBNX AND VULKAN)
 		list(APPEND nativeExtra
