@@ -381,6 +381,7 @@ test('direct game launch also runs library automount before releasing startup', 
     addRunDependency: noop, removeRunDependency: () => events.push('ready'),
     preloadAssets: async () => {}, loadPersistedFiles: async () => {}, forceGamesDirectoryConfig: async () => {},
     playerSettingsQueue: Promise.resolve(), restorePlayerSettings: async () => {},
+    loadPlayerSettings: () => ({ resolution: 1, touch: false, showFps: false }),
     preloadGame: async () => { events.push('selected'); return '/games/playing.iso'; },
     preloadStoredGames: async () => events.push('automount'), emulatorLaunchArgs: () => [], FS: {},
     failRuntime: message => assert.fail(message),
@@ -689,6 +690,53 @@ test('audio recovery resumes both interrupted tracked contexts and legacy global
   });
   await ctx.unlockAudio();
   assert.deepEqual(resumed, ['tracked', 'sdl']);
+});
+
+test('audio pump keeps clock-based lookahead without overproducing and tolerates timer jitter', async () => {
+  const timers = new Map();
+  let controls, calls = 0, timerId = 0;
+  const audio = { state: 'running', currentTime: 1, sampleRate: 48000,
+    createBuffer: (channels, frames) => {
+      const data = Array.from({ length: channels }, () => new Float32Array(frames));
+      return { getChannelData: channel => data[channel] };
+    },
+    createGain: () => ({ gain: { value: 1 }, connect() {}, disconnect() {} }),
+  };
+  const ctx = load(['makeScriptProcessorShim'], {
+    Float32Array, Int32Array, SharedArrayBuffer, Atomics,
+    ensureSpShimModule: async () => true, log() {}, audioDebug: { underruns: 0, callbacks: 0, nonsilent: 0 },
+    AudioWorkletNode: class {
+      constructor(_, __, options) { controls = new Int32Array(options.processorOptions.sab, 0, 8); }
+      connect() {} disconnect() {}
+    },
+    setInterval: fn => { timers.set(++timerId, fn); return timerId; },
+    clearInterval: id => timers.delete(id),
+  });
+  const shim = ctx.makeScriptProcessorShim(audio, 1024, 0, 2);
+  shim.onaudioprocess = event => { calls++; event.outputBuffer.getChannelData(0).fill(0.25); };
+  shim.connect({});
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const initial = calls;
+  assert.ok(initial * 1024 <= 48000 * 0.070 && initial * 1024 > 48000 * 0.070 - 1024);
+  for (let i = 0; i < 50; i++) for (const pump of timers.values()) pump();
+  assert.equal(calls, initial, 'timer bursts cannot advance the hardware audio clock');
+  let consumed = 0;
+  for (const ms of [8, 8, 24, 8, 40, 8, 16, 8, 32]) {
+    const frames = ms * 48;
+    const read = Atomics.load(controls, 1), write = Atomics.load(controls, 0);
+    assert.ok((write - read + 32768) % 32768 >= frames, 'the prebuffer covers delayed timer callbacks');
+    Atomics.store(controls, 1, (read + frames) % 32768);
+    consumed += frames; audio.currentTime = 1 + consumed / 48000;
+    for (const pump of timers.values()) pump();
+    assert.ok(calls * 1024 <= consumed + 48000 * 0.070);
+  }
+  assert.equal(ctx.audioDebug.underruns, 0);
+  const beforePause = calls;
+  audio.state = 'suspended'; audio.currentTime += 1;
+  for (const pump of timers.values()) pump();
+  assert.equal(calls, beforePause);
+  shim.disconnect();
+  assert.equal(timers.size, 0);
 });
 
 test('legacy-root restore migrates complete missing slots and never mixes with current-root slots', async () => {
