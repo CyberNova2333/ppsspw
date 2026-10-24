@@ -1848,7 +1848,7 @@ async function downloadSaveSlot(slotDir, gameName) {
     }))
   };
   const blob = new Blob([JSON.stringify(bundle)], { type: "application/json" });
-  triggerDownload(blob, "ppsspp-slot-" + gameName.replace(/[^a-zA-Z0-9_-]/g, "_") + ".ppsspp");
+  triggerDownload(blob, "ppsspw-slot-" + gameName.replace(/[^a-zA-Z0-9_-]/g, "_") + ".ppsspp");
   log("Downloaded slot: " + gameName + " (" + files.length + " files)", "ok");
   showToast("✓ 已导出 " + gameName);
 }
@@ -2783,7 +2783,7 @@ async function exportSaves() {
   const blob = new Blob([JSON.stringify(bundle)], { type: "application/json" });
   const url  = URL.createObjectURL(blob);
   const a    = Object.assign(document.createElement("a"), {
-    href: url, download: "ppsspp-saves-" + new Date().toISOString().slice(0, 10) + ".ppsspp"
+    href: url, download: "ppsspw-saves-" + new Date().toISOString().slice(0, 10) + ".ppsspp"
   });
   a.click(); URL.revokeObjectURL(url);
   log("Exported " + bundle.files.length + " files.", "ok");
@@ -4936,7 +4936,7 @@ async function exportDiagnosticReport() {
       .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
       .replace(/([?&#](?:access_token|id_token|session_key|code|state)=)[^&\s]+/gi, "$1[redacted]")),
   };
-  triggerDownload(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }), "ppsspp-diagnostics.json");
+  triggerDownload(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }), "ppsspw-diagnostics.json");
 }
 
 function initializePerformancePanel() {
@@ -4968,7 +4968,7 @@ function initializePerformancePanel() {
   on("performanceStartBtn", "click", () => perf.start());
   on("performanceStopBtn", "click", () => perf.stop());
   on("performanceExportBtn", "click", () => {
-    triggerDownload(new Blob([JSON.stringify(perf.snapshot(), null, 2)], { type: "application/json" }), "ppsspp-performance.json");
+    triggerDownload(new Blob([JSON.stringify(perf.snapshot(), null, 2)], { type: "application/json" }), "ppsspw-performance.json");
   });
   window.addEventListener("pagehide", () => perf.stop());
 }
