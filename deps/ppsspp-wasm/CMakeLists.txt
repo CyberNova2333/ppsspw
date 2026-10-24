@@ -372,6 +372,8 @@ if(EMSCRIPTEN)
 	add_link_options("--js-library" "${CMAKE_SOURCE_DIR}/SDL/BrowserFileLibrary.js")
 	if(WASM_PRELOAD_ASSETS)
 		add_link_options("--preload-file" "${CMAKE_SOURCE_DIR}/assets@${WASM_ASSETS_DIR}")
+		# The native debugger's HTTP server cannot listen in a browser.
+		add_link_options("--exclude-file" "${CMAKE_SOURCE_DIR}/assets/debugger/*")
 	endif()
 	if(WASM_MAX_PERF AND CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo)$")
 		add_compile_options(-O3 -DNDEBUG)
@@ -3197,6 +3199,11 @@ if(TargetBin)
 	target_link_libraries(${TargetBin} ${LinkCommon} Common)
 	if(EMSCRIPTEN)
 		set_property(TARGET ${TargetBin} APPEND PROPERTY LINK_DEPENDS "${CMAKE_SOURCE_DIR}/SDL/BrowserFileLibrary.js")
+		if(WASM_PRELOAD_ASSETS)
+			set_property(TARGET ${TargetBin} APPEND PROPERTY LINK_DEPENDS
+				"${CMAKE_SOURCE_DIR}/assets/ui_images/ppsspw.svg"
+				"${CMAKE_SOURCE_DIR}/assets/ui_images/ppsspw.png")
+		endif()
 	endif()
 endif()
 

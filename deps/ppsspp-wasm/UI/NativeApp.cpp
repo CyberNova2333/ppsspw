@@ -217,7 +217,11 @@ Path boot_filename;
 
 // This is called before NativeInit so we do a little bit of initialization here.
 void NativeGetAppInfo(std::string *app_dir_name, std::string *app_nice_name, bool *landscape, std::string *version) {
+#if defined(__EMSCRIPTEN__)
+	*app_nice_name = "PPSSPW";
+#else
 	*app_nice_name = "PPSSPP";
+#endif
 	*app_dir_name = "ppsspp";
 	*landscape = true;
 	*version = PPSSPP_GIT_VERSION;

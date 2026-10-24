@@ -39,6 +39,7 @@
 #include "Core/Util/GameManager.h"
 
 #include "UI/BackgroundAudio.h"
+#include "UI/DisplayBrand.h"
 #include "UI/EmuScreen.h"
 #include "UI/MainScreen.h"
 #include "UI/GameScreen.h"
@@ -283,8 +284,9 @@ void MainScreen::CreateMainButtons(UI::ViewGroup *parent, bool portrait) {
 		parent->Add(portrait ? new Choice(ImageID("I_FOLDER_OPEN"), portrait ? new LinearLayoutParams() : nullptr) : new Choice(mm->T("Load", "Load...")))->OnClick.Handle(this, &MainScreen::OnLoadFile);
 	}
 	parent->Add(portrait ? new Choice(ImageID("I_GEAR"), portrait ? new LinearLayoutParams() : nullptr) : new Choice(mm->T("Game Settings", "Settings")))->OnClick.Handle(this, &MainScreen::OnGameSettings);
-	parent->Add(portrait ? new Choice(ImageID("I_INFO"), portrait ? new LinearLayoutParams() : nullptr) : new Choice(mm->T("About PPSSPP")))->OnClick.Handle(this, &MainScreen::OnCredits);
+	parent->Add(portrait ? new Choice(ImageID("I_INFO"), portrait ? new LinearLayoutParams() : nullptr) : new Choice(DisplayBrand::AppText(mm->T("About PPSSPP"))))->OnClick.Handle(this, &MainScreen::OnCredits);
 
+#if !defined(__EMSCRIPTEN__)
 	if (!portrait) {
 		parent->Add(new Choice(mm->T("www.ppsspp.org")))->OnClick.Handle(this, &MainScreen::OnPPSSPPOrg);
 	}
@@ -298,6 +300,7 @@ void MainScreen::CreateMainButtons(UI::ViewGroup *parent, bool portrait) {
 		gold->SetImageScale(0.6f);  // for the left-icon in case of vertical.
 		gold->SetShine(true);
 	}
+#endif
 
 	if (!portrait) {
 		parent->Add(new Spacer(16.0));
@@ -392,8 +395,8 @@ void MainScreen::CreateViews() {
 			buttonHolder->Add(new Spacer(new LinearLayoutParams(1.0f)));
 
 			leftColumn->Add(new Spacer(new LinearLayoutParams(0.1f)));
-			leftColumn->Add(new TextView(mm->T("SavesAreTemporary", "PPSSPP saving in temporary storage"), ALIGN_HCENTER, false));
-			leftColumn->Add(new TextView(mm->T("SavesAreTemporaryGuidance", "Extract PPSSPP somewhere to save permanently"), ALIGN_HCENTER, false));
+			leftColumn->Add(new TextView(DisplayBrand::AppText(mm->T("SavesAreTemporary", "PPSSPP saving in temporary storage")), ALIGN_HCENTER, false));
+			leftColumn->Add(new TextView(DisplayBrand::AppText(mm->T("SavesAreTemporaryGuidance", "Extract PPSSPP somewhere to save permanently")), ALIGN_HCENTER, false));
 			leftColumn->Add(new Spacer(10.0f));
 			leftColumn->Add(buttonHolder);
 			leftColumn->Add(new Spacer(new LinearLayoutParams(0.1f)));
@@ -408,7 +411,7 @@ void MainScreen::CreateViews() {
 
 		LinearLayout *buttonHolder = new LinearLayout(ORIENT_HORIZONTAL, new LinearLayoutParams(WRAP_CONTENT, WRAP_CONTENT));
 		buttonHolder->Add(new Spacer(new LinearLayoutParams(1.0f)));
-		focusButton = new Button(mm->T("Give PPSSPP permission to access storage"), new LinearLayoutParams(WRAP_CONTENT, WRAP_CONTENT));
+		focusButton = new Button(DisplayBrand::AppText(mm->T("Give PPSSPP permission to access storage")), new LinearLayoutParams(WRAP_CONTENT, WRAP_CONTENT));
 		focusButton->SetPadding(32, 16);
 		buttonHolder->Add(focusButton)->OnClick.Handle(this, &MainScreen::OnAllowStorage);
 		buttonHolder->Add(new Spacer(new LinearLayoutParams(1.0f)));
@@ -416,7 +419,7 @@ void MainScreen::CreateViews() {
 		leftColumn->Add(new Spacer(new LinearLayoutParams(0.1f)));
 		leftColumn->Add(buttonHolder);
 		leftColumn->Add(new Spacer(10.0f));
-		leftColumn->Add(new TextView(mm->T("PPSSPP can't load games or save right now"), ALIGN_HCENTER, false));
+		leftColumn->Add(new TextView(DisplayBrand::AppText(mm->T("PPSSPP can't load games or save right now")), ALIGN_HCENTER, false));
 		leftColumn->Add(new Spacer(new LinearLayoutParams(0.1f)));
 	}
 
@@ -478,6 +481,7 @@ void MainScreen::CreateViews() {
 
 	root_->SetTag("mainroot");
 
+#if !defined(__EMSCRIPTEN__)
 	if (!g_Config.sUpgradeMessage.empty()) {
 		auto di = GetI18NCategory(I18NCat::DIALOG);
 		Margins margins(0, 0);
@@ -512,6 +516,7 @@ void MainScreen::CreateViews() {
 		root_->ReplaceLayoutParams(new LinearLayoutParams(1.0));
 		root_ = newRoot;
 	}
+#endif
 }
 
 bool MainScreen::key(const KeyInput &key) {

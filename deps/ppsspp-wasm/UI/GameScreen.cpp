@@ -18,6 +18,7 @@
 #include <algorithm>
 
 #include "ppsspp_config.h"
+#include "UI/DisplayBrand.h"
 
 #include "Common/Render/DrawBuffer.h"
 #include "Common/UI/Context.h"
@@ -366,7 +367,7 @@ void GameScreen::CreateContentViews(UI::ViewGroup *parent) {
 
 	if (info_->fileType == IdentifiedFileType::PSP_UMD_VIDEO_ISO) {
 		auto er = GetI18NCategory(I18NCat::ERRORS);
-		leftColumn->Add(new NoticeView(NoticeLevel::INFO, er->T("PPSSPP doesn't support UMD Video."), ""));
+		leftColumn->Add(new NoticeView(NoticeLevel::INFO, DisplayBrand::AppText(er->T("PPSSPP doesn't support UMD Video.")), ""));
 		leftColumn->Add(new Choice(di->T("More info"), ImageID("I_LINK_OUT_QUESTION"), new LinearLayoutParams(WRAP_CONTENT, WRAP_CONTENT)))->OnClick.Add([](UI::EventParams &e) {
 			System_LaunchUrl(LaunchUrlType::BROWSER_URL, "https://www.ppsspp.org/docs/reference/umd-video/");
 		});

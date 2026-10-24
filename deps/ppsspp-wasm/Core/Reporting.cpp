@@ -541,6 +541,10 @@ namespace Reporting
 
 	bool IsSupported()
 	{
+#if defined(__EMSCRIPTEN__)
+		// This browser fork does not describe upstream binaries in compatibility reports.
+		return false;
+#else
 		// Disabled when using certain hacks, because they make for poor reports.
 		if (CheatsInEffect() || HLEPlugins::HasEnabled())
 			return false;
@@ -569,6 +573,7 @@ namespace Reporting
 #endif
 
 		return !everUnsupported;
+#endif
 	}
 
 	bool IsEnabled()

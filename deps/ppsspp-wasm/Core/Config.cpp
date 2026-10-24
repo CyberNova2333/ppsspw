@@ -1638,7 +1638,10 @@ void Config::NotifyUpdatedCpuCore() {
 }
 
 bool Config::SupportsUpgradeCheck() const {
-#if PPSSPP_PLATFORM(WINDOWS) || PPSSPP_PLATFORM(LINUX) || PPSSPP_PLATFORM(MACOS) || PPSSPP_PLATFORM(ANDROID) || PPSSPP_PLATFORM(IOS_APP_STORE)
+#if defined(__EMSCRIPTEN__)
+	// The web player is updated as one site; upstream native downloads are unrelated.
+	return false;
+#elif PPSSPP_PLATFORM(WINDOWS) || PPSSPP_PLATFORM(LINUX) || PPSSPP_PLATFORM(MACOS) || PPSSPP_PLATFORM(ANDROID) || PPSSPP_PLATFORM(IOS_APP_STORE)
 	return true;
 #else
 	return false;

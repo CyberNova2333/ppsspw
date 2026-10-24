@@ -1,6 +1,7 @@
 #include <algorithm>
 
 #include "ppsspp_config.h"
+#include "UI/DisplayBrand.h"
 
 #include "Common/StringUtils.h"
 #include "Common/GPU/OpenGL/GLFeatures.h"
@@ -217,7 +218,7 @@ void SystemInfoScreen::CreateDeviceInfoTab(UI::LinearLayout *deviceSpecs) {
 #ifdef _DEBUG
 	build = si->T("Debug");
 #endif
-	osInformation->Add(new InfoItem(si->T("PPSSPP build"), build));
+	osInformation->Add(new InfoItem(DisplayBrand::AppText(si->T("PPSSPP build")), build));
 
 	CollapsibleSection *displayInfo = deviceSpecs->Add(new CollapsibleSection(si->T("Display Information")));
 #if PPSSPP_PLATFORM(ANDROID) || PPSSPP_PLATFORM(UWP)
