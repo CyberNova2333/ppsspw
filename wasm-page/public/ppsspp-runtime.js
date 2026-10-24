@@ -4798,6 +4798,10 @@ function handleBrowserGameReadError(event) {
 }
 window.addEventListener("ppsspp:game-read-error", handleBrowserGameReadError);
 
+canvas?.addEventListener("pointerdown", () => canvas.focus({ preventScroll: true }));
+canvas?.addEventListener("contextmenu", event => event.preventDefault());
+canvas?.addEventListener("selectstart", event => event.preventDefault());
+
 canvas?.addEventListener("webglcontextlost", event => {
   event.preventDefault();
   if (started) failRuntime("游戏画面连接已中断。请重新载入页面；已同步到本机的存档会保留。");
@@ -4837,7 +4841,9 @@ async function start() {
   fileLabel?.classList.add("disabled");
   if (fileInput) fileInput.disabled = true;
   if (gpuSelectEl) gpuSelectEl.disabled = true;
-  canvas?.focus();
+  setPanelOpen(false, false);
+  setFullscreenMenuOpen(false, false);
+  canvas.focus({ preventScroll: true });
   showLoading("正在准备声音…");
   let preAudioCtx = null;
   try {
@@ -4865,6 +4871,8 @@ async function start() {
     setStartButtonMode("ready");
     preAudioCtx?.close().catch(() => {});
     setStatus(error.message, "err");
+    showToast(error.message, 6000);
+    startBtn?.focus({ preventScroll: true });
     return;
   }
 

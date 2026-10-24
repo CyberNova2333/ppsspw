@@ -167,6 +167,36 @@ test('SDL keyboard input is scoped to the canvas before native startup', () => {
   assert.ok(preRun.indexOf('configureEmulatorKeyboard(ENV)') < preRun.indexOf('addRunDependency('));
 });
 
+test('canvas pointer interaction restores focus without cancelling SDL input or changing form input', () => {
+  const canvas = new EventTarget(), form = new EventTarget();
+  const document = { activeElement: form };
+  canvas.focus = options => {
+    assert.equal(options.preventScroll, true);
+    document.activeElement = canvas;
+  };
+  const registrations = ast.statements.filter(node => ts.isExpressionStatement(node)
+    && /^canvas\?\.addEventListener\("(?:pointerdown|contextmenu|selectstart)"/.test(node.getText(ast)));
+  assert.equal(registrations.length, 3);
+  vm.runInContext(registrations.map(node => node.getText(ast)).join('\n'), vm.createContext({ canvas }));
+
+  const pointer = new Event('pointerdown', { cancelable: true });
+  canvas.dispatchEvent(pointer);
+  assert.equal(document.activeElement, canvas);
+  assert.equal(pointer.defaultPrevented, false, 'SDL must receive the original pointer interaction');
+  for (const type of ['contextmenu', 'selectstart']) {
+    const event = new Event(type, { cancelable: true });
+    canvas.dispatchEvent(event);
+    assert.equal(event.defaultPrevented, true);
+  }
+  document.activeElement = form;
+  for (const type of ['pointerdown', 'keydown', 'contextmenu', 'selectstart']) {
+    const event = new Event(type, { cancelable: true });
+    form.dispatchEvent(event);
+    assert.equal(document.activeElement, form);
+    assert.equal(event.defaultPrevented, false);
+  }
+});
+
 test('controller connections and reconnects preserve the focused form control', () => {
   const pad = { index: 0, connected: true };
   const remembered = [];
@@ -349,7 +379,7 @@ test('failed preload never releases the dependency and starts the core without i
     started: false, runtimeReady: false, selectedGame: null, selectedStoredGame: null, validateGameSelection: () => true, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
     SharedArrayBuffer, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
     document: { body: { classList: { add() {} }, appendChild() {} }, createElement: () => ({}) },
-    setStartButtonMode: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
+    setStartButtonMode: noop, setPanelOpen: noop, setFullscreenMenuOpen: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
     selectBuildDir: async () => {}, AudioContext: class { async resume() {} }, installScriptProcessorPolyfill: async () => {},
     preferences: { getItem: () => null }, BUILD_DIR: '/build/', BUILD_STAMP: 'test',
     addRunDependency: noop, removeRunDependency: dep => removed.push(dep),
@@ -372,16 +402,34 @@ test('failed preload never releases the dependency and starts the core without i
 test('direct game launch also runs library automount before releasing startup', async () => {
   const events = [];
   const noop = () => {};
-  const ctx = load(['start', 'configureEmulatorKeyboard'], {
+  const stage = { inert: true }, classes = new Set(['panel-open']);
+  const menu = { hidden: false }, backdrop = { hidden: false };
+  let focused = false, menuExpanded = true;
+  const canvas = { focus(options) {
+    assert.equal(stage.inert, false, 'a game launched from the library must be interactive');
+    assert.equal(classes.has('panel-open'), false);
+    assert.equal(menuExpanded, false);
+    assert.equal(menu.hidden, true);
+    assert.equal(backdrop.hidden, true);
+    assert.equal(options.preventScroll, true);
+    focused = true;
+  } };
+  const controls = new Map([
+    ['fsMenuToggle', { setAttribute: (_name, value) => { menuExpanded = value === 'true'; } }],
+    ['fsMenuActions', menu], ['fsMenuBackdrop', backdrop],
+  ]);
+  const ctx = load(['start', 'configureEmulatorKeyboard', 'setPanelOpen', 'setFullscreenMenuOpen'], {
     probeWebGLFeaturesWithPref: availableStartupCapabilities,
     PpssppGameStorage: { acquireShared: async () => {} },
     ENV: {}, loadNetworkConfig: () => ({ enabled: false }),
-    started: false, runtimeReady: false, selectedGame: null, selectedStoredGame: null, validateGameSelection: () => true, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
+    started: false, runtimeReady: false, selectedGame: null, selectedStoredGame: null, validateGameSelection: () => true, canvas, fileLabel: null, fileInput: null, gpuSelectEl: null,
     SharedArrayBuffer, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
-    document: { body: { classList: { add() {} }, appendChild() {} }, createElement: () => ({}) },
+    document: { body: { classList: { add: name => classes.add(name), toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name) }, appendChild() {} },
+      querySelector: () => stage, createElement: () => ({}) },
+    byId: id => controls.get(id), PANEL_KEY: 'panel',
     setStartButtonMode: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
-    selectBuildDir: async () => {}, AudioContext: class { async resume() {} }, installScriptProcessorPolyfill: async () => {},
-    preferences: { getItem: () => null }, BUILD_DIR: '/build/', BUILD_STAMP: 'test',
+    selectBuildDir: async () => {}, AudioContext: class { async resume() { assert.equal(focused, true); } }, installScriptProcessorPolyfill: async () => {},
+    preferences: { getItem: () => null, setItem() {} }, BUILD_DIR: '/build/', BUILD_STAMP: 'test',
     addRunDependency: noop, removeRunDependency: () => events.push('ready'),
     preloadAssets: async () => {}, loadPersistedFiles: async () => {}, forceGamesDirectoryConfig: async () => {},
     playerSettingsQueue: Promise.resolve(), restorePlayerSettings: async () => {},
@@ -392,6 +440,7 @@ test('direct game launch also runs library automount before releasing startup', 
   });
   ctx.window = ctx; ctx.crossOriginIsolated = true;
   await ctx.start();
+  assert.equal(focused, true);
   ctx.Module.preRun[0]();
   await new Promise(r => setTimeout(r, 0));
   assert.deepEqual(events, ['selected', 'automount', 'ready']);
@@ -1076,8 +1125,9 @@ test('idle clearing includes downloaded games and reports deletion failures', as
 
 test('a storage maintenance lease prevents startup and leaves the launch action retryable', async () => {
   const { locks } = storageLocks();
-  const messages = [];
+  const messages = [], toasts = [], modes = [];
   const audio = [];
+  let retryFocused = false;
   const ctx = load(['start'], {
     probeWebGLFeaturesWithPref: availableStartupCapabilities,
     started: false, selectedGame: { name: 'game.iso' }, selectedStoredGame: null,
@@ -1085,16 +1135,25 @@ test('a storage maintenance lease prevents startup and leaves the launch action 
     window: { crossOriginIsolated: true }, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
     PpssppGameStorage: { acquireShared: () => globalThis.PpssppGameStorage.acquireShared(locks) },
     document: { body: { classList: { add() {}, remove() {} } } },
-    setTimeout: () => 1, clearTimeout() {}, log() {}, setStartButtonMode() {},
+    setTimeout: () => 1, clearTimeout() {}, log() {}, setStartButtonMode: mode => modes.push(mode),
+    setPanelOpen: open => assert.equal(open, false, 'a failed launch must not reopen the settings panel'), setFullscreenMenuOpen() {},
+    startBtn: { focus(options) {
+      assert.equal(modes.at(-1), 'ready', 'enable the retry action before focusing it');
+      assert.equal(options.preventScroll, true);
+      retryFocused = true;
+    } },
     fileLabel: null, fileInput: null, gpuSelectEl: null, showLoading() {}, hideLoading() {},
     AudioContext: class { async resume() { audio.push('resume'); } async close() { audio.push('close'); } },
     installScriptProcessorPolyfill: async () => {},
     setStatus: message => messages.push(message),
+    showToast: (message, duration) => toasts.push({ message, duration }),
   });
   await globalThis.PpssppGameStorage.withExclusive(async () => {
     await ctx.start();
     assert.equal(ctx.started, false);
     assert.match(messages.at(-1), /整理缓存/);
+    assert.deepEqual(toasts, [{ message: messages.at(-1), duration: 6000 }]);
+    assert.equal(retryFocused, true);
     assert.deepEqual(audio, ['resume', 'close']);
   }, locks);
 });
