@@ -24,6 +24,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -104,7 +105,10 @@ bool MemArena::GrabMemSpace(size_t size) {
 }
 
 void MemArena::ReleaseSpace() {
-#ifndef NO_MMAP
+#ifdef NO_MMAP
+	std::free(noMmapBase_);
+	noMmapBase_ = nullptr;
+#else
 	close(fd);
 #endif
 }
@@ -158,8 +162,10 @@ u8* MemArena::Find4GBBase() {
 		return hardcoded_ptr;
 	}
 #elif defined(NO_MMAP)
-    void* base = std::malloc(0x0A000000);
-    return static_cast<u8*>(base);
+	if (!noMmapBase_) {
+		noMmapBase_ = static_cast<u8 *>(std::malloc(0x0A000000));
+	}
+	return noMmapBase_;
 #else
 	size_t size = 0x10000000;
 	void* base = mmap(0, size, PROT_READ | PROT_WRITE, MAP_ANON | MAP_SHARED | MAP_NORESERVE, -1, 0);

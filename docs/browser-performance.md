@@ -152,6 +152,21 @@ cmake --build deps/ppsspp-wasm/build-wasm-release -j4
 
 原始报告、清单、比较结果和环境证据保留在忽略目录 `.local/resource-benchmark/`，汇总为 `summary.json`，两组比较分别为 `memory-comparison.json` 和 `pool-comparison.json`。这些记录只说明该桌面环境及开场片段的表现，不代表 Android 模拟环境或手机真机表现；没有测进程 RSS、整机内存、功耗或长期热降频。默认继续保留 512 MiB 初始容量和自动预建池，等待更多场景与设备的数据。
 
+## 游戏重启时的内存释放
+
+检查 `NO_MMAP` 路径时发现，`Find4GBBase()` 为 PSP 地址空间分配的 160 MiB 缓冲区没有在 `ReleaseSpace()` 中释放。游戏关闭时虽然清空了视图与全局基址，底层分配仍然存活；同页重启游戏会再次分配。现在由 `MemArena` 保存唯一的所有权，视图继续借用内存，在原有关闭流程中统一释放并清空指针，重复查询和重复释放均安全。
+
+专项测试直接编译生产实现，用分配计数验证重复查询、别名视图、重复释放、失败重试与独立实例：7 次成功分配对应 7 次释放，没有遗留分配。另在独立的桌面无头 Edge 中，用同一镜像和存档、512 MiB 初始容量、自动线程池、1×渲染，通过核心正常重启指令连续重启三次。每次运行至约 5 秒模拟时间后记录：
+
+| 核心 | 首次启动 | 重启一次 | 重启两次 | 重启三次 | 累计扩容请求 |
+| --- | --- | --- | --- | --- | --- |
+| 修复前 | 512 MiB | 614.4375 MiB | 781.125 MiB | 961.125 MiB | 3 |
+| 修复后 | 512 MiB | 512 MiB | 512 MiB | 512 MiB | 0 |
+
+两版均确认完成四次启动；最后一次启动继续运行至 45 秒模拟时间，检查到开场视频画面及非静音音频数据，没有页面异常或运行失败。修复后的容量在这段播放期间仍为 512 MiB。这里验证的是分配释放与重启后容量复用，不是 WASM 内存收缩，也没有测量进程 RSS；不能据此认定此前手机上的启动问题都由此泄漏造成。
+
+修复前使用上节的 512 MiB 自动池产物。修复后源码摘要为 `e331909ef5a6d4107b4d8b06ecc23d5e91ce32cd20c91c2fe232a63391bf50a3`，核心产物摘要为 `5d9293637828f1d289c7bedeb35f91dd9635e67090549c30608809eb4332819f`。本地证据为 `.local/resource-benchmark/restart-before.json` 和 `restart-after.json`；截图及存档继续留在忽略目录。
+
 ## 验证命令
 
 ```sh
@@ -161,6 +176,8 @@ node --test scripts/compare-browser-performance.test.mjs
 python3 scripts/test-wasm-resources.py
 python3 scripts/test-package-player.py
 python3 scripts/test-fingerprint-wasm-source.py
+# Linux 或 WSL，编译实际 NO_MMAP 内存实现并验证所有权。
+python3 scripts/test-no-mmap-arena.py
 # 激活 Emscripten SDK 后，编译实际统计实现并验证暂停、恢复及计数回退。
 python3 scripts/test-wasm-performance.py
 ```
