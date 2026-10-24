@@ -249,7 +249,7 @@ function syncFullscreenOverlays() {
   document.body?.classList.toggle("browser-fullscreen", activeFullscreen);
   if (activeFullscreen && fpsBadge) fpsBadge.style.display = "none";
   if (fullscreenBtn) {
-    fullscreenBtn.title = activeFullscreen ? "退出全屏" : "进入全屏";
+    fullscreenBtn.title = activeFullscreen ? "退出全屏" : isMobileExperience() ? "横屏全屏游玩" : "进入全屏";
     fullscreenBtn.setAttribute("aria-label", fullscreenBtn.title);
     fullscreenBtn.setAttribute("aria-pressed", String(activeFullscreen));
   }
@@ -5559,6 +5559,59 @@ function fullscreenTarget() {
   return document.querySelector(".body-main") || stageEl || canvas || document.documentElement;
 }
 
+let fullscreenOrientationSession = null;
+
+function unlockFullscreenOrientation(session) {
+  if (!session.requested) return;
+  try { session.orientation.unlock?.(); }
+  catch (error) { log("Screen orientation unlock failed: " + (error?.message || error), "warn"); }
+}
+
+function releaseFullscreenOrientation() {
+  const session = fullscreenOrientationSession;
+  fullscreenOrientationSession = null;
+  if (session) unlockFullscreenOrientation(session);
+}
+
+function syncFullscreenOrientation() {
+  const target = fullscreenElement();
+  // Touch-capable desktop computers should keep their normal display orientation.
+  if (!isMobileExperience() || document.hidden || !target?.contains(canvas)) {
+    releaseFullscreenOrientation();
+    return Promise.resolve(false);
+  }
+  if (fullscreenOrientationSession?.target === target) return fullscreenOrientationSession.promise;
+  releaseFullscreenOrientation();
+  const orientation = window.screen?.orientation;
+  const session = { target, orientation, requested: false, promise: Promise.resolve(false) };
+  fullscreenOrientationSession = session;
+  if (typeof orientation?.lock !== "function") {
+    showToast("当前浏览器不支持锁定横屏，请手动旋转手机；全屏游玩仍可使用。", 6500);
+    return session.promise;
+  }
+  session.requested = true;
+  // Keep one attempt per fullscreen session. A failed request must not create a retry loop.
+  session.promise = (async () => {
+    try {
+      await orientation.lock("landscape");
+      if (fullscreenOrientationSession !== session || fullscreenElement() !== target || document.hidden) {
+        // A late completion after exit must not undo a newer fullscreen session's lock.
+        if (!fullscreenOrientationSession) unlockFullscreenOrientation(session);
+        return false;
+      }
+      scheduleRuntimeResize(true);
+      return true;
+    } catch (error) {
+      if (fullscreenOrientationSession === session && fullscreenElement() === target && !document.hidden) {
+        log("Screen orientation lock failed: " + (error?.name || "Error") + ": " + (error?.message || error), "warn");
+        showToast("浏览器未允许锁定横屏，请手动旋转手机，并检查系统自动旋转设置。", 6500);
+      }
+      return false;
+    }
+  })();
+  return session.promise;
+}
+
 // SDL may request fullscreen directly on the canvas. Keep the shell controls
 // and panels inside the fullscreen element in that path too.
 for (const method of ["requestFullscreen", "webkitRequestFullscreen"]) {
@@ -5609,6 +5662,7 @@ function handleFullscreenChange() {
   setFullscreenMenuOpen(false, false);
   syncFullscreenOverlays();
   scheduleRuntimeResize(true);
+  void syncFullscreenOrientation();
   if (fullscreenElement()) {
     _fsCursorTimer = setTimeout(_hideCursor, 2000);
     document.addEventListener("mousemove", _showCursor);
@@ -5623,6 +5677,9 @@ function handleFullscreenChange() {
 
 document.addEventListener("fullscreenchange", handleFullscreenChange);
 document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+document.addEventListener("visibilitychange", () => { void syncFullscreenOrientation(); });
+window.addEventListener("pagehide", releaseFullscreenOrientation);
+window.addEventListener("pageshow", () => { void syncFullscreenOrientation(); });
 
 async function togglePPSSPPFullscreen() {
   if (isFullscreenActive()) {
@@ -5634,6 +5691,11 @@ async function togglePPSSPPFullscreen() {
 
   if (await requestBrowserFullscreen()) {
     scheduleRuntimeResize(true);
+    return;
+  }
+
+  if (isMobileExperience()) {
+    showToast("浏览器暂不允许网页全屏，无法锁定横屏；请手动旋转手机，或点击全屏按钮重试。", 6500);
     return;
   }
 
@@ -5689,6 +5751,7 @@ on("fsExitBtn", "click", async () => {
 });
 
 /* ── Init ───────────────────────────────────────────────────────── */
+syncFullscreenOverlays();
 log("Page loaded. crossOriginIsolated=" + window.crossOriginIsolated, window.crossOriginIsolated ? "ok" : "warn");
 log("Build: " + BUILD_STAMP, "dim");
 probeWebGLFeatures();

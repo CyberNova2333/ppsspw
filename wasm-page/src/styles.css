@@ -905,7 +905,8 @@ body.panel-open #panelBackdrop { display: block; }
   color: var(--text); font-size: 12.5px; padding: 8px 18px;
   border-radius: 20px; box-shadow: var(--shadow);
   opacity: 0; pointer-events: none; z-index: 9999;
-  transition: opacity .2s, transform .2s; white-space: nowrap;
+  transition: opacity .2s, transform .2s; white-space: normal;
+  width: max-content; max-width: calc(100vw - 28px); text-align: center;
 }
 #toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
 

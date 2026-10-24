@@ -71,7 +71,7 @@
           </div>
           <p class="idle-formats">支持 ISO、CSO、CHD、PBP、ELF、PRX<span>请先解压 ZIP / 7z 压缩包，再选择其中的游戏文件。</span></p>
           <div class="play-notes">
-            <p><i data-lucide="gamepad-2"></i><span>手机推荐横屏。屏幕手柄可在顶部工具栏或「画质与操作」中开关。</span></p>
+            <p><i data-lucide="gamepad-2"></i><span>手机点击全屏可请求锁定横屏。屏幕手柄可在顶部工具栏或「画质与操作」中开关。</span></p>
             <p><i data-lucide="save"></i><span>离开前先在游戏内保存，再同步存档到本机。</span></p>
           </div>
         </div>
@@ -159,7 +159,7 @@
           <h3>操作</h3>
           <label class="setting-check"><input id="player-touch-controls" type="checkbox" checked><span>显示屏幕手柄</span></label>
           <p class="setting-hint">开关即时生效。支持多指同时按住方向与动作键；方向区可拖动，左下圆盘为模拟摇杆。</p>
-          <p class="setting-hint">手机建议横屏游玩；全屏时通过顶部「···」打开网页面板。</p>
+          <p class="setting-hint">手机进入全屏时会请求锁定横屏，退出时恢复系统方向设置。不支持的浏览器请手动旋转手机；全屏时通过顶部「···」打开网页面板。</p>
           <label class="setting-field" for="gamepadSelect"><span>使用的手柄</span><select id="gamepadSelect" class="btn" title="选择使用的手柄"><option value="-1">所有已连接手柄</option></select></label>
           <p class="setting-hint">键盘与实体手柄映射可在模拟器的「设置 → 控制」中调整。</p>
         </section>
@@ -341,7 +341,7 @@
 
     <div class="tab-panel" id="tabLog"><div class="panel-intro inset-intro"><h2>运行日志</h2><p>供排查问题使用，普通游玩时可以关闭此面板。</p></div><div id="logPanel"><pre id="log" aria-label="模拟器运行日志"></pre></div><div class="log-toolbar"><input id="logFilter" placeholder="筛选日志…" aria-label="筛选运行日志" type="search" autocomplete="off" spellcheck="false"><button id="clearLogBtn" title="清空日志" aria-label="清空日志"><i data-lucide="trash-2"></i></button></div></div>
   </aside>
+  <div id="toast" role="status" aria-live="polite"></div>
 </div>
 
-<div id="toast" role="status" aria-live="polite"></div>
 <div id="gameInfoModal" aria-hidden="true"><div class="game-info-dialog" role="dialog" aria-modal="true" aria-labelledby="gameInfoTitle"><div class="game-info-cover" id="gameInfoCover"></div><div class="game-info-body"><div class="game-info-title" id="gameInfoTitle"></div><div id="gameInfoRows"></div></div><div class="game-info-actions"><button id="gameInfoPlayBtn" class="primary"><i data-lucide="play"></i>开始游玩</button><button id="gameInfoFavoriteBtn"><i data-lucide="hard-drive"></i>预载到本机</button><button id="gameInfoCloseBtn"><i data-lucide="x"></i>关闭</button></div></div></div>
