@@ -8,7 +8,10 @@
     <button id="startBtn" aria-label="开始游玩" class="primary" title="开始游玩"><i data-lucide="play"></i><span class="btn-lbl">开始游玩</span></button>
     <label class="btn" id="runtimeIsoLabel" style="display:none" title="载入另一个游戏，然后在模拟器的游戏列表中打开"><i data-lucide="upload"></i><span class="btn-lbl">载入游戏</span><input id="runtimeIsoFile" aria-label="运行时载入游戏镜像" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx"></label>
   </div>
-  <div class="hbar-group" id="displayGroup"><button id="fullscreenBtn" class="icon-btn" title="全屏游玩" aria-label="全屏游玩"><i data-lucide="maximize"></i></button></div>
+  <div class="hbar-group" id="displayGroup">
+    <button id="touchGamepadToggle" type="button" class="icon-btn" title="显示或隐藏屏幕手柄" aria-label="显示或隐藏屏幕手柄" aria-controls="touchGamepad" aria-pressed="false" disabled><i data-lucide="gamepad-2"></i></button>
+    <button id="fullscreenBtn" class="icon-btn" title="全屏游玩" aria-label="全屏游玩"><i data-lucide="maximize"></i></button>
+  </div>
   <div class="hbar-end">
     <span id="gamepadBadge" class="badge" title="手柄连接状态"><i data-lucide="gamepad-2"></i>未连接手柄</span>
     <span id="gpuBadge" class="badge" title="图形设备"><i data-lucide="monitor"></i>检测中…</span>
@@ -21,12 +24,41 @@
   <div class="fullscreen-toolbar">
     <button id="fsMenuToggle" type="button" aria-label="打开游玩菜单" aria-controls="fsMenuActions" aria-expanded="false" title="游玩菜单"><span aria-hidden="true">···</span></button>
     <div id="fsMenuActions" class="fullscreen-actions" role="group" aria-label="全屏游玩操作" hidden>
+      <button id="fsTouchGamepadToggle" type="button" aria-controls="touchGamepad" aria-pressed="false" disabled><i data-lucide="gamepad-2"></i>屏幕手柄</button>
       <button id="fsPanelBtn" type="button" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="panel-right"></i>游戏库与设置</button>
       <button id="fsExitBtn" type="button"><i data-lucide="minimize"></i>退出全屏</button>
     </div>
   </div>
   <section class="stage" aria-label="游戏画面">
     <canvas id="canvas" width="1280" height="720" tabindex="0" aria-label="游戏画面，支持键盘、手柄与触控操作"></canvas>
+    <div id="touchGamepad" class="touch-gamepad" role="group" aria-label="屏幕手柄，支持多指同时操作" hidden>
+      <div class="touch-pad-left">
+        <button type="button" class="touch-pad-shoulder" data-pad-button="l" aria-label="左肩键 L">L</button>
+        <div class="touch-pad-dpad" data-pad-dpad role="group" aria-label="方向键，按住并拖动可斜向移动">
+          <button type="button" data-pad-button="up" aria-label="方向上"><span aria-hidden="true">▲</span></button>
+          <button type="button" data-pad-button="left" aria-label="方向左"><span aria-hidden="true">◀</span></button>
+          <button type="button" data-pad-button="right" aria-label="方向右"><span aria-hidden="true">▶</span></button>
+          <button type="button" data-pad-button="down" aria-label="方向下"><span aria-hidden="true">▼</span></button>
+        </div>
+        <div class="touch-pad-stick" data-pad-stick role="group" aria-label="模拟摇杆，按住并拖动移动">
+          <span class="touch-pad-stick-cross" aria-hidden="true"></span>
+          <span class="touch-pad-thumb" data-pad-thumb aria-hidden="true"></span>
+        </div>
+      </div>
+      <div class="touch-pad-right">
+        <button type="button" class="touch-pad-shoulder" data-pad-button="r" aria-label="右肩键 R">R</button>
+        <div class="touch-pad-actions" role="group" aria-label="动作按键">
+          <button type="button" data-pad-button="triangle" aria-label="三角键"><span aria-hidden="true">△</span></button>
+          <button type="button" data-pad-button="square" aria-label="方块键"><span aria-hidden="true">□</span></button>
+          <button type="button" data-pad-button="circle" aria-label="圆圈键"><span aria-hidden="true">○</span></button>
+          <button type="button" data-pad-button="cross" aria-label="叉键"><span aria-hidden="true">×</span></button>
+        </div>
+      </div>
+      <div class="touch-pad-system" role="group" aria-label="开始与选择按键">
+        <button type="button" data-pad-button="select" aria-label="选择键 SELECT">SELECT</button>
+        <button type="button" data-pad-button="start" aria-label="开始键 START">START</button>
+      </div>
+    </div>
     <div id="idleOverlay">
       <div class="idle-content">
         <div class="idle-copy">
@@ -39,7 +71,7 @@
           </div>
           <p class="idle-formats">支持 ISO、CSO、CHD、PBP、ELF、PRX<span>请先解压 ZIP / 7z 压缩包，再选择其中的游戏文件。</span></p>
           <div class="play-notes">
-            <p><i data-lucide="gamepad-2"></i><span>手机推荐横屏。触控按键可在「画质与操作」中设置。</span></p>
+            <p><i data-lucide="gamepad-2"></i><span>手机推荐横屏。屏幕手柄可在顶部工具栏或「画质与操作」中开关。</span></p>
             <p><i data-lucide="save"></i><span>离开前先在游戏内保存，再同步存档到本机。</span></p>
           </div>
         </div>
@@ -125,12 +157,13 @@
         </section>
         <section class="settings-section">
           <h3>操作</h3>
-          <label class="setting-check"><input id="player-touch-controls" type="checkbox" checked><span>显示屏幕触控按键</span></label>
+          <label class="setting-check"><input id="player-touch-controls" type="checkbox" checked><span>显示屏幕手柄</span></label>
+          <p class="setting-hint">开关即时生效。支持多指同时按住方向与动作键；方向区可拖动，左下圆盘为模拟摇杆。</p>
           <p class="setting-hint">手机建议横屏游玩；全屏时通过顶部「···」打开网页面板。</p>
           <label class="setting-field" for="gamepadSelect"><span>使用的手柄</span><select id="gamepadSelect" class="btn" title="选择使用的手柄"><option value="-1">所有已连接手柄</option></select></label>
-          <p class="setting-hint">键盘、手柄映射与触控布局可在模拟器的「设置 → 控制」中调整。</p>
+          <p class="setting-hint">键盘与实体手柄映射可在模拟器的「设置 → 控制」中调整。</p>
         </section>
-        <p id="player-settings-status" class="settings-status" role="status" aria-live="polite">画质与触控设置用于下次启动，不会重启正在运行的游戏。</p>
+        <p id="player-settings-status" class="settings-status" role="status" aria-live="polite">屏幕手柄开关即时生效；画质设置在下次启动生效，不会重启当前游戏。</p>
         <section class="settings-section">
           <h3>当前游戏</h3>
           <div class="player-actions"><button id="player-pause-game" type="button"><i data-lucide="settings"></i>模拟器菜单</button><button id="player-resume-game" type="button"><i data-lucide="play"></i>返回游戏画面</button></div>
