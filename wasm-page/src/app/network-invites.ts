@@ -38,7 +38,7 @@ export function setupNetworkInvites(document: Document): void {
     stop();
     link.value = '';
     qr.hidden = link.hidden = node('networkInviteCopyBtn').hidden = true;
-    status.textContent = "Invitation imported. Networking enabled. Restart PPSSPP if already running, then join through the game's multiplayer menu.";
+    status.textContent = "Invitation imported. Networking enabled. Restart the emulator if already running, then join through the game's multiplayer menu.";
   };
   const decode = (source: CanvasImageSource, width: number, height: number) => {
     if (!width || !height) return null;

@@ -60,7 +60,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = 'ppsspp-player-v7';
+const RUNTIME_ASSET_VERSION = 'ppsspp-player-v8';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {
