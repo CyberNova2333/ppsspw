@@ -4,7 +4,11 @@
   const LIMITS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1000];
   const IO_KEYS = ["readCount", "readBytes", "physicalReadCount", "physicalReadBytes", "cacheHits", "cacheBytes", "cacheLimit", "activeReads", "queuedReads", "failures"];
   const AUDIO_KEYS = ["underruns", "droppedFrames", "callbacks"];
-  const WEB_VERSION = "ppsspp-player-v5";
+  const WEB_VERSION = "ppsspp-player-v6";
+  const RESOURCE_KEYS = ["initialMemoryBytes", "maximumMemoryBytes", "configuredComputeThreads", "configuredPthreadPoolSize",
+    "actualComputeThreads", "actualThreadManagerThreads", "cpuBackend", "completedHeapResizeRequests",
+    "heapResizeSuccesses", "heapResizeFailures", "heapResizeTotalMs", "heapResizeMaxMs", "currentWasmCapacityBytes"];
+  const BUILD_KEYS = ["initialMemoryBytes", "maximumMemoryBytes", "pthreadPoolSize", "computeThreads"];
   const finite = value => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
   const rounded = value => value === null ? null : Math.round(value * 1000) / 1000;
   function histogram() { return { count: 0, totalMs: 0, maxMs: 0, buckets: Array(LIMITS.length + 1).fill(0) }; }
@@ -36,11 +40,13 @@
     const get = module?._ppssppGetPerformanceMetric;
     if (typeof get !== "function") return null;
     for (let attempt = 0; attempt < 2; attempt++) {
-      if (get(0) !== 1) return null;
+      const version = get(0);
+      if (version !== 1 && version !== 2) return null;
       const sequence = get(13);
       if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence % 2) continue;
       const snapshot = { sequence, initialized: get(1) === 1, vblanks: get(6), flips: get(7),
         emulatedUs: get(8), frameWallMs: get(9), sampleAgeMs: get(10), targetVps: get(11), emulating: get(12) === 1 };
+      if (version === 2) snapshot.resources = Object.fromEntries(RESOURCE_KEYS.map((key, index) => [key, finite(get(index + 14))]));
       if (sequence === get(13) && [snapshot.vblanks, snapshot.flips, snapshot.emulatedUs, snapshot.sampleAgeMs].every(v => finite(v) !== null)) return snapshot;
     }
     return null;
@@ -59,9 +65,11 @@
     let active = false, session = 0, timer = null, frame = null, observer = null;
     let startedAt = null, stoppedAt = null, lastAt = null, previousCore = null, previousVisible = false;
     let samples = [], totalSamples = 0, samplingErrors = 0, rafCount = 0, lastRaf = null;
+    let visibilityChanges = 0;
     let frameTimes = histogram(), longTasks = histogram(), io = {};
     let environment = {}, longTasksSupported = false;
-    let coreRevision = null, settings = null;
+    let coreRevision = null, settings = null, build = null;
+    let capacityObservations = { firstBytes: null, peakBytes: null, increases: 0, increaseBytes: 0 };
     let stoppedMarks = null;
     let previousAudio = null, audioTotals = Object.fromEntries(AUDIO_KEYS.map(key => [key, 0]));
     const marks = {}, listeners = new Set();
@@ -73,7 +81,8 @@
       const last = samples.at(-1);
       return { active, durationMs: startedAt === null ? 0 : rounded((stoppedAt ?? now()) - startedAt),
         totalSamples, samplesRetained: samples.length, core: last?.core ? { ...last.core } : null,
-        pageHz: last?.pageHz ?? null, wasmMemoryBytes: last?.wasmMemoryBytes ?? null };
+        pageHz: last?.pageHz ?? null, wasmMemoryBytes: last?.wasmMemoryBytes ?? null,
+        resources: last?.resources ? { ...last.resources } : null };
     }
     function publish() {
       const state = summary();
@@ -85,6 +94,8 @@
       let data = {};
       try { data = source() || {}; } catch (_) { samplingErrors++; }
       coreRevision = typeof data.coreRevision === "string" && /^[a-f0-9]{64}$/.test(data.coreRevision) ? data.coreRevision : null;
+      build = { ...numbers(data.build, BUILD_KEYS), sourceFingerprint: typeof data.build?.sourceFingerprint === "string"
+        && /^[a-f0-9]{64}$/.test(data.build.sourceFingerprint) ? data.build.sourceFingerprint : null };
       settings = { resolution: [1, 2, 3].includes(data.settings?.resolution) ? data.settings.resolution : null,
         showFps: typeof data.settings?.showFps === "boolean" ? data.settings.showFps : null,
         touch: typeof data.settings?.touch === "boolean" ? data.settings.touch : null,
@@ -95,7 +106,8 @@
       let core = null;
       if (rawCore) {
         core = { available: true, initialized: !!rawCore.initialized, emulating: !!rawCore.emulating,
-          actualFps: null, speedPercent: null, vps: null, targetVps: finite(rawCore.targetVps),
+          sequence: finite(rawCore.sequence), vblanks: finite(rawCore.vblanks), flips: finite(rawCore.flips), emulatedUs: finite(rawCore.emulatedUs),
+          intervalValid: false, actualFps: null, speedPercent: null, vps: null, targetVps: finite(rawCore.targetVps),
           frameWallMs: finite(rawCore.frameWallMs), sampleAgeMs: finite(rawCore.sampleAgeMs) };
         const valid = isVisible && previousVisible && elapsed > 0 && rawCore.initialized && rawCore.emulating
           && previousCore?.initialized && previousCore.emulating && rawCore.sampleAgeMs <= 2500
@@ -103,6 +115,7 @@
           && rawCore.sequence > previousCore.sequence
           && rawCore.vblanks >= previousCore.vblanks && rawCore.flips >= previousCore.flips && rawCore.emulatedUs >= previousCore.emulatedUs;
         if (valid) {
+          core.intervalValid = true;
           core.actualFps = rounded((rawCore.flips - previousCore.flips) * 1000 / elapsed);
           core.vps = rounded((rawCore.vblanks - previousCore.vblanks) * 1000 / elapsed);
           core.speedPercent = rounded((rawCore.emulatedUs - previousCore.emulatedUs) / (elapsed * 10));
@@ -116,9 +129,19 @@
         return [key, delta];
       }));
       previousAudio = audioCounters;
+      const resources = rawCore?.resources ? numbers(rawCore.resources, RESOURCE_KEYS) : null;
+      const capacity = resources?.currentWasmCapacityBytes ?? finite(data.wasmMemoryBytes);
+      if (capacity !== null) {
+        if (capacityObservations.firstBytes === null) capacityObservations.firstBytes = capacity;
+        if (capacityObservations.peakBytes !== null && capacity > capacityObservations.peakBytes) {
+          capacityObservations.increases++;
+          capacityObservations.increaseBytes += capacity - capacityObservations.peakBytes;
+        }
+        capacityObservations.peakBytes = Math.max(capacityObservations.peakBytes ?? 0, capacity);
+      }
       const sample = { elapsedMs: rounded(at - startedAt), visible: isVisible, core,
         pageHz: elapsed > 0 && isVisible && previousVisible ? rounded(rafCount * 1000 / elapsed) : null,
-        wasmMemoryBytes: finite(data.wasmMemoryBytes),
+        wasmMemoryBytes: capacity, resources,
         canvasWidth: finite(data.canvasWidth), canvasHeight: finite(data.canvasHeight),
         io: numbers(data.io, IO_KEYS), audioCounters, audioDelta };
       samples.push(sample);
@@ -139,6 +162,7 @@
       if (active) for (const entry of entries) if (entry.startTime >= startedAt && visible()) add(longTasks, entry.duration);
     }
     function visibilityChanged() {
+      visibilityChanges++;
       lastRaf = null; rafCount = 0; previousCore = null; previousVisible = false;
     }
     function start() {
@@ -146,8 +170,10 @@
       active = true; session++; startedAt = now(); stoppedAt = null; lastAt = null;
       stoppedMarks = null;
       previousCore = null; previousVisible = false; samples = []; totalSamples = 0; samplingErrors = 0;
+      visibilityChanges = 0;
       rafCount = 0; lastRaf = null; frameTimes = histogram(); longTasks = histogram(); resetIO();
       previousAudio = null; audioTotals = Object.fromEntries(AUDIO_KEYS.map(key => [key, 0]));
+      capacityObservations = { firstBytes: null, peakBytes: null, increases: 0, increaseBytes: 0 };
       const nav = root.navigator;
       environment = { hardwareConcurrency: finite(nav?.hardwareConcurrency), deviceMemoryGB: finite(nav?.deviceMemory),
         crossOriginIsolated: !!root.crossOriginIsolated, sharedArrayBuffer: typeof root.SharedArrayBuffer === "function",
@@ -192,13 +218,16 @@
       snapshot() {
         const startupMarks = stoppedMarks || marks;
         const launch = startupMarks.launchClick;
-        return { schemaVersion: 1, webVersion: WEB_VERSION, coreRevision, settings: settings ? { ...settings } : null,
-          ...summary(), environment: { ...environment }, samplingErrors,
+        return { schemaVersion: 2, webVersion: WEB_VERSION, coreRevision, build: build ? { ...build } : null, settings: settings ? { ...settings } : null,
+          ...summary(), environment: { ...environment }, samplingErrors, visibilityChanges,
           sampleIntervalMs: 1000, maxSamples, longTasksSupported,
           notes: {
             core: "Rates use counter differences over wall time; unavailable, paused, hidden or stale intervals are null. frameWallMs includes waiting and is not CPU time.",
             pageHz: "Browser animation callback rate, not game FPS.",
             memory: "WASM linear-memory capacity, not used heap or process resident memory. Canvas dimensions are output pixels, not internal render resolution.",
+            resources: "Heap resize counters cover completed allocator requests on all native threads, including internal retries; not individual memory.grow instructions. Durations are summed request wall times, not application pauses. ThreadManager threads exclude other emulator and browser workers.",
+            capacityObservations: "Capacity changes observed during this recording; multiple growth operations between samples count as one observation. No growth duration is inferred from polling.",
+            build: "Build configuration and optional source fingerprint supplied with the packaged core. Native resource fields independently expose compiled settings; the fingerprint is build provenance, not a signature.",
             startup: "Runtime initialization and game boot are separate milestones; neither establishes the first visible frame.",
             settings: "Whitelisted player preferences captured at launch, or pending preferences before launch; changes inside the emulator are not observed.",
             audio: "audioCounters are cumulative runtime counters. audioDelta and audioTotals include only observed nonnegative changes during this recording; counter resets produce null deltas.",
@@ -211,7 +240,9 @@
           iso: { requestLatency: distribution(io.request), queueLatency: distribution(io.queue), physicalLatency: distribution(io.physical),
             requestBytes: io.requestBytes, physicalBytes: io.physicalBytes, failures: io.failures },
           audioTotals: { ...audioTotals },
+          capacityObservations: { ...capacityObservations },
           samples: samples.map(sample => ({ ...sample, core: sample.core ? { ...sample.core } : null, io: { ...sample.io },
+            resources: sample.resources ? { ...sample.resources } : null,
             audioCounters: { ...sample.audioCounters }, audioDelta: { ...sample.audioDelta } })) };
       },
     };

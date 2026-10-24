@@ -4,7 +4,41 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import shutil
+
+
+def resource_metadata(cache_text, source_fingerprint=None):
+    """Export only resource numbers; CMake caches can also contain private paths."""
+    fields = {'WASM_INITIAL_MEMORY': 'initialMemoryBytes', 'WASM_MAXIMUM_MEMORY': 'maximumMemoryBytes',
+              'WASM_COMPUTE_THREADS': 'computeThreads', 'WASM_PTHREAD_POOL_SIZE': 'pthreadPoolSize'}
+    bounds = {'WASM_INITIAL_MEMORY': (65536, 4294967296), 'WASM_MAXIMUM_MEMORY': (65536, 4294967296),
+              'WASM_COMPUTE_THREADS': (1, 32), 'WASM_PTHREAD_POOL_SIZE': (11, 128)}
+    result = {}
+    for key, field in fields.items():
+        matches = re.findall(rf'^{key}:([^=\r\n]+)=(.*)$', cache_text, re.MULTILINE)
+        value = matches[0][1].strip() if len(matches) == 1 and matches[0][0] == 'STRING' else ''
+        if key == 'WASM_PTHREAD_POOL_SIZE' and value == 'auto':
+            result[field] = 0
+        else:
+            result[field] = None
+            lower, upper = bounds[key]
+            if len(value) <= len(str(upper)) and re.fullmatch(r'[1-9][0-9]*', value):
+                number = int(value)
+                if lower <= number <= upper and (not key.endswith('_MEMORY') or number % 65536 == 0):
+                    result[field] = number
+    initial, maximum = result['initialMemoryBytes'], result['maximumMemoryBytes']
+    if initial is not None and maximum is not None and initial > maximum:
+        result['initialMemoryBytes'] = result['maximumMemoryBytes'] = None
+    compute, pool = result['computeThreads'], result['pthreadPoolSize']
+    if compute is not None and pool is not None:
+        if (pool == 0 and compute != 2) or (pool != 0 and pool < compute + max(4, compute) + 6):
+            result['computeThreads'] = result['pthreadPoolSize'] = None
+    if source_fingerprint is not None and (not isinstance(source_fingerprint, str) or
+                                          not re.fullmatch(r'[a-f0-9]{64}', source_fingerprint)):
+        raise ValueError('Source fingerprint must be a lowercase SHA-256 digest')
+    result['sourceFingerprint'] = source_fingerprint
+    return result
 
 
 def main():
@@ -12,6 +46,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build-dir', type=Path, default=repo / 'deps/ppsspp-wasm/build-wasm-release')
     parser.add_argument('--expected-revision', help='For a verified prebuilt bundle without CMakeCache.txt')
+    parser.add_argument('--source-fingerprint', help='SHA-256 of the source tree verified by the local build workflow')
     args = parser.parse_args()
     source = args.build_dir.resolve()
     output = repo / 'wasm-page/dist/ppsspp-web'
@@ -30,12 +65,17 @@ def main():
             for chunk in iter(lambda: stream.read(1024 * 1024), b''):
                 revision.update(chunk)
     digest = revision.hexdigest()
+    cache = source / 'CMakeCache.txt'
+    cache_text = cache.read_text(encoding='utf-8') if cache.is_file() else ''
+    try:
+        resources = resource_metadata(cache_text, args.source_fingerprint)
+    except ValueError as error:
+        parser.error(str(error))
     if args.expected_revision:
         if digest != args.expected_revision:
             parser.error('The emulator artifact revision does not match the expected build')
     else:
-        cache = source / 'CMakeCache.txt'
-        if not cache.is_file() or 'USE_FFMPEG:BOOL=ON' not in cache.read_text(encoding='utf-8'):
+        if 'USE_FFMPEG:BOOL=ON' not in cache_text:
             parser.error('Use a local FFmpeg-enabled build, or supply a verified --expected-revision')
     destination = output / 'build-wasm'
     destination.mkdir(exist_ok=True)
@@ -44,7 +84,7 @@ def main():
     # A worker file from an earlier build must not survive a switch to an embedded worker.
     if 'PPSSPPSDL.worker.js' not in names:
         (destination / 'PPSSPPSDL.worker.js').unlink(missing_ok=True)
-    (output / 'build-info.json').write_text(json.dumps({'revision': digest}, indent=2) + '\n', encoding='utf-8')
+    (output / 'build-info.json').write_text(json.dumps({'revision': digest, 'resources': resources}, indent=2) + '\n', encoding='utf-8')
     (output / 'LICENSE').write_bytes((repo / 'LICENSE').read_bytes())
     (output / 'UPSTREAM-LICENSE.txt').write_bytes((repo / 'LICENSE.TXT').read_bytes())
     print(f'Packaged {len(names)} emulator artifacts: {digest}')

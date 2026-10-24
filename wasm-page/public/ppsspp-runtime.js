@@ -18,6 +18,7 @@ const preferences = (() => {
 let BUILD_DIR          = "build-wasm/";
 let BUILD_STAMP        = String(Date.now());
 let performanceLaunchSettings = null;
+let performanceBuildInfo = null;
 let ASSET_DIR          = BUILD_DIR + "assets/";
 const MANIFEST         = "assets-manifest.txt";
 const USE_PRELOADED_ASSETS = true;
@@ -300,11 +301,15 @@ async function hasBuildFile(dir, name) {
 
 async function selectBuildDir() {
   let packagedRevision = "";
+  performanceBuildInfo = null;
   try {
     const response = await fetch("build-info.json", { cache: "no-store" });
     if (response.ok) {
       const info = await response.json();
-      if (/^[a-f0-9]{64}$/.test(info.revision)) packagedRevision = info.revision;
+      if (/^[a-f0-9]{64}$/.test(info.revision)) {
+        packagedRevision = info.revision;
+        performanceBuildInfo = info.resources || null;
+      }
     }
   } catch (_) { /* Development servers may not publish build metadata. */ }
   // A packaged revision describes build-wasm only. Never mix it with a local
@@ -4944,6 +4949,7 @@ function initializePerformancePanel() {
   if (!perf) return;
   perf.setSource(() => ({
     coreRevision: BUILD_STAMP,
+    build: performanceBuildInfo,
     settings: performanceLaunchSettings || loadPlayerSettings(), settingsApplied: !!performanceLaunchSettings,
     wasmMemoryBytes: window.Module?.HEAPU8?.byteLength || window.HEAPU8?.byteLength,
     canvasWidth: canvas?.width, canvasHeight: canvas?.height,

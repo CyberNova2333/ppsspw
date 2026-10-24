@@ -357,7 +357,13 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 
 	ShaderTranslationInit();
 
+#if defined(__EMSCRIPTEN__)
+	// Browser CPU detection historically requests two compute workers. Keep that
+	// default independent from the browser's precreated pthread worker pool.
+	g_threadManager.Init(PPSSPP_WASM_COMPUTE_THREADS, 1);
+#else
 	g_threadManager.Init(cpu_info.num_cores, cpu_info.logical_cpu_count);
+#endif
 
 	g_recentFiles.EnsureThread();
 
