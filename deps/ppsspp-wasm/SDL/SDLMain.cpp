@@ -79,6 +79,7 @@ SDLJoystick *joystick = NULL;
 #include "Core/System.h"
 #ifdef __EMSCRIPTEN__
 #include "Core/FileLoaders/BrowserFileLoader.h"
+#include "SDL/WasmPerformance.h"
 #endif
 #include "Core/Core.h"
 #include "Core/Config.h"
@@ -1029,7 +1030,13 @@ static void EmuThreadFunc(GraphicsContext *graphicsContext) {
 		if (emuFrameBeginCount <= 10 || (emuFrameBeginCount % 60) == 0) {
 			WASM_TRACE("EmuThread NativeFrame begin=%d end=%d", emuFrameBeginCount, emuFrameEndCount);
 		}
+#ifdef __EMSCRIPTEN__
+		const double frameStart = time_now_d();
+#endif
 		NativeFrame(graphicsContext);
+#ifdef __EMSCRIPTEN__
+		WasmPublishPerformance((time_now_d() - frameStart) * 1000.0);
+#endif
 		emuFrameEndCount++;
 		if (emuFrameEndCount <= 10 || (emuFrameEndCount % 60) == 0) {
 			WASM_TRACE("EmuThread NativeFrame end=%d", emuFrameEndCount);
@@ -1747,7 +1754,9 @@ static void EmscriptenMainLoop(void *arg) {
 		return;
 	}
 	if (emuThreadState == (int)EmuThreadState::DISABLED && EmscriptenNetworkFrameDue()) {
+		const double frameStart = time_now_d();
 		NativeFrame(graphicsContext);
+		WasmPublishPerformance((time_now_d() - frameStart) * 1000.0);
 	}
 	if (g_QuitRequested || g_RestartRequested) {
 		emscripten_cancel_main_loop();
