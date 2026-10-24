@@ -443,7 +443,11 @@ void LogoScreen::DrawForeground(UIContext &dc) {
 	const float startY = bounds.centerY() - 70;
 
 	// Manually formatting UTF-8 is fun.  \xXX doesn't work everywhere.
+#if defined(__EMSCRIPTEN__)
+	snprintf(temp, sizeof(temp), "%s", cr->T_cstr("PPSSPWUpstream", "Based on PPSSPP by Henrik Rydgard and contributors"));
+#else
 	snprintf(temp, sizeof(temp), "%s Henrik Rydg%c%crd", cr->T_cstr("created", "Created by"), 0xC3, 0xA5);
+#endif
 	if (System_GetPropertyBool(SYSPROP_APP_GOLD)) {
 		UI::DrawIconShine(dc, Bounds::FromCenter(bounds.centerX() - 125, startY, 60.0f), 0.7f, true);
 		dc.Draw()->DrawImage(ImageID("I_ICON_GOLD"), bounds.centerX() - 125, startY, 1.2f, 0xFFFFFFFF, ALIGN_CENTER);
@@ -455,9 +459,14 @@ void LogoScreen::DrawForeground(UIContext &dc) {
 	dc.SetFontScale(1.0f, 1.0f);
 	dc.SetFontStyle(dc.GetTheme().uiFont);
 	dc.DrawText(temp, bounds.centerX(), startY + 70, textColor, ALIGN_CENTER);
+#if defined(__EMSCRIPTEN__)
+	dc.DrawText("GNU GPL v3", bounds.centerX(), startY + 110, textColor, ALIGN_CENTER);
+	dc.DrawText(cr->T("PPSSPWUnofficial", "Unofficial browser edition"), bounds.centerX(), startY + 160, textColor, ALIGN_CENTER);
+#else
 	dc.DrawText(cr->T_cstr("license", "Free Software under GPL 2.0+"), bounds.centerX(), startY + 110, textColor, ALIGN_CENTER);
 
 	dc.DrawText("www.ppsspp.org", bounds.centerX(), startY + 160, textColor, ALIGN_CENTER);
+#endif
 
 #if !PPSSPP_PLATFORM(UWP) || defined(_DEBUG)
 	// Draw the graphics API, except on UWP where it's always D3D11
@@ -503,7 +512,11 @@ private:
 
 std::string_view CreditsScreen::GetTitle() const {
 	auto mm = GetI18NCategory(I18NCat::MAINMENU);
+#if defined(__EMSCRIPTEN__)
+	return mm->T("About PPSSPW", "About PPSSPW");
+#else
 	return mm->T("About PPSSPP");
+#endif
 }
 
 void CreditsScreen::CreateDialogViews(UI::ViewGroup *parent) {
@@ -546,6 +559,16 @@ void CreditsScreen::CreateDialogViews(UI::ViewGroup *parent) {
 		right->Add(new Spacer(0.0f, new LinearLayoutParams(1.0f)));
 	}
 
+#if defined(__EMSCRIPTEN__)
+	// Keep upstream credits accessible without presenting their promotion channels
+	// or privacy policy as those of this independently maintained browser player.
+	left->Add(new Choice(cr->T("PPSSPWUpstreamWebsite", "PPSSPP upstream website"), ImageID("I_LINK_OUT")))->OnClick.Add([](UI::EventParams &e) {
+		System_LaunchUrl(LaunchUrlType::BROWSER_URL, "https://www.ppsspp.org");
+	});
+	right->Add(new Choice(cr->T("PPSSPWUpstreamSource", "PPSSPP upstream source"), ImageID("I_LINK_OUT")))->OnClick.Add([](UI::EventParams &e) {
+		System_LaunchUrl(LaunchUrlType::BROWSER_URL, "https://github.com/hrydgard/ppsspp");
+	});
+#else
 	int rightYOffset = 0;
 	if (!System_GetPropertyBool(SYSPROP_APP_GOLD)) {
 		ScreenManager *sm = screenManager();
@@ -581,6 +604,7 @@ void CreditsScreen::CreateDialogViews(UI::ViewGroup *parent) {
 			System_ShareText(cr->T("CheckOutPPSSPP", "Check out PPSSPP, the awesome PSP emulator: https://www.ppsspp.org/"));
 		});
 	}
+#endif
 }
 
 void CreditsScreen::update() {
@@ -614,6 +638,14 @@ void CreditsScroller::Draw(UIContext &dc) {
 	specialthankssolarmystic += ')';
 
 	std::string_view credits[] = {
+#if defined(__EMSCRIPTEN__)
+		"PPSSPW",
+		"",
+		cr->T("PPSSPWUnofficial", "Unofficial browser edition"),
+		"GNU GPL v3",
+		"",
+		cr->T("PPSSPWUpstreamCredits", "Upstream PPSSPP credits"),
+#endif
 		System_GetPropertyBool(SYSPROP_APP_GOLD) ? "PPSSPP Gold" : "PPSSPP",
 		"",
 		cr->T("title", "A fast and portable PSP emulator"),
@@ -741,11 +773,15 @@ void CreditsScroller::Draw(UIContext &dc) {
 
 	// TODO: This is kinda ugly, done on every frame...
 	char temp[256];
+#if defined(__EMSCRIPTEN__)
+	snprintf(temp, sizeof(temp), "PPSSPW (PPSSPP %s)", PPSSPP_GIT_VERSION);
+#else
 	if (System_GetPropertyBool(SYSPROP_APP_GOLD)) {
 		snprintf(temp, sizeof(temp), "PPSSPP Gold %s", PPSSPP_GIT_VERSION);
 	} else {
 		snprintf(temp, sizeof(temp), "PPSSPP %s", PPSSPP_GIT_VERSION);
 	}
+#endif
 	credits[0] = (const char *)temp;
 
 	dc.Begin();

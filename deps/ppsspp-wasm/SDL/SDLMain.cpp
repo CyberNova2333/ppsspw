@@ -582,8 +582,12 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 	case SystemRequestType::SET_WINDOW_TITLE:
 	{
 		std::lock_guard<std::mutex> guard(g_mutexWindow);
+#if defined(__EMSCRIPTEN__)
+		g_windowState.title = param1.empty() ? "PPSSPW" : "PPSSPW - " + std::string(param1);
+#else
 		const char *app_name = System_GetPropertyBool(SYSPROP_APP_GOLD) ? "PPSSPP Gold" : "PPSSPP";
 		g_windowState.title = param1.empty() ? app_name : param1;
+#endif
 		g_windowState.update = true;
 		return true;
 	}
@@ -2170,12 +2174,17 @@ int main(int argc, char *argv[]) {
 	SDL_SetWindowTitle(window, (app_name_nice + " " + PPSSPP_GIT_VERSION).c_str());
 
 	char iconPath[PATH_MAX];
-#if defined(ASSETS_DIR)
-	snprintf(iconPath, PATH_MAX, "%sui_images/icon.png", ASSETS_DIR);
-	if (access(iconPath, F_OK) != 0)
-		snprintf(iconPath, PATH_MAX, "%sassets/ui_images/icon.png", SDL_GetBasePath() ? SDL_GetBasePath() : "");
+#if defined(__EMSCRIPTEN__)
+	constexpr const char *iconFilename = "ui_images/ppsspw.png";
 #else
-	snprintf(iconPath, PATH_MAX, "%sassets/ui_images/icon.png", SDL_GetBasePath() ? SDL_GetBasePath() : "");
+	constexpr const char *iconFilename = "ui_images/icon.png";
+#endif
+#if defined(ASSETS_DIR)
+	snprintf(iconPath, PATH_MAX, "%s%s", ASSETS_DIR, iconFilename);
+	if (access(iconPath, F_OK) != 0)
+		snprintf(iconPath, PATH_MAX, "%sassets/%s", SDL_GetBasePath() ? SDL_GetBasePath() : "", iconFilename);
+#else
+	snprintf(iconPath, PATH_MAX, "%sassets/%s", SDL_GetBasePath() ? SDL_GetBasePath() : "", iconFilename);
 #endif
 	int width = 0, height = 0;
 	unsigned char *imageData;

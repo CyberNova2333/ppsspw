@@ -439,6 +439,12 @@ static bool GenerateUIAtlasImage(Atlas *atlas, float dpiScale, Image *dest, int 
 	// Script fully read, now read images and rasterize the fonts.
 	std::vector<Image> images(imageCount);
 
+#ifdef __EMSCRIPTEN__
+	// Load the web product marks before upstream assets fill the remaining entries.
+	if (!RasterizeSVG("ui_images/ppsspw.svg", dpiScale, maxTextureSize, imageIDs, imageCount, &images)) {
+		return false;
+	}
+#endif
 	if (!RasterizeSVG("ui_images/images.svg", dpiScale, maxTextureSize, imageIDs, imageCount, &images)) {
 		return false;
 	}

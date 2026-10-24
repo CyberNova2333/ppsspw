@@ -26,6 +26,7 @@
 #include <cstring>
 
 #include "ppsspp_config.h"
+#include "UI/DisplayBrand.h"
 
 #include "Common/Common.h"
 #include "Common/System/Display.h"
@@ -794,7 +795,7 @@ void RecreateActivity() {
 		INFO_LOG(Log::System, "Got back from recreate");
 	} else {
 		auto gr = GetI18NCategory(I18NCat::GRAPHICS);
-		System_Toast(gr->T_cstr("Must Restart", "You must restart PPSSPP for this change to take effect"));
+		System_Toast(DisplayBrand::AppText(gr->T("Must Restart", "You must restart PPSSPP for this change to take effect")));
 	}
 }
 

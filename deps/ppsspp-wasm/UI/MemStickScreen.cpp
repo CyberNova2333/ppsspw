@@ -16,6 +16,7 @@
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
 #include "ppsspp_config.h"
+#include "UI/DisplayBrand.h"
 
 #include "android/jni/app-android.h"
 
@@ -177,7 +178,7 @@ void MemStickScreen::CreateViews() {
 
 	if (initialSetup_) {
 		mainColumn->Add(new Spacer(new LinearLayoutParams(FILL_PARENT, 12.0f, 0.0f)));
-		mainColumn->Add(new TextView(ms->T("Welcome to PPSSPP!"), ALIGN_LEFT, false));
+		mainColumn->Add(new TextView(DisplayBrand::AppText(ms->T("Welcome to PPSSPP!")), ALIGN_LEFT, false));
 	}
 
 	mainColumn->Add(new Spacer(new LinearLayoutParams(FILL_PARENT, 18.0f, 0.0f)));
@@ -525,7 +526,7 @@ void ConfirmMemstickMoveScreen::CreateViews() {
 
 	leftColumn->Add(new TextView(ms->T("Selected PSP Data Folder"), ALIGN_LEFT, false));
 	if (!initialSetup_) {
-		leftColumn->Add(new NoticeView(NoticeLevel::INFO, ms->T("PPSSPP will restart after the change"), ""));
+		leftColumn->Add(new NoticeView(NoticeLevel::INFO, DisplayBrand::AppText(ms->T("PPSSPP will restart after the change")), ""));
 	}
 	leftColumn->Add(new TextView(newMemstickFolder_.ToVisualString(), ALIGN_LEFT, false));
 
