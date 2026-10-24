@@ -1,7 +1,7 @@
 {
-  "name": "PPSSPP Web · PSP 网页模拟器",
-  "short_name": "PPSSPP Web",
-  "description": "在浏览器中运行 PSP 游戏，使用中文操作面板调整画质、下载游戏并管理本机存档。",
+  "name": "PPSSPW · PSP 网页模拟器",
+  "short_name": "PPSSPW",
+  "description": "PPSSPW 是基于 PPSSPP 的非官方 PSP 网页模拟器，支持中文界面、屏幕手柄、下载续传与本机存档管理。",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

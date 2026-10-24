@@ -357,7 +357,7 @@ const byId = id => document.getElementById(id);
 function on(target, type, handler, options) {
   const el = typeof target === "string" ? byId(target) : target;
   if (!el) {
-    console.warn("PPSSPP Web: missing DOM element for listener", target);
+    console.warn("PPSSPW: missing DOM element for listener", target);
     return null;
   }
   el.addEventListener(type, handler, options);
@@ -483,7 +483,7 @@ for (const id of ["networkServerInput", "networkRoomInput", "networkSessionKeyIn
     networkDraftDirty = true;
     networkProbe = { state: "unverified" };
     renderNetworkStatus();
-    if (networkActivityEl) networkActivityEl.textContent = "Unsaved changes. Save settings to apply them; restart PPSSPP if already running.";
+    if (networkActivityEl) networkActivityEl.textContent = "Unsaved changes. Save settings to apply them; restart the emulator if already running.";
   });
 }
 window.addEventListener("offline", renderNetworkStatus);
@@ -2413,9 +2413,9 @@ function networkStatusView(cfg, live, probe, now = Date.now(), online = true) {
   if (live?.state === "connecting") return { tone: "busy", title: "Connecting game…", detail: "Waiting for the relay to accept the game connection." };
   if (probe.state === "checking") return { tone: "busy", title: "Checking relay…", detail: "Verifying the WebSocket connection and your access key." };
   if (probe.state === "error") return { tone: "error", title: "Relay unreachable", detail: probe.error };
-  if (probe.state === "reachable" && now - probe.checkedAt < 30000) return { tone: "ready", title: "Relay reachable · game not connected", detail: "Relay accepted the connection. Start PPSSPP and enter the game's multiplayer menu to connect." };
+  if (probe.state === "reachable" && now - probe.checkedAt < 30000) return { tone: "ready", title: "Relay reachable · game not connected", detail: "Relay accepted the connection. Start the emulator and enter the game's multiplayer menu to connect." };
   if (live?.state === "disconnected") return { tone: "neutral", title: "Disconnected", detail: "The game has no active relay connection. Leave and re-enter the game's multiplayer menu to reconnect." };
-  if (!cfg.enabled) return { tone: "neutral", title: "Multiplayer disabled", detail: "Enable multiplayer and save your settings before starting PPSSPP." };
+  if (!cfg.enabled) return { tone: "neutral", title: "Multiplayer disabled", detail: "Enable multiplayer and save your settings before starting the emulator." };
   return { tone: "neutral", title: "Connection not checked", detail: "Check the relay before playing. The game connects when you enter its multiplayer menu." };
 }
 
@@ -2433,7 +2433,7 @@ function renderNetworkStatus(cfg = loadNetworkConfig()) {
     ? `Room: ${networkActiveConfig?.room || cfg.room} · ${live.peers?.length || 0} peers` + (live.rttMs == null ? "" : ` · ${live.rttMs} ms`)
     : "No active game session";
   if (networkActiveConfig && networkConfigSignature(cfg) !== networkConfigSignature(networkActiveConfig)) {
-    if (session) session.textContent += " · Saved settings changed: restart PPSSPP to apply";
+    if (session) session.textContent += " · Saved settings changed: restart the emulator to apply";
   }
   if (networkTestBtn) { networkTestBtn.disabled = networkProbe.state === "checking"; networkTestBtn.setAttribute("aria-busy", String(networkProbe.state === "checking")); }
   if (byId("networkDisconnectBtn")) byId("networkDisconnectBtn").disabled = !["registered", "connecting"].includes(live?.state);
@@ -2487,7 +2487,7 @@ function saveNetworkConfigFromUI() {
   preferences.setItem(NETWORK_MAC_KEY, cfg.mac);
   preferences.setItem("ppsspp-network-room", cfg.room);
   try { sessionStorage.setItem("ppsspp-tab-mac", cfg.mac); } catch (_) {}
-  updateNetworkConfigUI(cfg, "Saved. Restart PPSSPP to apply network settings before entering multiplayer.");
+  updateNetworkConfigUI(cfg, "Saved. Restart the emulator to apply network settings before entering multiplayer.");
   return cfg;
 }
 
