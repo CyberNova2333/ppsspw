@@ -35,6 +35,11 @@ struct MemArenaData;
 
 class MemArena {
 public:
+#ifdef NO_MMAP
+	MemArena() = default;
+	MemArena(const MemArena &) = delete;
+	MemArena &operator=(const MemArena &) = delete;
+#endif
 	size_t roundup(size_t x);
 	bool GrabMemSpace(size_t size);
 	void ReleaseSpace();
@@ -46,6 +51,10 @@ public:
 	bool NeedsProbing();
 
 private:
+#ifdef NO_MMAP
+	// Views borrow ranges within this allocation; only ReleaseSpace owns it.
+	u8 *noMmapBase_ = nullptr;
+#endif
 #ifdef _WIN32
 	HANDLE hMemoryMapping;
 	SYSTEM_INFO sysInfo;
