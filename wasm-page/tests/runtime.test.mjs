@@ -16,6 +16,8 @@ function load(names, globals = {}, declarations = '') {
   return context;
 }
 
+const availableStartupCapabilities = () => ({ webgl2: true, simd: true, crossOriginIsolated: true, sharedArrayBuffer: true });
+
 function saveRestoreFixture(initial) {
   const roots = ['/home/web_user/.config/ppsspp', '/root/.config/ppsspp'];
   const storage = new Map(initial), backups = new Map(), player = new Map(), live = new Map(), state = new Map();
@@ -340,6 +342,7 @@ test('failed preload never releases the dependency and starts the core without i
   const failures = [], removed = [];
   const noop = () => {};
   const ctx = load(['start', 'configureEmulatorKeyboard'], {
+    probeWebGLFeaturesWithPref: availableStartupCapabilities,
     PpssppGameStorage: { acquireShared: async () => {} },
     ENV: {},
     loadNetworkConfig: () => ({ enabled: false }),
@@ -370,6 +373,7 @@ test('direct game launch also runs library automount before releasing startup', 
   const events = [];
   const noop = () => {};
   const ctx = load(['start', 'configureEmulatorKeyboard'], {
+    probeWebGLFeaturesWithPref: availableStartupCapabilities,
     PpssppGameStorage: { acquireShared: async () => {} },
     ENV: {}, loadNetworkConfig: () => ({ enabled: false }),
     started: false, runtimeReady: false, selectedGame: null, selectedStoredGame: null, validateGameSelection: () => true, canvas: { focus() {} }, fileLabel: null, fileInput: null, gpuSelectEl: null,
@@ -429,6 +433,112 @@ test('blocked session storage cannot cause an endless isolation reload loop', as
   });
   assert.equal(await ctx.reloadForCrossOriginIsolation('test'), false);
   assert.match(statuses[0], /阻止了网站存储/);
+});
+
+test('startup reports missing browser capabilities before initializing audio or loading the core', async () => {
+  for (const [changes, expected] of [
+    [{ webgl2: false }, /WebGL2/],
+    [{ simd: false }, /SIMD/],
+    [{ crossOriginIsolated: false }, /跨源隔离/],
+    [{ sharedArrayBuffer: false }, /共享内存/],
+    [{ webgl2: false, simd: false, crossOriginIsolated: false, sharedArrayBuffer: false }, /WebGL2.*SIMD.*跨源隔离.*共享内存/],
+  ]) {
+    const messages = [], capabilities = { ...availableStartupCapabilities(), ...changes };
+    const ctx = load(['start', 'reloadForCrossOriginIsolation'], {
+      started: false, selectedGame: { name: 'game.iso' }, selectedStoredGame: null,
+      validateGameSelection: () => true, canvas: {}, gpuSelectEl: null,
+      probeWebGLFeaturesWithPref: () => capabilities,
+      window: { crossOriginIsolated: capabilities.crossOriginIsolated }, navigator: {},
+      SharedArrayBuffer: capabilities.sharedArrayBuffer ? SharedArrayBuffer : undefined,
+      sessionStorage: { getItem: () => '0' }, COI_RELOAD_KEY: 'coi',
+      setStatus: text => messages.push(text), log() {}, hideLoading() {},
+      AudioContext: class { constructor() { assert.fail('audio initialized'); } },
+      selectBuildDir: () => assert.fail('core loading started'),
+      location: { reload: () => assert.fail('unsupported environment reloaded') },
+    });
+    await ctx.start();
+    assert.equal(ctx.started, false);
+    assert.match(messages[0], expected);
+    assert.match(messages[0], /完整浏览器/);
+    assert.equal(ctx.Module, undefined);
+  }
+});
+
+test('graphics probing still reports SIMD and isolation when WebGL context creation fails', () => {
+  const values = new Map();
+  const ctx = load(['probeWebGLFeaturesWithPref'], {
+    document: { createElement: () => ({ getContext() { throw new Error('context denied'); } }) },
+    WebAssembly: { validate: () => false }, window: { crossOriginIsolated: false }, SharedArrayBuffer: undefined,
+    navigator: { hardwareConcurrency: 4 }, gpuBadge: null, log() {},
+    setInfoVal: (key, value, state) => values.set(key, { value, state }),
+  });
+  const result = ctx.probeWebGLFeaturesWithPref('default');
+  assert.equal(result.webgl2, false); assert.equal(result.simd, false);
+  assert.deepEqual(values.get('iSIMD'), { value: 'no', state: 'bad' });
+  assert.deepEqual(values.get('iCOI'), { value: 'false', state: 'bad' });
+  assert.deepEqual(values.get('iSAB'), { value: 'no', state: 'bad' });
+});
+
+test('isolated pages without SharedArrayBuffer receive an actionable failure without retrying isolation', async () => {
+  const messages = [];
+  const ctx = load(['reloadForCrossOriginIsolation'], {
+    window: { crossOriginIsolated: true }, SharedArrayBuffer: undefined,
+    setStatus: text => messages.push(text), hideLoading() {},
+    navigator: { serviceWorker: { register: () => assert.fail('isolation retried') } },
+    location: { reload: () => assert.fail('page reloaded') },
+  });
+  assert.equal(await ctx.reloadForCrossOriginIsolation('launch'), false);
+  assert.match(messages[0], /共享内存.*完整浏览器/);
+});
+
+for (const pendingPhase of ['registration', 'ready']) {
+  test(`isolation recovery times out during ${pendingPhase} and ignores its late completion`, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    let finish, reloads = 0, hidden = 0;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const messages = [], logs = [];
+    const ctx = load(['reloadForCrossOriginIsolation'], {
+      window: { crossOriginIsolated: false }, COI_RELOAD_KEY: 'coi',
+      sessionStorage: { getItem: () => '0', setItem() {} },
+      navigator: { serviceWorker: {
+        register: () => pendingPhase === 'registration' ? pending : Promise.resolve(),
+        ready: pendingPhase === 'ready' ? pending : Promise.resolve(),
+      } },
+      setStatus: text => messages.push(text), log: text => logs.push(text),
+      showLoading() {}, hideLoading: () => hidden++, setStartButtonMode() {}, setTimeout, clearTimeout,
+      location: { reload: () => reloads++ },
+    });
+    const recovery = ctx.reloadForCrossOriginIsolation('launch');
+    t.mock.timers.tick(10000);
+    assert.equal(await recovery, false);
+    assert.equal(reloads, 0); assert.equal(hidden, 1);
+    assert.match(messages.at(-1), /准备失败.*完整浏览器.*COOP\/COEP/);
+    assert(logs.some(text => text.includes('超时')));
+    finish();
+    await Promise.resolve(); await Promise.resolve();
+    assert.equal(reloads, 0, 'late readiness must not refresh a page after showing failure');
+  });
+}
+
+test('isolation recovery reloads only after successful readiness and clears its deadline', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let reloads = 0;
+  const messages = [];
+  const ctx = load(['reloadForCrossOriginIsolation'], {
+    window: { crossOriginIsolated: false }, COI_RELOAD_KEY: 'coi',
+    sessionStorage: { getItem: () => '0', setItem() {} },
+    navigator: { serviceWorker: { register: async () => {}, ready: Promise.resolve() } },
+    setStatus: text => messages.push(text), log() {}, showLoading() {}, hideLoading() {}, setStartButtonMode() {},
+    setTimeout, clearTimeout, location: { reload: () => reloads++ },
+  });
+  assert.equal(await ctx.reloadForCrossOriginIsolation('launch'), false);
+  assert.equal(reloads, 1);
+  t.mock.timers.tick(10000);
+  assert.equal(messages.length, 1);
+  ctx.navigator.serviceWorker.register = async () => { throw new Error('registration denied'); };
+  assert.equal(await ctx.reloadForCrossOriginIsolation('launch'), false);
+  assert.equal(reloads, 1, 'failed registration must not trigger another reload');
+  assert.match(messages.at(-1), /准备失败/);
 });
 
 test('game downloads stream through OPFS with backpressure instead of accumulating chunks in RAM', async () => {
@@ -969,6 +1079,7 @@ test('a storage maintenance lease prevents startup and leaves the launch action 
   const messages = [];
   const audio = [];
   const ctx = load(['start'], {
+    probeWebGLFeaturesWithPref: availableStartupCapabilities,
     started: false, selectedGame: { name: 'game.iso' }, selectedStoredGame: null,
     validateGameSelection: () => true, canvas: { focus() {} }, SharedArrayBuffer,
     window: { crossOriginIsolated: true }, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
