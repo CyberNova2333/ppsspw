@@ -28,6 +28,9 @@
 | 页面帧间隔与长任务 | 网页主线程的响应情况；不覆盖工作线程、GPU 执行时间或所有短任务 |
 | 启动阶段 | 从启动点击到 runtime 初始化、游戏启动日志；不等同于首帧。首帧暂记为 `null` |
 | WASM 内存容量 | 线性内存可寻址容量，不是有效分配量、设备驻留内存或浏览器进程总内存 |
+| 堆调整请求 | 所有原生线程调用分配器扩容接口的完成次数、成功/失败及耗时；一个请求可能在 SDK 内部重试，不等于 `memory.grow` 指令次数。累计耗时也不是整个应用暂停的时长 |
+| 容量变化观察 | 录制期间每秒观察到的容量增加；两次采样之间的多次扩容可能合并，不能据此推算准确次数或耗时 |
+| 线程资源 | 配置的预建 Worker 数、计算线程数和实际 ThreadManager 线程数分别记录；ThreadManager 不包含模拟器其他线程，也不等于浏览器全部 Worker |
 | ISO 读取 | 逻辑请求、排队、物理 Blob 读取分别聚合；请求时间包含排队和缓存处理，三者不可相加。延迟百分位为直方图桶上界 |
 | 音频欠载 | 录制区间的新增欠载数；同时保留原始累计计数。零欠载不等同于已经人工听音验收 |
 
@@ -51,6 +54,51 @@ node scripts/profile-browser.mjs --port 9222 --seconds 20 --out .local/cpu
 
 CPU 采样会扰动运行；各线程采样窗口也可能不同，不能把百分比直接相加成总 CPU 占用。原始 `.cpuprofile` 可能包含源码 URL，默认截图会包含游戏画面，分享前检查内容。脚本不下载游戏，不修改游戏设置。桌面 CPU 限速、移动视口和软件渲染均不能替代手机真机结果。
 
+## 内存和线程的独立对照
+
+默认仍为 512 MiB 初始容量、4 GiB 上限、2 个计算线程；ThreadManager 另建 4 个 I/O 线程。默认预建 Worker 数沿用 `max(4, hardwareConcurrency)`。计算线程数与预建池是两个参数，不能用浏览器 Worker 总数推断 CPU 并行度。
+
+激活 SDK 并准备好已有的 FFmpeg 构建目录后，可以只改变一项重新配置、编译：
+
+```sh
+# 保留其他编译选项，分别测试 268435456 / 402653184 / 536870912 字节。
+emcmake cmake -S deps/ppsspp-wasm -B deps/ppsspp-wasm/build-wasm-release \
+  -DWASM_INITIAL_MEMORY=268435456 -DWASM_COMPUTE_THREADS=2 -DWASM_PTHREAD_POOL_SIZE=auto
+cmake --build deps/ppsspp-wasm/build-wasm-release -j4
+
+# 线程池实验另开一组，初始内存保持 512 MiB。
+emcmake cmake -S deps/ppsspp-wasm -B deps/ppsspp-wasm/build-wasm-release \
+  -DWASM_INITIAL_MEMORY=536870912 -DWASM_COMPUTE_THREADS=2 -DWASM_PTHREAD_POOL_SIZE=12
+cmake --build deps/ppsspp-wasm/build-wasm-release -j4
+```
+
+也可以把同名参数传给 `make wasm-release`。内存必须按 64 KiB 对齐且不超过上限。计算线程允许 1–32 个，改变它时必须指定固定预建池；固定池要求至少 `compute + max(4, compute) + 6` 个 Worker，最多 128 个。预留量覆盖常见启动线程，额外子系统仍可能需要更多。固定池用严格模式：用尽即报告线程创建失败，避免同步等待异步创建的 Worker。它是实验参数，不能凭一次启动就推断所有游戏功能都适配了较小线程池。
+
+构建前后分别运行 `python3 scripts/fingerprint-wasm-source.py`，确认摘要相同，再将该值传给 `scripts/package-player.py --source-fingerprint <SHA-256>`。使用独立编译缓存时，必须加 `--source-root <实际编译的核心源码目录>`，让摘要来自真实编译树。该工具从 Git 清单选择文件，不包含被忽略的游戏和构建输出。打包只提取资源数字，不复制 CMake 中的路径。源码摘要不是产物签名，也不自动验证工具链、FFmpeg 或其他编译选项；这些条件仍要固定。
+
+每次使用独立浏览器配置、相同存档、同一启动操作序列和场景。每个变体至少录两轮 60 秒，交错次序，保持网页与核心其他设置、浏览器版本、电源状态及缓存准备方式一致。游戏、存档、截图和原始报告放在忽略目录，不放进站点目录。只有浏览器文件选择器读取本地游戏。
+
+将网页「导出性能 JSON」保存后，建立本地清单，例如：
+
+```json
+{
+  "schemaVersion": 1,
+  "dimension": "initialMemoryBytes",
+  "environment": { "id": "desktop-session", "kind": "desktop" },
+  "scene": { "id": "opening-video", "alignment": "manual" },
+  "runs": [
+    { "id": "baseline-a", "pair": "a", "report": "baseline-a.json", "value": 536870912 },
+    { "id": "candidate-a", "pair": "a", "report": "candidate-a.json", "value": 268435456 },
+    { "id": "candidate-b", "pair": "b", "report": "candidate-b.json", "value": 268435456 },
+    { "id": "baseline-b", "pair": "b", "report": "baseline-b.json", "value": 536870912 }
+  ]
+}
+```
+
+运行 `node scripts/compare-browser-performance.mjs --manifest .local/matrix.json --out .local/comparison.json`。线程池维度为 `pthreadPoolSize`（0 表示自动），计算线程维度为 `computeThreads`。自动场景标记可使用 `alignment: "emulated-time"` 并给出 `startEmulatedUs`；它只核对模拟时间，不验证画面或游戏状态相同。
+
+比较器独立从原始计数重算时长加权 FPS 和仿真速度，要求有效时长至少 60 秒、覆盖率至少 95%。缺少源码摘要、采样字段、配置不一致、后台切换、计数回退或时长不足时返回 `invalid` / `incomparable`，退出码 2，不给出变体性能结论。`comparable` 仅表示这些检查通过，不代表统计显著提速。新报告为 schema 2；旧报告仍可读取查看，但缺少复核字段，不能混入本组比较。
+
 ## 本轮本地对照
 
 2026-10-24 使用 Windows、Edge 157、Intel D3D11 硬件渲染、844×390 视口、DPR 1、1×内部渲染，运行本地镜像的有声 30 FPS 视频片段。这里只建立桌面对照，没有连接 Android 真机，也未测 iOS、战斗场景、长期热降频或整机功耗。
@@ -68,11 +116,51 @@ CPU 采样会扰动运行；各线程采样窗口也可能不同，不能把百�
 
 对照使用的核心产物摘要为 `c71b2ffbacbfc334dd1afe587504a1ad749b69cf24deba198716e85cd3e83c59`。最终核心补充了读档时计数回退的检测，摘要为 `da8567b42c6513de819ad817f01b4b73297f4d9bd586bbf0725fe73b37ba8595`；此修复不改变仿真或音频调度。本地原始记录和截图留在被忽略的 `.local/`，不含入库游戏资源。
 
+## 资源配置实测（2026-10-24）
+
+本组使用 Windows 上独立启动的无头 Edge 157，渲染器为 Intel ANGLE / D3D11，视口 844×390、DPR 1、内部渲染 1×，触摸手柄开启。各轮使用相同存档与启动操作，在开场流程模拟时间达到 30,000,000 微秒时开始录制，允许 250,000 微秒的起点偏差，每轮有效采样约 61 秒。模拟时间对齐不等于逐帧验证游戏状态相同。CPU 后端实测为 IR 解释器，计算线程始终为 2，ThreadManager 总线程数始终为 6。
+
+内存顺序为 `512 / 256 / 384 / 384 / 256 / 512 MiB`，预建池均为自动。比较器确认六轮均有效，结果为 `comparable`；下表 FPS 和速度按两轮有效时长加权，容量取录制区间观测值。
+
+| 初始容量 | 两轮有效时长合计 | 实际 FPS | 仿真速度 | 录制时 WASM 容量 | 每轮录制前的扩容请求数 |
+| --- | --- | --- | --- | --- | --- |
+| 512 MiB | 122.093 秒 | 29.903 | 99.777% | 512 MiB | 0 / 0 |
+| 256 MiB | 122.045 秒 | 29.907 | 99.790% | 442.5 MiB | 3 / 3 |
+| 384 MiB | 122.087 秒 | 29.897 | 99.755% | 460.8125 MiB | 1 / 1 |
+
+256 MiB 的两轮累计扩容请求耗时分别为 3.755 / 3.500 ms；384 MiB 为 1.190 / 1.040 ms。上述请求均成功，并在稳定场景录制前完成；六轮录制区间内均无新增扩容请求，新增音频欠载均为 0。较小初始容量会在启动阶段增长，不能把“初始 256 MiB”解释为运行时只需 256 MiB。这组没有显示明确的 FPS 提升。
+
+预建池对照保持初始容量 512 MiB，采用自动 / 12 / 12 / 自动的 ABBA 次序。第一段自动池复用上表最后一轮 512 MiB 记录，未重复计为一次新运行；其余三段另行采集。宿主报告 24 个逻辑处理器，自动配置观察到创建 24 个 Worker，固定池创建 12 个；这不是忙碌线程数或 CPU 占用。
+
+| 实际录制次序 | 预建池 | 有效时长 | 实际 FPS | 仿真速度 | 新增音频欠载 |
+| --- | --- | --- | --- | --- | --- |
+| A，复用 512 MiB 第二轮 | 自动 | 61.049 秒 | 29.910 | 99.801% | 0 |
+| B，第一轮 | 12 | 61.038 秒 | 29.932 | 99.873% | 0 |
+| B，第二轮 | 12 | 61.031 秒 | 29.935 | 99.884% | 0 |
+| A，最后一轮 | 自动 | 61.036 秒 | 29.884 | 99.712% | 7 |
+
+线程池比较同样为 `comparable`。两轮加权实际 FPS 为自动 29.897、固定 12 个 29.934；仿真速度分别为 99.757% 和 99.879%。最后一轮自动池新增了 7 次音频欠载，不能写成全程零欠载，也不能根据这一轮将欠载归因于线程池大小。当前重复次数不足以确认这点差异是稳定收益。启动里程碑亦只有每变体两次观测，缓存与宿主调度的影响尚未隔离，不据此声称启动提速。
+
+两组均来自源码摘要 `d3ed95928ad07386add2b32da73c38362400ba21be70df9497949f711711292b`，对应产物如下。这些是随后 `NO_MMAP` 修改之前的核心，不能作为该修改的验证结果。
+
+| 构建配置 | 核心产物 SHA-256 |
+| --- | --- |
+| 512 MiB，自动池 | `50583c59b1f6b0eab09d4b29145f0bcfe8be1d27022168efbfa9679cb4e52bbf` |
+| 256 MiB，自动池 | `217f2b20707bf9687c593fe863c3b9ac9a4889954393a05b45f15595b4e3f094` |
+| 384 MiB，自动池 | `df16a62e6f9158de74c6f8ef12c6753d5afaa9b6ea66dfafe49cd5d47ec031c4` |
+| 512 MiB，固定池 12 | `5f9a44c2eb6c0013a2ce78921e0d9eb837046af15489671d598ca790b681f184` |
+
+原始报告、清单、比较结果和环境证据保留在忽略目录 `.local/resource-benchmark/`，汇总为 `summary.json`，两组比较分别为 `memory-comparison.json` 和 `pool-comparison.json`。这些记录只说明该桌面环境及开场片段的表现，不代表 Android 模拟环境或手机真机表现；没有测进程 RSS、整机内存、功耗或长期热降频。默认继续保留 512 MiB 初始容量和自动预建池，等待更多场景与设备的数据。
+
 ## 验证命令
 
 ```sh
 npm --prefix wasm-page test
 node --test scripts/profile-browser.test.mjs
+node --test scripts/compare-browser-performance.test.mjs
+python3 scripts/test-wasm-resources.py
+python3 scripts/test-package-player.py
+python3 scripts/test-fingerprint-wasm-source.py
 # 激活 Emscripten SDK 后，编译实际统计实现并验证暂停、恢复及计数回退。
 python3 scripts/test-wasm-performance.py
 ```

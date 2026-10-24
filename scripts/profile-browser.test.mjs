@@ -98,6 +98,37 @@ test('snapshot settings keep only known numeric/boolean performance values', () 
   assert.equal(snapshot.buildStamp, undefined); assert.equal(snapshot.gameReads.hasReadError, true);
 });
 
+test('schema 2 snapshots read one consistent native resource payload and allowlist build metadata', () => {
+  const env = environment();
+  const MiB = 1024 * 1024;
+  const slots = [2, 1, 30, 30, 100, 60, 600, 300, 10000000, 16, 2, 60, 1, 8,
+    256 * MiB, 4096 * MiB, 2, 0, 2, 6, 2, 3, 2, 1, 14, 9, 384 * MiB];
+  env.context.Module = { _ppssppGetPerformanceMetric: slot => slots[slot] };
+  env.context.performanceBuildInfo = { initialMemoryBytes: 256 * MiB, maximumMemoryBytes: 4096 * MiB,
+    computeThreads: 2, pthreadPoolSize: 0, sourceFingerprint: 'a'.repeat(64), secret: 'private-build-detail' };
+  env.context.PpssppPerformance = { snapshot: () => ({ capacityObservations: { firstBytes: 256 * MiB,
+    peakBytes: 384 * MiB, increases: 1, increaseBytes: 128 * MiB, detail: 'private-file' }, secret: 'private-report-detail' }) };
+  const snapshot = env.call(pageSnapshot);
+  assert.equal(snapshot.core.schemaVersion, 2); assert.equal(snapshot.resources.cpuBackend, 2);
+  assert.equal(snapshot.resources.configuredPthreadPoolSize, 0); assert.equal(snapshot.resources.actualThreadManagerThreads, 6);
+  assert.equal(snapshot.resources.completedHeapResizeRequests, 3); assert.equal(snapshot.resources.heapResizeFailures, 1);
+  assert.equal(snapshot.resources.currentWasmCapacityBytes, 384 * MiB); assert.equal(snapshot.build.sourceFingerprint, 'a'.repeat(64));
+  assert.equal(snapshot.capacityObservations.increases, 1); assert.doesNotMatch(JSON.stringify(snapshot), /private/);
+  let sequence = 8;
+  env.context.Module._ppssppGetPerformanceMetric = slot => slot === 13 ? sequence += 2 : slots[slot];
+  const torn = env.call(pageSnapshot); assert.equal(torn.core, null); assert.equal(torn.resources, null);
+});
+
+test('optional exported build metadata is safe when sampling is absent or throws', () => {
+  const env = environment();
+  env.context.PpssppPerformance = { snapshot: () => ({ build: { initialMemoryBytes: 1, maximumMemoryBytes: 2,
+    pthreadPoolSize: 0, computeThreads: 2, sourceFingerprint: 'private-unverified-fingerprint', sourcePath: 'private-path' } }) };
+  const snapshot = env.call(pageSnapshot);
+  assert.equal(snapshot.build.sourceFingerprint, null); assert.equal(snapshot.build.sourcePath, undefined);
+  env.context.PpssppPerformance.snapshot = () => { throw new Error('not available'); };
+  assert.equal(env.call(pageSnapshot).build, null);
+});
+
 test('page sampling flushes queued tasks and cleans up RAF, observer, watchdog and visibility listeners', () => {
   const env = environment();
   env.call(startPageSampling, '__test', 1);
@@ -165,6 +196,19 @@ test('core FPS rejects stale, frozen, paused and background windows while preser
     const result = summarize(before, after, background);
     assert.equal(result.coreAverageActualFps, null); assert.equal(result.coreDelta.actualFlipCount, 30);
   }
+});
+
+test('resource summary counts completed resize requests and leaves reset deltas unknown', () => {
+  const env = environment(); env.call(startPageSampling, '__test', 1); env.advance(1100);
+  const sample = env.call(stopPageSampling, '__test');
+  const before = { timeOriginMs: 1, timestampMs: 100, visibility: 'visible', resources: {
+    completedHeapResizeRequests: 2, heapResizeSuccesses: 2, heapResizeFailures: 0, heapResizeTotalMs: 6 } };
+  const after = { ...before, timestampMs: 1100, resources: {
+    completedHeapResizeRequests: 5, heapResizeSuccesses: 4, heapResizeFailures: 1, heapResizeTotalMs: 16 } };
+  const summary = summarize(before, after, sample);
+  assert.deepEqual(summary.heapResizeDelta, { completedHeapResizeRequests: 3, heapResizeSuccesses: 2, heapResizeFailures: 1, heapResizeTotalMs: 10 });
+  assert.match(summary.heapResizeMeaning, /not individual memory.grow/);
+  assert.equal(summarize(before, { ...after, resources: { ...after.resources, completedHeapResizeRequests: 1 } }, sample).heapResizeDelta.completedHeapResizeRequests, null);
 });
 
 class FakeSocket extends EventTarget {
