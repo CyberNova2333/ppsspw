@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="144" viewBox="0 0 240 144">
+<g id="I_ICON" transform="translate(2 2) scale(0.140625)"><rect width="512" height="512" rx="112" fill="#181d23"/>
+<g transform="translate(0 0) scale(1)"><rect x="28" y="144" width="456" height="224" rx="88" fill="#263e4c" stroke="#76bde8" stroke-width="16"/>
+  <rect x="150" y="184" width="212" height="124" rx="12" fill="#181d23" stroke="#76bde8" stroke-width="8"/>
+  <path d="M194 220 218 276 256 240 294 276 318 220" fill="none" stroke="#f3f7fa" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M88 214H104V234H124V250H104V270H88V250H68V234H88Z" fill="#f3f7fa"/>
+  <circle cx="104" cy="310" r="14" fill="#181d23" stroke="#76bde8" stroke-width="6"/>
+  <g fill="#f3f7fa">
+    <circle cx="416" cy="218" r="9"/>
+    <circle cx="392" cy="242" r="9"/>
+    <circle cx="440" cy="242" r="9"/>
+    <circle cx="416" cy="266" r="9"/>
+  </g>
+  <path d="M228 336H244M268 336H284" fill="none" stroke="#76bde8" stroke-width="6" stroke-linecap="round"/></g></g>
+<g id="I_ICON_GOLD" transform="translate(82 2) scale(0.140625)"><rect width="512" height="512" rx="112" fill="#181d23"/>
+<g transform="translate(0 0) scale(1)"><rect x="28" y="144" width="456" height="224" rx="88" fill="#263e4c" stroke="#76bde8" stroke-width="16"/>
+  <rect x="150" y="184" width="212" height="124" rx="12" fill="#181d23" stroke="#76bde8" stroke-width="8"/>
+  <path d="M194 220 218 276 256 240 294 276 318 220" fill="none" stroke="#f3f7fa" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M88 214H104V234H124V250H104V270H88V250H68V234H88Z" fill="#f3f7fa"/>
+  <circle cx="104" cy="310" r="14" fill="#181d23" stroke="#76bde8" stroke-width="6"/>
+  <g fill="#f3f7fa">
+    <circle cx="416" cy="218" r="9"/>
+    <circle cx="392" cy="242" r="9"/>
+    <circle cx="440" cy="242" r="9"/>
+    <circle cx="416" cy="266" r="9"/>
+  </g>
+  <path d="M228 336H244M268 336H284" fill="none" stroke="#76bde8" stroke-width="6" stroke-linecap="round"/></g></g>
+<g id="I_LOGO" transform="translate(2 94) scale(0.45454545)"><!-- NanoSVG's atlas bounds omit stroke extents; reserve the complete canvas. -->
+  <rect width="352" height="64" fill="#ffffff" fill-opacity="0"/>
+  <g fill="none" stroke="#f3f7fa" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 56V8H30Q44 8 44 22T30 36H8"/>
+    <path d="M64 56V8H86Q100 8 100 22T86 36H64"/>
+    <path d="M152 8H130Q116 8 116 20T130 32H138Q152 32 152 44T138 56H116"/>
+    <path d="M208 8H186Q172 8 172 20T186 32H194Q208 32 208 44T194 56H172"/>
+    <path d="M228 56V8H250Q264 8 264 22T250 36H228"/>
+    <path d="M280 8 294 56 314 26 334 56 348 8" stroke="#76bde8"/>
+  </g></g>
+</svg>

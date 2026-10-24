@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>PPSSPW</title>
+  <rect x="28" y="144" width="456" height="224" rx="88" fill="#263e4c" stroke="#76bde8" stroke-width="16"/>
+  <rect x="150" y="184" width="212" height="124" rx="12" fill="#181d23" stroke="#76bde8" stroke-width="8"/>
+  <path d="M194 220 218 276 256 240 294 276 318 220" fill="none" stroke="#f3f7fa" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M88 214H104V234H124V250H104V270H88V250H68V234H88Z" fill="#f3f7fa"/>
+  <circle cx="104" cy="310" r="14" fill="#181d23" stroke="#76bde8" stroke-width="6"/>
+  <g fill="#f3f7fa">
+    <circle cx="416" cy="218" r="9"/>
+    <circle cx="392" cy="242" r="9"/>
+    <circle cx="440" cy="242" r="9"/>
+    <circle cx="416" cy="266" r="9"/>
+  </g>
+  <path d="M228 336H244M268 336H284" fill="none" stroke="#76bde8" stroke-width="6" stroke-linecap="round"/>
+</svg>

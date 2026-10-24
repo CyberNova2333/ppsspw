@@ -7,18 +7,6 @@ adhoc-servers.json
 asciifont_atlas.meta
 asciifont_atlas.zim
 compat.ini
-debugger/.git
-debugger/.nojekyll
-debugger/asset-manifest.json
-debugger/favicon.ico
-debugger/index.html
-debugger/manifest.json
-debugger/static/css/main.3eab8a01.css
-debugger/static/css/main.3eab8a01.css.map
-debugger/static/js/main.fe87e942.js
-debugger/static/js/main.fe87e942.js.LICENSE.txt
-debugger/static/js/main.fe87e942.js.map
-debugger/static/media/logo.94f885ce93dfb6d29a122402a15cccca.svg
 flash0/font/jpn0.pgf
 flash0/font/kr0.pgf
 flash0/font/ltn0.pgf
@@ -161,6 +149,8 @@ ui_images/bg.png
 ui_images/buttons.svg
 ui_images/drop_shadow.png
 ui_images/icon.png
+ui_images/ppsspw.png
+ui_images/ppsspw.svg
 ui_images/icon_gold.png
 ui_images/images.svg
 ui_images/psp_display.png

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="352" height="64" viewBox="0 0 352 64">
+  <title>PPSSPW</title>
+  <!-- NanoSVG's atlas bounds omit stroke extents; reserve the complete canvas. -->
+  <rect width="352" height="64" fill="#ffffff" fill-opacity="0"/>
+  <g fill="none" stroke="#f3f7fa" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 56V8H30Q44 8 44 22T30 36H8"/>
+    <path d="M64 56V8H86Q100 8 100 22T86 36H64"/>
+    <path d="M152 8H130Q116 8 116 20T130 32H138Q152 32 152 44T138 56H116"/>
+    <path d="M208 8H186Q172 8 172 20T186 32H194Q208 32 208 44T194 56H172"/>
+    <path d="M228 56V8H250Q264 8 264 22T250 36H228"/>
+    <path d="M280 8 294 56 314 26 334 56 348 8" stroke="#76bde8"/>
+  </g>
+</svg>
