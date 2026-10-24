@@ -1,5 +1,5 @@
 /**
- * PPSSPP Web – Service Worker
+ * PPSSPW – Service Worker
  *
  * Strategy:
  *  - App shell (index.html, manifest, sw itself) → Network-first with cache fallback
@@ -9,7 +9,7 @@
  * The cache is versioned; old caches are pruned on activate.
  */
 
-const CACHE_VERSION = "ppsspp-player-v7";
+const CACHE_VERSION = "ppsspp-player-v8";
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [
