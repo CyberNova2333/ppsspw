@@ -8,6 +8,8 @@
 
 游戏文件按需读取，读取缓存上限为 8 MiB，启动时不再将整个 ISO 复制到模拟器内存。图像超分和进一步的浏览器性能优化仍待实现；提高内部渲染分辨率不会自动补齐原始纹理和二维素材的细节。
 
+「系统诊断」支持按需记录核心实际帧率、仿真速度、启动阶段、ISO 读取延迟和音频欠载，并导出不含游戏名、网址或日志的性能 JSON。手机采样方法、桌面对照结果及指标边界见 [性能测量](docs/browser-performance.md)。
+
 ## 源码布局
 
 | 路径 | 内容 |
@@ -67,6 +69,7 @@ python3 server/serve-player.py
 npm --prefix wasm-page test
 python3 -m unittest discover -s server/player-tests -v
 node --test scripts/ci/prepare-deploy.test.mjs
+node --test scripts/profile-browser.test.mjs
 ```
 
 游戏镜像及提取文件统一放在被忽略的 `resources/` 中；本地截图和验证日志可放在被忽略的 `.local/` 中。不要将这些内容、依赖安装目录或构建输出添加到版本控制。
