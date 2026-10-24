@@ -46,17 +46,25 @@ export function distribution(samples) {
 export function pageSnapshot() {
   const m = globalThis.Module, finite = x => Number.isFinite(x) ? x : null;
   const safe = fn => { try { return fn(); } catch { return null; } };
-  let core = null;
+  let core = null, resources = null;
   if (typeof m?._ppssppGetPerformanceMetric === 'function') safe(() => {
     const read = slot => m._ppssppGetPerformanceMetric(slot);
     for (let attempt = 0; attempt < 3; attempt++) {
       const sequence = read(13);
       if (!Number.isSafeInteger(sequence) || sequence % 2) continue;
-      const values = Array.from({ length: 13 }, (_, slot) => read(slot));
-      if (read(13) !== sequence || values[0] !== 1 || !values.every(Number.isFinite)) continue;
+      const version = read(0);
+      if (![1, 2].includes(version)) break;
+      const values = Array.from({ length: version === 2 ? 27 : 13 }, (_, slot) => read(slot));
+      if (read(13) !== sequence || !values.every(Number.isFinite)) continue;
       const names = ['schemaVersion', 'initialized', 'actualFps', 'targetFps', 'speedPercent', 'vps', 'vblankCount', 'actualFlipCount', 'emulatedTimeUs', 'lastFrameMs', 'sampleAgeMs', 'targetVps', 'emulating'];
       core = { ...Object.fromEntries(names.map((key, i) => [key, values[i]])), sequence,
         lastFrameMeaning: 'NativeFrame wall time including waits; not CPU cost or a frame-time distribution' };
+      if (version === 2) {
+        const resourceNames = ['initialMemoryBytes', 'maximumMemoryBytes', 'configuredComputeThreads', 'configuredPthreadPoolSize',
+          'actualComputeThreads', 'actualThreadManagerThreads', 'cpuBackend', 'completedHeapResizeRequests',
+          'heapResizeSuccesses', 'heapResizeFailures', 'heapResizeTotalMs', 'heapResizeMaxMs', 'currentWasmCapacityBytes'];
+        resources = Object.fromEntries(resourceNames.map((key, index) => [key, values[index + 14]]));
+      }
       break;
     }
   });
@@ -95,11 +103,21 @@ export function pageSnapshot() {
   });
   const timingDefaults = typeof WEB_NATIVE_TIMING_CONFIG !== 'undefined' ? {} : null;
   if (timingDefaults) for (const [section, key, value] of WEB_NATIVE_TIMING_CONFIG) setting(timingDefaults, section, key, value);
+  const exported = safe(() => globalThis.PpssppPerformance?.snapshot());
+  const rawBuild = typeof performanceBuildInfo !== 'undefined' ? performanceBuildInfo : exported?.build;
+  const build = rawBuild ? {
+    ...Object.fromEntries(['initialMemoryBytes', 'maximumMemoryBytes', 'pthreadPoolSize', 'computeThreads'].map(key =>
+      [key, Number.isSafeInteger(rawBuild[key]) && rawBuild[key] >= 0 ? rawBuild[key] : null])),
+    sourceFingerprint: /^[a-f0-9]{64}$/.test(rawBuild.sourceFingerprint ?? '') ? rawBuild.sourceFingerprint : null,
+  } : null;
+  const capacityObservations = exported?.capacityObservations ? Object.fromEntries(
+    ['firstBytes', 'peakBytes', 'increases', 'increaseBytes'].map(key => [key, finite(exported.capacityObservations[key])])) : null;
   return {
     timestampMs: performance.now(), timeOriginMs: performance.timeOrigin,
     ready: typeof runtimeReady !== 'undefined' && runtimeReady, failed: typeof runtimeFailed !== 'undefined' && runtimeFailed,
     visibility: document.visibilityState,
     coreRevision: typeof BUILD_STAMP !== 'undefined' && /^[a-f0-9]{64}$/.test(String(BUILD_STAMP)) ? BUILD_STAMP : null,
+    build, resources, capacityObservations,
     browser: { userAgent: navigator.userAgent, platform: navigator.platform, brands: safe(() => navigator.userAgentData.toJSON()) },
     hardware: { concurrency: finite(navigator.hardwareConcurrency), deviceMemoryGB: finite(navigator.deviceMemory), maxTouchPoints: finite(navigator.maxTouchPoints) },
     viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio, screenWidth: screen.width, screenHeight: screen.height,
@@ -185,6 +203,9 @@ export function summarize(before, after, sample) {
     counterWindowSeconds: durationSeconds,
     gameReadsDelta: samePage ? counterDelta(before.gameReads, after.gameReads, ['readCount', 'readBytes', 'physicalReadCount', 'physicalReadBytes', 'cacheHits', 'failures']) : null,
     audioDelta: samePage ? counterDelta(before.audio, after.audio, ['callbacks', 'nonsilent', 'pushes', 'pushNonsilent', 'workletTotal', 'ringDropped', 'underruns', 'fallbackDropped']) : null,
+    heapResizeDelta: samePage ? counterDelta(before.resources, after.resources,
+      ['completedHeapResizeRequests', 'heapResizeSuccesses', 'heapResizeFailures', 'heapResizeTotalMs']) : null,
+    heapResizeMeaning: 'Completed allocator resize requests across native threads, including internal retries; not individual memory.grow calls. Durations are elapsed request times, not CPU time.',
     coreDelta, coreAverageActualFps: freshCoreWindow && durationSeconds > 0 && coreDelta?.actualFlipCount != null ? coreDelta.actualFlipCount / durationSeconds : null,
     coreAverageMeaning: 'Flip-count difference over wall time; only with fresh, advancing core snapshots, emulating endpoints and an uninterrupted foreground window.',
     countersMeaning: 'Counter differences over before/after snapshots; null means missing, reset, or another document. Endpoint core rates remain in before/after.',
