@@ -4406,15 +4406,25 @@ startSmartGamepadPolling();
 /* ── GPU probe ──────────────────────────────────────────────────── */
 function probeWebGLFeaturesWithPref(powerPreference) {
   const pc = document.createElement("canvas");
-  const gl = pc.getContext("webgl2", { powerPreference, alpha: false, antialias: false, depth: true, stencil: true, preserveDrawingBuffer: false });
+  let gl = null;
+  try { gl = pc.getContext("webgl2", { powerPreference, alpha: false, antialias: false, depth: true, stencil: true, preserveDrawingBuffer: false }); }
+  catch (error) { log("WebGL2 probe failed: " + error.message, "warn"); }
+  let simd = false;
+  try { simd = WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11])); } catch(e) {}
+  const capabilities = { webgl2: !!gl, simd, crossOriginIsolated: !!window.crossOriginIsolated,
+    sharedArrayBuffer: typeof SharedArrayBuffer === "function" };
   setInfoVal("iWebgl2", gl ? "yes" : "no", gl ? "good" : "bad");
+  setInfoVal("iSIMD", simd ? "yes" : "no", simd ? "good" : "bad");
+  setInfoVal("iHWC", String(navigator.hardwareConcurrency || "?"));
+  setInfoVal("iCOI", String(capabilities.crossOriginIsolated), capabilities.crossOriginIsolated ? "good" : "bad");
+  setInfoVal("iSAB", capabilities.sharedArrayBuffer ? "yes" : "no", capabilities.sharedArrayBuffer ? "good" : "bad");
   if (!gl) {
     log("WebGL2 unavailable — GLES3/WebGL2 rendering cannot start.", "err");
     if (gpuBadge) {
       gpuBadge.textContent = "不支持 WebGL2";
       gpuBadge.className = "badge error";
     }
-    return;
+    return capabilities;
   }
   const dbg      = gl.getExtension("WEBGL_debug_renderer_info");
   const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
@@ -4426,9 +4436,6 @@ function probeWebGLFeaturesWithPref(powerPreference) {
   const maxAniso = anisoExt ? gl.getParameter(anisoExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT) : 1;
   const hasStencil   = !!gl.getExtension("WEBGL_stencil_texturing");
   const hasMultiDraw = !!gl.getExtension("WEBGL_multi_draw");
-  let simd = false;
-  try { simd = WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11])); } catch(e) {}
-
   log("GPU: " + renderer);
   log("GPU vendor: " + vendor);
   log("WebGL: " + version);
@@ -4445,12 +4452,6 @@ function probeWebGLFeaturesWithPref(powerPreference) {
   setInfoVal("iAniso",    String(maxAniso));
   setInfoVal("iStencil",  hasStencil   ? "yes" : "no", hasStencil   ? "good" : "warn");
   setInfoVal("iMultiDraw",hasMultiDraw ? "yes" : "no", hasMultiDraw ? "good" : "");
-  setInfoVal("iSIMD",     simd         ? "yes" : "no", simd         ? "good" : "warn");
-  setInfoVal("iHWC",      String(navigator.hardwareConcurrency || "?"));
-  setInfoVal("iCOI",      String(window.crossOriginIsolated), window.crossOriginIsolated ? "good" : "bad");
-  setInfoVal("iSAB",      typeof SharedArrayBuffer !== "undefined" ? "yes" : "no",
-                          typeof SharedArrayBuffer !== "undefined" ? "good" : "bad");
-
   const short = renderer.replace(/\(.*?\)/g,"").trim().slice(0,32);
   if (gpuBadge) {
     gpuBadge.textContent = "\uD83D\uDDA5 " + short;
@@ -4459,6 +4460,7 @@ function probeWebGLFeaturesWithPref(powerPreference) {
   }
   // The probe is disposable; release its GPU resources before starting SDL.
   gl.getExtension("WEBGL_lose_context")?.loseContext();
+  return capabilities;
 }
 
 function probeWebGLFeatures() { probeWebGLFeaturesWithPref(gpuSelectEl?.value || "high-performance"); }
@@ -4476,6 +4478,11 @@ const COI_RELOAD_KEY = "ppsspp-coi-reload-count";
 
 async function reloadForCrossOriginIsolation(reason) {
   if (window.crossOriginIsolated) {
+    if (typeof SharedArrayBuffer !== "function") {
+      setStatus("当前浏览器未开放运行所需的共享内存。如果在应用内打开，请尝试使用完整浏览器。", "err");
+      hideLoading();
+      return false;
+    }
     try { sessionStorage.removeItem(COI_RELOAD_KEY); } catch (_) {}
     return true;
   }
@@ -4489,15 +4496,16 @@ async function reloadForCrossOriginIsolation(reason) {
   }
   if (attempts >= 3) {
     log("Cross-origin isolation still unavailable after reload attempts. SharedArrayBuffer cannot be used on this page.", "err");
-    setStatus("浏览器未能启用运行所需的共享内存。请检查安全连接和网站权限后重新载入。", "err");
+    setStatus("当前浏览器未能启用跨源隔离和共享内存。如果在应用内打开，请尝试使用完整浏览器；网站需使用安全连接并设置 COOP/COEP 响应头。", "err");
     hideLoading();
     setStartButtonMode("idle");
     return false;
   }
 
   if (!("serviceWorker" in navigator)) {
-    log("Service workers are unavailable, cannot synthesize COOP/COEP headers for GitHub Pages.", "err");
-    setStatus("此浏览器无法启用运行所需的共享内存，请使用支持的网站环境或其他浏览器。", "err");
+    log("Service workers are unavailable; isolation recovery requires site COOP/COEP headers.", "err");
+    setStatus("当前浏览器无法修复运行所需的跨源隔离和共享内存。如果在应用内打开，请尝试使用完整浏览器；网站需使用安全连接并设置 COOP/COEP 响应头。", "err");
+    hideLoading();
     return false;
   }
 
@@ -4508,14 +4516,26 @@ async function reloadForCrossOriginIsolation(reason) {
     return false;
   }
   log("Cross-origin isolation required for WASM threads; reloading through service worker" + (reason ? " (" + reason + ")" : "") + ".", "warn");
-  setStatus("正在准备运行环境…", "run");
+  setStatus("尚未启用跨源隔离和共享内存，正在尝试准备运行环境…", "run");
   showLoading("正在准备运行环境…");
 
+  let timeout;
   try {
-    await navigator.serviceWorker.register("sw.js", { scope: "./" });
-    await navigator.serviceWorker.ready;
+    await Promise.race([
+      (async () => {
+        await navigator.serviceWorker.register("sw.js", { scope: "./" });
+        await navigator.serviceWorker.ready;
+      })(),
+      new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error("等待浏览器运行环境超时")), 10000); }),
+    ]);
   } catch(e) {
     log("SW registration before isolation reload failed: " + (e?.message || e), "warn");
+    setStatus("运行环境准备失败，尚未启用跨源隔离和共享内存。如果在应用内打开，请尝试使用完整浏览器；网站需使用安全连接并设置 COOP/COEP 响应头。可导出诊断报告查看原因。", "err");
+    hideLoading();
+    setStartButtonMode("idle");
+    return false;
+  } finally {
+    clearTimeout(timeout);
   }
 
   location.reload();
@@ -4791,8 +4811,17 @@ async function start() {
     setStatus("游戏画面尚未准备好，请重新载入页面。", "err");
     return;
   }
-  if (!window.crossOriginIsolated || typeof SharedArrayBuffer === "undefined") {
-    await reloadForCrossOriginIsolation("launch");
+  const capabilities = probeWebGLFeaturesWithPref(gpuSelectEl?.value || "high-performance");
+  const missing = [];
+  if (!capabilities.webgl2) missing.push("WebGL2 图形支持");
+  if (!capabilities.simd) missing.push("WebAssembly SIMD 向量指令支持");
+  if (!capabilities.crossOriginIsolated) missing.push("跨源隔离");
+  if (!capabilities.sharedArrayBuffer) missing.push("共享内存");
+  if (missing.length) {
+    setStatus("无法启动模拟器，当前环境缺少：" + missing.join("、") + "。如果在应用内打开，请尝试使用完整浏览器。"
+      + (!capabilities.crossOriginIsolated ? "网站需使用安全连接并设置 COOP/COEP 响应头。" : ""), "err");
+    hideLoading();
+    if (!capabilities.crossOriginIsolated && capabilities.webgl2 && capabilities.simd) await reloadForCrossOriginIsolation("launch");
     return;
   }
   try { sessionStorage.removeItem(COI_RELOAD_KEY); } catch (_) {}
