@@ -17,6 +17,7 @@ const preferences = (() => {
 /* ── Constants ──────────────────────────────────────────────────── */
 let BUILD_DIR          = "build-wasm/";
 let BUILD_STAMP        = String(Date.now());
+let performanceLaunchSettings = null;
 let ASSET_DIR          = BUILD_DIR + "assets/";
 const MANIFEST         = "assets-manifest.txt";
 const USE_PRELOADED_ASSETS = true;
@@ -3645,6 +3646,7 @@ on(logFilter, "input", () => { filterText = logFilter.value.trim(); renderLog();
 on("clearLogBtn", "click", () => { logLines = []; pendingLines = []; if (logEl) logEl.innerHTML = ""; });
 
 function log(text, level) {
+  if (/\bBooted \/browser-games\//.test(text)) globalThis.PpssppPerformance?.mark("gameBooted");
   const ts  = new Date().toLocaleTimeString("en-GB", { hour12: false });
   const raw = "[" + ts + "] " + text;
   pendingLines.push(buildLineHtml(raw, level || ""));
@@ -4013,8 +4015,9 @@ function makeScriptProcessorShim(ctx, bufferSize, nIn, nOut) {
   function startPump() {
     if (_timerId) return;
     pump();
-    // Short tick with ring-fill gating: stable under main-thread jitter without over-pushing.
-    _timerId = setInterval(pump, 2);
+    // The >=70ms lookahead leaves room for an 8ms check cadence. Keep the
+    // hardware-clock and ring-fill gates: fewer checks must not produce extra audio.
+    _timerId = setInterval(pump, 8);
     log('AUDIO SP-shim: pump started (bufsz=' + bufsz + ' SR=' + SR +
         ' lookahead=' + Math.round(LOOKAHEAD) + 'fr / ' +
         (LOOKAHEAD * 1000 / SR).toFixed(0) + 'ms).', 'ok');
@@ -4697,6 +4700,40 @@ async function exportDiagnosticReport() {
   triggerDownload(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }), "ppsspp-diagnostics.json");
 }
 
+function initializePerformancePanel() {
+  const perf = globalThis.PpssppPerformance;
+  if (!perf) return;
+  perf.setSource(() => ({
+    coreRevision: BUILD_STAMP,
+    settings: performanceLaunchSettings || loadPlayerSettings(), settingsApplied: !!performanceLaunchSettings,
+    wasmMemoryBytes: window.Module?.HEAPU8?.byteLength || window.HEAPU8?.byteLength,
+    canvasWidth: canvas?.width, canvasHeight: canvas?.height,
+    io: globalThis.PpssppBrowserFiles?.stats(),
+    audio: { underruns: audioDebug.underruns, droppedFrames: audioDebug.ringDropped + audioDebug.fallbackDropped, callbacks: audioDebug.callbacks },
+  }));
+  const render = state => {
+    const start = byId("performanceStartBtn"), stop = byId("performanceStopBtn"), save = byId("performanceExportBtn");
+    if (start) start.disabled = state.active;
+    if (stop) stop.disabled = !state.active;
+    if (save) save.disabled = state.totalSamples === 0;
+    const status = byId("performanceStatus");
+    if (status) status.textContent = state.active ? "正在采样 · " + Math.floor(state.durationMs / 1000) + " 秒"
+      : state.totalSamples ? "采样已停止 · " + state.totalSamples + " 个样本" : "尚未开始采样";
+    const format = (value, unit) => value == null ? "—" : value.toFixed(1) + unit;
+    setInfoVal("performanceCoreFps", format(state.core?.actualFps, " FPS"));
+    setInfoVal("performanceSpeed", format(state.core?.speedPercent, "%"));
+    setInfoVal("performancePageHz", format(state.pageHz, " Hz"));
+    setInfoVal("performanceMemory", state.wasmMemoryBytes == null ? "—" : (state.wasmMemoryBytes / 1048576).toFixed(0) + " MiB");
+  };
+  perf.subscribe(render);
+  on("performanceStartBtn", "click", () => perf.start());
+  on("performanceStopBtn", "click", () => perf.stop());
+  on("performanceExportBtn", "click", () => {
+    triggerDownload(new Blob([JSON.stringify(perf.snapshot(), null, 2)], { type: "application/json" }), "ppsspp-performance.json");
+  });
+  window.addEventListener("pagehide", () => perf.stop());
+}
+
 async function resetEmulatorSettings() {
   if (started && !runtimeFailed) { showToast("请先在游戏内存档并同步到本机，再重新载入页面；启动前可以重置模拟器设置。"); return; }
   if (!confirm("重置模拟器设置吗？游戏、存档和手柄映射会保留，原设置也会备份。")) return;
@@ -4760,6 +4797,7 @@ async function start() {
   }
   try { sessionStorage.removeItem(COI_RELOAD_KEY); } catch (_) {}
   started = true;
+  globalThis.PpssppPerformance?.mark("launchClick");
   document.body.classList.add("emulator-started");
   log("Launch button clicked.", "info");
   setStartButtonMode("loading");
@@ -4854,6 +4892,7 @@ async function start() {
           await loadPersistedFiles(FS);
           await playerSettingsQueue;
           await restorePlayerSettings();
+          performanceLaunchSettings = loadPlayerSettings();
           await forceGamesDirectoryConfig(FS);
           gameArg = await preloadGame(FS);
           await preloadStoredGames(FS);
@@ -4881,6 +4920,7 @@ async function start() {
       if (runtimeFailed) return;
       log("Runtime initialized.", "ok");
       runtimeReady = true;
+      globalThis.PpssppPerformance?.mark("runtimeReady");
       setStatus(gameArg ? "模拟器已启动" : "游戏库已就绪", "ok");
       hideLoading();
       setStartButtonMode("running");
@@ -5393,6 +5433,7 @@ on("fsExitBtn", "click", async () => {
 log("Page loaded. crossOriginIsolated=" + window.crossOriginIsolated, window.crossOriginIsolated ? "ok" : "warn");
 log("Build: " + BUILD_STAMP, "dim");
 probeWebGLFeatures();
+initializePerformancePanel();
 updateInfoPanel();
 refreshLibrary();
 updateStorageInfo();    // populate OPFS tab with stats on load

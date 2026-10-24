@@ -277,6 +277,17 @@
     <div class="tab-panel" id="tabInfo">
       <div id="infoPanel">
         <div class="panel-intro"><h2>系统诊断</h2><p>遇到黑屏、无声或运行中断时，可以在这里查看信息。</p></div>
+        <div class="info-group performance-panel">
+          <h3>性能采样</h3>
+          <p class="about-text">开始后可收起面板正常游玩，结束时停止并导出。报告不含文件名、网址、日志或私有配置。</p>
+          <div class="diagnostic-actions"><button id="performanceStartBtn" type="button">开始采样</button><button id="performanceStopBtn" type="button" disabled>停止采样</button><button id="performanceExportBtn" type="button" disabled>导出性能 JSON</button></div>
+          <p id="performanceStatus" class="about-text" role="status">尚未开始采样</p>
+          <div class="info-row"><span class="info-key">核心实际帧率</span><span class="info-val" id="performanceCoreFps">—</span></div>
+          <div class="info-row"><span class="info-key">仿真速度</span><span class="info-val" id="performanceSpeed">—</span></div>
+          <div class="info-row"><span class="info-key">页面刷新率</span><span class="info-val" id="performancePageHz">—</span></div>
+          <div class="info-row"><span class="info-key">WASM 内存容量</span><span class="info-val" id="performanceMemory">—</span></div>
+          <p class="about-text">每秒采样，保留最近 5 分钟。核心指标不可用时显示 —。启动阶段不等同于首帧，内存容量不等同于设备实际占用。</p>
+        </div>
         <div class="info-group"><h3>排查与恢复</h3><p class="about-text">报告包含浏览器、图形与声音设置及近期日志。文件会下载到本机，分享前可先检查内容。</p><div class="diagnostic-actions"><button id="diagnosticReportBtn" type="button">导出诊断报告</button><button id="resetEmulatorSettingsBtn" type="button">重置模拟器设置</button></div><p class="about-text">可在启动前或运行中断后重置。游戏、已有存档和手柄映射会保留。</p></div>
         <div class="info-group"><h3>图形设备</h3><div class="info-row"><span class="info-key">渲染设备</span><span class="info-val" id="iRenderer">—</span></div><div class="info-row"><span class="info-key">厂商</span><span class="info-val" id="iVendor">—</span></div><div class="info-row"><span class="info-key">图形接口版本</span><span class="info-val" id="iVersion">—</span></div><div class="info-row"><span class="info-key">着色器版本</span><span class="info-val" id="iGlsl">—</span></div><div class="info-row"><span class="info-key">纹理尺寸上限</span><span class="info-val" id="iMaxTex">—</span></div><div class="info-row"><span class="info-key">各向异性过滤上限</span><span class="info-val" id="iAniso">—</span></div></div>
         <div class="info-group"><h3>图形能力</h3><div class="info-row"><span class="info-key">WebGL 2</span><span class="info-val" id="iWebgl2">—</span></div><div class="info-row"><span class="info-key">模板纹理扩展</span><span class="info-val" id="iStencil">—</span></div><div class="info-row"><span class="info-key">批量绘制扩展</span><span class="info-val" id="iMultiDraw">—</span></div></div>

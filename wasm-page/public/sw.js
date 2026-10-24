@@ -9,7 +9,7 @@
  * The cache is versioned; old caches are pruned on activate.
  */
 
-const CACHE_VERSION = "ppsspp-player-v4";
+const CACHE_VERSION = "ppsspp-player-v5";
 
 // Files that form the app shell – fetched fresh every time if online
 const SHELL_FILES = [
@@ -17,6 +17,7 @@ const SHELL_FILES = [
   "./index.html",
   "./manifest.webmanifest",
   "./ppsspp-runtime.js",
+  "./performance.js",
   "./browser-storage.js",
   "./adhoc-transport.js",
 ];
@@ -66,6 +67,7 @@ self.addEventListener("fetch", event => {
                   pathname.endsWith("/index.html") ||
                   pathname.endsWith("/manifest.webmanifest") ||
                   pathname.endsWith("/ppsspp-runtime.js") ||
+                  pathname.endsWith("/performance.js") ||
                   pathname.endsWith("/browser-files.js") ||
                   pathname.endsWith("/browser-storage.js") ||
                   pathname.endsWith("/online-games.js") ||

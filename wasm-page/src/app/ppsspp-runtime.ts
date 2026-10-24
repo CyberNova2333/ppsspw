@@ -60,7 +60,7 @@ const PPSSPP_ICONS = {
   Upload,
   X,
 };
-const RUNTIME_ASSET_VERSION = 'ppsspp-player-v4';
+const RUNTIME_ASSET_VERSION = 'ppsspp-player-v5';
 
 @Injectable({ providedIn: 'root' })
 export class PpssppRuntime {
@@ -74,6 +74,7 @@ export class PpssppRuntime {
 
   private async start(): Promise<void> {
     createIcons({ icons: PPSSPP_ICONS });
+    await this.loadScript(`performance.js?v=${RUNTIME_ASSET_VERSION}`, 'performance');
     await this.loadScript(`browser-storage.js?v=${RUNTIME_ASSET_VERSION}`, 'browser-storage');
     await this.loadScript(`browser-files.js?v=${RUNTIME_ASSET_VERSION}`, 'browser-files');
     await this.loadScript(`adhoc-transport.js?v=${RUNTIME_ASSET_VERSION}`, 'adhoc-transport');

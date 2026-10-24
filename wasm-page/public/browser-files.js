@@ -73,6 +73,10 @@
       const request = (async () => {
         const offset = index * blockBytes;
         const end = Math.min(offset + blockBytes, entry.blob.size);
+        const perf = root.PpssppPerformance;
+        const token = perf?.token();
+        const began = token ? root.performance.now() : 0;
+        let bytesRead = 0;
         metrics.inFlight++;
         metrics.maxInFlight = Math.max(metrics.maxInFlight, metrics.inFlight);
         try {
@@ -82,6 +86,7 @@
           metrics.physicalReadCount++;
           metrics.physicalReadBytes += bytes.byteLength;
           metrics.maxPhysicalReadBytes = Math.max(metrics.maxPhysicalReadBytes, bytes.byteLength);
+          bytesRead = bytes.byteLength;
           while (cacheBytes + bytes.byteLength > cacheLimit && cache.size) {
             const oldest = cache.keys().next().value;
             cacheBytes -= cache.get(oldest).byteLength;
@@ -94,6 +99,7 @@
           return bytes;
         } finally {
           metrics.inFlight--;
+          if (token) perf.recordIO("physical", token, root.performance.now() - began, bytesRead);
         }
       })();
       pending.set(key, request);
@@ -175,8 +181,13 @@
         const entry = files.get(path);
         if (!entry) throw new Error("游戏文件已卸载");
         // Reserve the entry before queuing, so callers cannot replace a pending read.
+        const perf = root.PpssppPerformance;
+        const token = perf?.token();
+        const began = token ? root.performance.now() : 0;
+        let bytesRead = 0, failed = false;
         entry.readers++;
         await acquire();
+        if (token) perf.recordIO("queue", token, root.performance.now() - began);
         try {
           const wanted = Math.min(length, Math.max(0, entry.blob.size - offset));
           const result = new Uint8Array(wanted);
@@ -193,8 +204,10 @@
             copied += count;
           }
           metrics.readBytes += copied;
+          bytesRead = copied;
           return result;
         } catch (error) {
+          failed = true;
           metrics.failures++;
           metrics.lastError = { path, message: String(error?.message || error) };
           if (typeof root.dispatchEvent === "function" && typeof root.CustomEvent === "function") {
@@ -204,6 +217,7 @@
         } finally {
           entry.readers--;
           release();
+          if (token) perf.recordIO("request", token, root.performance.now() - began, bytesRead, failed);
         }
       },
     };
