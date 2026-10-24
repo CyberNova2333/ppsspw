@@ -234,6 +234,9 @@ canvas {
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
   touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 :fullscreen,
 :-webkit-full-screen {
