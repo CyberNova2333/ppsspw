@@ -176,7 +176,7 @@ test('reproduction metadata only accepts artifact hashes and whitelisted prefere
   const data = { coreRevision: 'a'.repeat(64), settings: { resolution: 2, touch: true, showFps: false, private: 'secret' }, settingsApplied: true };
   const f = fixture({ source: () => data }); f.perf.start();
   assert.equal(f.perf.snapshot().coreRevision, 'a'.repeat(64));
-  assert.equal(f.perf.snapshot().webVersion, 'ppsspp-player-v5');
+  assert.equal(f.perf.snapshot().webVersion, 'ppsspp-player-v6');
   assert.deepEqual(f.perf.snapshot().settings, { resolution: 2, touch: true, showFps: false, appliedAtLaunch: true });
   data.coreRevision = 'https://private.invalid/?token=secret';
   data.settings.resolution = 999; f.tick();
@@ -216,4 +216,52 @@ test('browser file reads report request and physical latency without passing pat
     assert.equal(report.iso.requestBytes, 6);
     assert.equal(JSON.stringify(report).includes('.iso'), false);
   } finally { f.perf.stop(); globalThis.PpssppPerformance = original; }
+});
+
+test('schema 2 reads native resources with the same snapshot boundary', () => {
+  const slots = [2, 1, 30, 30, 100, 60, 60, 30, 1_000_000, 16, 1, 59.94, 1, 2,
+    268435456, 4294967296, 2, 12, 2, 6, 2, 3, 2, 1, 0.75, 0.5, 335544320];
+  const module = { _ppssppGetPerformanceMetric: slot => slots[slot] };
+  const core = globalThis.readPpssppCorePerformance(module);
+  assert.equal(core.resources.currentWasmCapacityBytes, 335544320);
+  assert.equal(core.resources.completedHeapResizeRequests, 3);
+  assert.equal(core.resources.heapResizeTotalMs, 0.75);
+  assert.equal(core.resources.actualThreadManagerThreads, 6);
+  // Publication changing while reading the appended fields invalidates all fields.
+  module._ppssppGetPerformanceMetric = slot => { if (slot === 26) slots[13] += 2; return slots[slot]; };
+  assert.equal(globalThis.readPpssppCorePerformance(module), null);
+});
+
+test('capacity observations cannot claim exact growth counts or duration, and reset between recordings', () => {
+  const f = fixture({ source: () => ({ wasmMemoryBytes: 1 }) });
+  f.core.resources = { currentWasmCapacityBytes: 256, heapResizeTotalMs: 2, private: 'secret' };
+  f.perf.start();
+  f.core.resources.currentWasmCapacityBytes = 512;
+  f.core.resources.heapResizeTotalMs = 7; f.tick();
+  f.tick();
+  f.core.resources.currentWasmCapacityBytes = 768; f.tick(); f.perf.stop();
+  const report = f.perf.snapshot();
+  assert.deepEqual(report.capacityObservations, { firstBytes: 256, peakBytes: 768, increases: 2, increaseBytes: 512 });
+  assert.equal(report.resources.heapResizeTotalMs, 7);
+  assert.equal(report.wasmMemoryBytes, 768); // native view wins over stale main-thread HEAPU8
+  assert.equal(report.samples[0].core.emulatedUs, 0);
+  assert.equal(JSON.stringify(report).includes('secret'), false);
+  report.samples[0].resources.currentWasmCapacityBytes = 999;
+  assert.equal(f.perf.snapshot().samples[0].resources.currentWasmCapacityBytes, 256);
+  f.perf.start();
+  assert.deepEqual(f.perf.snapshot().capacityObservations, { firstBytes: 768, peakBytes: 768, increases: 0, increaseBytes: 0 });
+  f.perf.stop();
+});
+
+test('build provenance exports only numeric resource configuration and a SHA-256 fingerprint', () => {
+  const data = { build: { initialMemoryBytes: 268435456, maximumMemoryBytes: 4294967296,
+    pthreadPoolSize: 12, computeThreads: 2, sourceFingerprint: 'b'.repeat(64), privatePath: 'secret' } };
+  const f = fixture({ source: () => data }); f.perf.start();
+  assert.deepEqual(f.perf.snapshot().build, { initialMemoryBytes: 268435456, maximumMemoryBytes: 4294967296,
+    pthreadPoolSize: 12, computeThreads: 2, sourceFingerprint: 'b'.repeat(64) });
+  data.build.sourceFingerprint = 'secret'; data.build.initialMemoryBytes = 'secret'; f.tick();
+  assert.equal(f.perf.snapshot().build.sourceFingerprint, null);
+  assert.equal(f.perf.snapshot().build.initialMemoryBytes, null);
+  assert.equal(JSON.stringify(f.perf.snapshot()).includes('secret'), false);
+  f.perf.stop();
 });

@@ -98,6 +98,8 @@ void ThreadManager::Teardown() {
 		delete threadCtx;
 	}
 	global_->threads_.clear();
+	numThreads_ = 0;
+	numComputeThreads_ = 0;
 
 	if (global_->compute_queue_size > 0 || global_->io_queue_size > 0) {
 		WARN_LOG(Log::System, "ThreadManager::Teardown() with tasks still enqueued");

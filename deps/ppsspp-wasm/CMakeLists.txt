@@ -347,9 +347,16 @@ if(EMSCRIPTEN)
 	option(WASM_PRELOAD_ASSETS "Package PPSSPP assets into the Emscripten preload data file" ON)
 	set(WASM_MAIN_LOOP_FPS "60" CACHE STRING "Browser main loop rate for wasm. 0 follows PPSSPP display timing; positive values override; -1 restores requestAnimationFrame timing.")
 	set(WASM_MALLOC "mimalloc" CACHE STRING "Emscripten malloc implementation for release builds")
-	set(WASM_INITIAL_MEMORY "536870912" CACHE STRING "Initial WebAssembly memory in bytes")
-	set(WASM_MAXIMUM_MEMORY "4294967296" CACHE STRING "Maximum WebAssembly memory in bytes")
+	include(cmake/WasmResources.cmake)
 	set_property(CACHE WASM_MALLOC PROPERTY STRINGS emmalloc dlmalloc mimalloc)
+	# Resource variants should relink, rather than recompile the entire core.
+	set_property(SOURCE SDL/WasmPerformance.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+		PPSSPP_WASM_INITIAL_MEMORY=${WASM_INITIAL_MEMORY}
+		PPSSPP_WASM_MAXIMUM_MEMORY=${WASM_MAXIMUM_MEMORY}
+		PPSSPP_WASM_COMPUTE_THREADS=${WASM_COMPUTE_THREADS}
+		PPSSPP_WASM_PTHREAD_POOL_SIZE=${WASM_PTHREAD_POOL_SIZE_METRIC})
+	set_property(SOURCE UI/NativeApp.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+		PPSSPP_WASM_COMPUTE_THREADS=${WASM_COMPUTE_THREADS})
 
 	set(USING_GLES2 ON)
 	set(OPENGL_LIBRARIES "-sMIN_WEBGL_VERSION=2" "-sMAX_WEBGL_VERSION=2")
@@ -362,11 +369,15 @@ if(EMSCRIPTEN)
 	add_link_options(-pthread)
 	add_link_options(-fexceptions)
 	add_link_options("-sALLOW_MEMORY_GROWTH=1" "-sINITIAL_MEMORY=${WASM_INITIAL_MEMORY}" "-sMAXIMUM_MEMORY=${WASM_MAXIMUM_MEMORY}")
+	add_link_options("-Wl,--wrap=emscripten_resize_heap")
 	add_link_options("-sFULL_ES3=1")
 	add_link_options("-sGL_ENABLE_GET_PROC_ADDRESS=1")
 	add_link_options("-sGL_SUPPORT_AUTOMATIC_ENABLE_EXTENSIONS=1")
 	add_link_options("-sWASM_BIGINT=1")
-	add_link_options("-sPTHREAD_POOL_SIZE=Math.max(4,navigator.hardwareConcurrency||4)")
+	add_link_options("-sPTHREAD_POOL_SIZE=${WASM_PTHREAD_POOL_EXPRESSION}")
+	if(NOT WASM_PTHREAD_POOL_SIZE STREQUAL "auto")
+		add_link_options("-sPTHREAD_POOL_SIZE_STRICT=2")
+	endif()
 	add_link_options("-sINCOMING_MODULE_JS_API=canvas,locateFile,print,printErr,setStatus,monitorRunDependencies,preRun,onRuntimeInitialized,onAbort,arguments,SDL2")
 	add_link_options("-lworkerfs.js")
 	add_link_options("--js-library" "${CMAKE_SOURCE_DIR}/SDL/BrowserFileLibrary.js")

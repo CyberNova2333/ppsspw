@@ -72,6 +72,8 @@ public:
 	// Parallel loops (assumed compute-limited) get one thread per logical core. We have a few extra threads too
 	// for I/O bounds tasks, that can be run concurrently with those.
 	int GetNumLooperThreads() const;
+	// Initialized compute and I/O workers, excluding dedicated subsystem threads.
+	int GetNumThreads() const { return numThreads_; }
 
 private:
 	bool TeardownTask(Task *task, bool enqueue);
