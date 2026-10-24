@@ -60,6 +60,7 @@
 #include "UI/RetroAchievementScreens.h"
 #include "UI/OnScreenDisplay.h"
 #include "UI/DiscordIntegration.h"
+#include "UI/DisplayBrand.h"
 #include "UI/Background.h"
 #include "UI/BackgroundAudio.h"
 #include "UI/MiscViews.h"
@@ -748,7 +749,7 @@ void GameSettingsScreen::CreateAudioSettings(UI::ViewGroup *audioSettings) {
 	static const int bufferSizes[] = {128, 256, 512, 1024, 2048};
 	PopupSliderChoice *bufferSize = audioSettings->Add(new PopupSliderChoice(&g_Config.iSDLAudioBufferSize, 0, 2048, 256, a->T("Buffer size"), screenManager()));
 	bufferSize->RestrictChoices(bufferSizes, ARRAY_SIZE(bufferSizes));
-	audioSettings->Add(new SettingHint(di->T("This change will not take effect until PPSSPP is restarted."), bufferSize));
+	audioSettings->Add(new SettingHint(DisplayBrand::AppText(di->T("This change will not take effect until PPSSPP is restarted.")), bufferSize));
 #endif
 
 #if PPSSPP_PLATFORM(WINDOWS)
@@ -1370,14 +1371,16 @@ void GameSettingsScreen::CreateSystemSettings(UI::ViewGroup *systemSettings) {
 	UI::PopupSliderChoice *sizeChoice = systemSettings->Add(new PopupSliderChoice(&g_Config.iMemStickSizeGB, 1, 32, 16, sy->T("Memory Stick size", "Memory Stick size"), screenManager(), "GB"));
 	sizeChoice->SetFormat("%d GB");
 
-	systemSettings->Add(new ItemHeader(sy->T("Help the PPSSPP team")));
 	if (!enableReportsSet_)
 		enableReports_ = Reporting::IsEnabled();
 	enableReportsSet_ = true;
+#if !defined(__EMSCRIPTEN__)
+	systemSettings->Add(new ItemHeader(sy->T("Help the PPSSPP team")));
 	CheckBox *enableReportsCheckbox;
 	enableReportsCheckbox = new CheckBox(&enableReports_, sy->T("Enable Compatibility Server Reports"));
 	enableReportsCheckbox->SetEnabledFunc([]() { return Reporting::IsSupported(); });
 	systemSettings->Add(enableReportsCheckbox);
+#endif
 
 	systemSettings->Add(new ItemHeader(sy->T("Emulation")));
 
@@ -1437,6 +1440,7 @@ void GameSettingsScreen::CreateSystemSettings(UI::ViewGroup *systemSettings) {
 		systemSettings->Add(new CheckBox(&g_Config.bCacheFullIsoInRam, sy->T("Cache full ISO in RAM")))->SetEnabled(!PSP_IsInited());
 	}
 
+#if !defined(__EMSCRIPTEN__)
 	CheckBox *checkForUpdate = systemSettings->Add(new CheckBox(&g_Config.bCheckForNewVersion, sy->T("VersionCheck", "Check for new versions of PPSSPP")));
 	checkForUpdate->OnClick.Add([](UI::EventParams &e) {
 		// Reset the dismissed version so it will check again.
@@ -1444,6 +1448,7 @@ void GameSettingsScreen::CreateSystemSettings(UI::ViewGroup *systemSettings) {
 			g_Config.sDismissedVersion.clear();
 		}
 	});
+#endif
 	systemSettings->Add(new CheckBox(&g_Config.bScreenshotsAsPNG, sy->T("Screenshots as PNG")));
 	static const char *screenshotModeChoices[] = { "Final processed image", "Raw game image" };
 	systemSettings->Add(new PopupMultiChoice(&g_Config.iScreenshotMode, sy->T("Screenshot mode"), screenshotModeChoices, 0, ARRAY_SIZE(screenshotModeChoices), I18NCat::SYSTEM, screenManager()));
@@ -1762,7 +1767,7 @@ void GameSettingsScreen::TriggerRestartOrDo(std::function<void()> callback) {
 	if (!confirmExitMessage.empty()) {
 		confirmExitMessage = "\n\n" + confirmExitMessage;
 	}
-	confirmExitMessage = std::string(di->T("Changing this setting requires PPSSPP to restart.")) + confirmExitMessage;
+	confirmExitMessage = DisplayBrand::AppText(di->T("Changing this setting requires PPSSPP to restart.")) + confirmExitMessage;
 
 	screenManager()->push(new UI::MessagePopupScreen(di->T("Restart"), confirmExitMessage, di->T("Restart"), di->T("Cancel"), [=](bool yes) {
 		if (yes) {
@@ -1890,9 +1895,9 @@ void RestoreSettingsScreen::CreatePopupContents(UI::ViewGroup *parent) {
 	auto mm = GetI18NCategory(I18NCat::MAINMENU);
 	auto dev = GetI18NCategory(I18NCat::DEVELOPER);
 
-	std::string_view text = dev->T(
+	std::string text = DisplayBrand::AppText(dev->T(
 		"RestoreDefaultSettings",
-		"Restore these settings back to their defaults?\nYou can't undo this.\nPlease restart PPSSPP after restoring settings.");
+		"Restore these settings back to their defaults?\nYou can't undo this.\nPlease restart PPSSPP after restoring settings."));
 
 	TextView *textView = parent->Add(new TextView(text, FLAG_WRAP_TEXT, false));
 	textView->SetPadding(Margins(10));
