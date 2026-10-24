@@ -202,6 +202,7 @@ test('controller connections and reconnects preserve the focused form control', 
   const remembered = [];
   let flashes = 0;
   const ctx = load(['onGamepadConnected', 'reconnectKnownGamepadsForSDL'], {
+    gamepadBridgeInstalled: false,
     canvas: { focus() { assert.fail('controller event stole keyboard focus'); } },
     getBrowserGamepads: () => [pad],
     rememberGamepad: gp => remembered.push(gp),
@@ -213,6 +214,179 @@ test('controller connections and reconnects preserve the focused form control', 
   assert.equal(ctx.reconnectKnownGamepadsForSDL('window focus'), 1);
   assert.equal(remembered.length, 3);
   assert.equal(flashes, 1);
+});
+
+function standardPad(index = 0) {
+  return { index, id: 'Test standard controller', mapping: 'standard', connected: true, timestamp: 1,
+    axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ value: 0, pressed: false, touched: false })) };
+}
+
+function logicalPadFixture() {
+  const screen = standardPad(); screen.id = 'Screen controller';
+  const pads = [], events = [], notices = [];
+  const window = new EventTarget(); window.Module = {};
+  for (const type of ['gamepadconnected', 'gamepaddisconnected']) window.addEventListener(type, event => {
+    events.push({ type, id: event.gamepad.id, mapping: event.gamepad.mapping, index: event.gamepad.index,
+      values: event.gamepad.buttons.map(button => button.value), axes: [...event.gamepad.axes] });
+  });
+  const ctx = load(['getSDLGamepads', 'refreshSDLGamepadBridge', 'releaseLogicalGamepad', 'dispatchLogicalGamepad', 'setActiveGamepadIndex'], {
+    Event, window, performance: { now: () => 100 }, document: { hidden: false }, runtimeFailed: false,
+    gamepadBridgeInstalled: true, gamepadBridgeCurrent: null, gamepadBridgeMode: '', gamepadBridgeRawIndex: -1,
+    activeGamepadIndex: -1, started: true, getBrowserGamepads: () => pads,
+    touchControlState: { gamepad: screen, reset() { screen.axes.fill(0); for (const button of screen.buttons) Object.assign(button, { value: 0, pressed: false, touched: false }); } },
+    updateTouchControls() {}, showToast: message => notices.push(message),
+    preferences: { setItem() {} }, GAMEPAD_SELECT_KEY: 'selected', connectedGamepads: new Map(),
+    log() {}, shortGamepadName: String, updateGamepadSelector() {}, canvas: null,
+  });
+  ctx.refreshSDLGamepadBridge();
+  return { ctx, screen, pads, events, notices };
+}
+
+test('logical standard controller merges buttons and preserves continuous screen stick ownership', () => {
+  const { ctx, screen, pads, events } = logicalPadFixture();
+  const first = standardPad(3), second = standardPad(7);
+  first.buttons[0].value = 1; first.axes[0] = 0.8; first.axes[1] = 0.1;
+  second.buttons[1].value = 1; second.axes[0] = -0.9;
+  pads.push(first, second);
+  screen.buttons[4].value = 1; screen.axes[1] = -0.25;
+  const result = ctx.getSDLGamepads()[0];
+  assert.equal(result.index, 0);
+  assert.equal(result.buttons[0].value, 1); assert.equal(result.buttons[1].value, 1); assert.equal(result.buttons[4].value, 1);
+  assert.deepEqual(Array.from(result.axes), [0, -0.25, 0, 0], 'screen movement owns the stick pair while active');
+  screen.axes.fill(0);
+  const stamp = result.timestamp;
+  ctx.getSDLGamepads();
+  assert.equal(result.axes[0], -0.9);
+  assert.ok(result.timestamp > stamp, 'SDL must see state changes even with a coarse browser clock');
+  ctx.activeGamepadIndex = 3;
+  ctx.getSDLGamepads();
+  assert.equal(result.buttons[1].value, 0);
+  assert.equal(result.axes[0], 0.8);
+  assert.equal(events.length, 1, 'normal polling must not repeatedly reconnect the device');
+  ctx.document.hidden = true;
+  assert.ok(ctx.getSDLGamepads()[0].buttons.every(button => button.value === 0));
+  assert.ok(ctx.getSDLGamepads()[0].axes.every(value => value === 0));
+});
+
+test('explicit raw controller selection releases the old pad and preserves raw layout through reconnect', () => {
+  const { ctx, screen, pads, events, notices } = logicalPadFixture();
+  screen.buttons[0].value = 1; ctx.getSDLGamepads();
+  const raw = { index: 4, id: 'Raw controller ID', mapping: '', connected: true, timestamp: 9,
+    axes: [0.1, -1, 0.3, 0.4, 1, -0.2], buttons: [{ value: 1, pressed: true }] };
+  pads.push(raw);
+  ctx.activeGamepadIndex = 4; ctx.refreshSDLGamepadBridge();
+  assert.deepEqual(events.map(event => event.type), ['gamepadconnected', 'gamepaddisconnected', 'gamepadconnected']);
+  assert.ok(events[1].values.every(value => value === 0));
+  assert.ok(screen.buttons.every(button => button.value === 0));
+  const result = ctx.getSDLGamepads()[0];
+  assert.equal(result.id, raw.id); assert.equal(result.mapping, ''); assert.equal(result.index, 0);
+  assert.equal(result.axes, raw.axes); assert.equal(result.buttons, raw.buttons);
+  assert.equal(raw.index, 4, 'do not mutate browser-owned device objects');
+  assert.match(notices[0], /非标准.*原映射/);
+  ctx.activeGamepadIndex = -1; ctx.refreshSDLGamepadBridge();
+  assert.equal(ctx.gamepadBridgeRawIndex, -1);
+  assert.equal(ctx.getSDLGamepads()[0].mapping, 'standard');
+  assert.ok(ctx.getSDLGamepads()[0].buttons.every(button => button.value === 0), 'raw input must not be reinterpreted as standard');
+  assert.equal(raw.buttons[0].value, 1, 'releasing the facade must not change native device data');
+});
+
+test('manual standard controller selection releases held input before reconnect without reconnecting on ordinary polls', () => {
+  const { ctx, screen, pads, events } = logicalPadFixture();
+  const first = standardPad(2), second = standardPad(5);
+  first.buttons[0].value = 1; second.buttons[1].value = 1;
+  pads.push(first, second);
+  screen.axes[0] = 0.5;
+  ctx.getSDLGamepads();
+  ctx.setActiveGamepadIndex(5);
+  assert.deepEqual(events.map(event => event.type), ['gamepadconnected', 'gamepaddisconnected', 'gamepadconnected']);
+  assert.ok(events[1].values.every(value => value === 0));
+  assert.ok(events[1].axes.every(value => value === 0));
+  const pad = ctx.getSDLGamepads()[0];
+  assert.equal(pad.buttons[0].value, 0);
+  assert.equal(pad.buttons[1].value, 1);
+  assert.equal(pad.axes[0], 0);
+  ctx.setActiveGamepadIndex(5);
+  ctx.refreshSDLGamepadBridge(); ctx.refreshSDLGamepadBridge();
+  assert.equal(events.length, 3);
+});
+
+test('touch defaults detect touch-capable fine pointers but honor a saved disabled preference', () => {
+  let saved = null;
+  const ctx = load(['loadPlayerSettings'], { preferences: { getItem: () => saved }, PLAYER_SETTINGS_KEY: 'settings',
+    isMobileExperience: () => false, navigator: { maxTouchPoints: 5 } });
+  assert.equal(ctx.loadPlayerSettings().touch, true);
+  saved = JSON.stringify({ touch: false });
+  assert.equal(ctx.loadPlayerSettings().touch, false);
+  saved = null; ctx.navigator.maxTouchPoints = 0;
+  assert.equal(ctx.loadPlayerSettings().touch, false);
+});
+
+test('screen controls follow live preferences, overlays, visibility and runtime failure without focusing forms', () => {
+  const classes = new Set(), enabled = [], toggles = new Map();
+  let preference = true, menuOpen = false, resizes = 0, resets = 0;
+  for (const id of ['touchGamepadToggle', 'fsTouchGamepadToggle']) toggles.set(id, { setAttribute(name, value) { this[name] = value; } });
+  toggles.set('player-touch-controls', {});
+  toggles.set('fsMenuToggle', { getAttribute: () => String(menuOpen) });
+  const ctx = load(['updateTouchControls'], {
+    touchControlsInitialized: true, touchControlsVisible: false, touchControlError: '', gamepadBridgeInstalled: true,
+    gamepadBridgeRawIndex: -1, runtimeReady: false, runtimeFailed: false, loadPlayerSettings: () => ({ touch: preference }),
+    touchControlMount: { setEnabled: value => enabled.push(value) }, touchControlState: { reset: () => resets++ },
+    document: { hidden: false, body: { classList: { contains: name => classes.has(name), toggle: (name, value) => value ? classes.add(name) : classes.delete(name) } } },
+    byId: id => toggles.get(id), scheduleRuntimeResize: () => resizes++,
+    canvas: { focus: () => assert.fail('lifecycle updates must not steal form focus') },
+  });
+  ctx.updateTouchControls(); assert.equal(enabled.at(-1), false);
+  ctx.runtimeReady = true; ctx.updateTouchControls(); assert.equal(enabled.at(-1), true); assert.equal(resizes, 1);
+  ctx.updateTouchControls(); assert.equal(resizes, 1, 'do not resize every poll');
+  classes.add('panel-open'); ctx.updateTouchControls(); assert.equal(enabled.at(-1), false);
+  classes.delete('panel-open'); menuOpen = true; ctx.updateTouchControls(); assert.equal(enabled.at(-1), false);
+  menuOpen = false; ctx.updateTouchControls(); assert.equal(enabled.at(-1), true);
+  ctx.document.hidden = true; ctx.updateTouchControls(); assert.equal(enabled.at(-1), false);
+  ctx.document.hidden = false; ctx.gamepadBridgeRawIndex = 2; ctx.updateTouchControls();
+  assert.equal(enabled.at(-1), false);
+  assert.equal(toggles.get('touchGamepadToggle').disabled, false, 'raw mode must still offer switching back to screen controls');
+  ctx.gamepadBridgeRawIndex = -1; preference = false; ctx.updateTouchControls(); assert.equal(enabled.at(-1), false);
+  preference = true; ctx.runtimeFailed = true; ctx.updateTouchControls(); assert.equal(enabled.at(-1), false);
+  assert.ok(resets > 0);
+  assert.equal(classes.has('touch-gamepad-visible'), false);
+});
+
+test('missing gamepad support reports an unavailable screen controller instead of a silent overlay', () => {
+  let updated = false;
+  const ctx = load(['initializeTouchGamepad'], { nativeGetGamepads: null, byId: () => ({}),
+    touchControlsInitialized: false, touchControlMount: null, touchControlState: null, touchControlError: '',
+    gamepadBridgeInstalled: false, log() {}, updateTouchControls: () => { updated = true; } });
+  ctx.initializeTouchGamepad();
+  assert.match(ctx.touchControlError, /屏幕手柄不可用/);
+  assert.equal(ctx.gamepadBridgeInstalled, false); assert.equal(updated, true);
+});
+
+test('screen toggle can leave raw mode and emits normal settings changes before returning focus to the canvas', () => {
+  const checkbox = new EventTarget(); checkbox.checked = false;
+  let preference = false, changes = 0, audioUnlocks = 0;
+  const order = [];
+  checkbox.addEventListener('change', event => {
+    assert.equal(event.bubbles, true);
+    preference = checkbox.checked;
+    changes++;
+    order.push('settings');
+  });
+  const ctx = load(['toggleTouchControls'], {
+    Event, gamepadBridgeInstalled: true, runtimeReady: true, runtimeFailed: false, gamepadBridgeRawIndex: 3,
+    byId: () => checkbox, loadPlayerSettings: () => ({ touch: preference }),
+    setActiveGamepadIndex(index) { assert.equal(index, -1); ctx.gamepadBridgeRawIndex = -1; order.push('standard'); },
+    setPanelOpen(open) { assert.equal(open, false); order.push('panel'); },
+    setFullscreenMenuOpen(open) { assert.equal(open, false); order.push('menu'); },
+    canvas: { focus(options) { assert.equal(options.preventScroll, true); order.push('focus'); } },
+    unlockAudio() { audioUnlocks++; },
+  });
+  ctx.toggleTouchControls();
+  assert.equal(preference, true); assert.equal(ctx.gamepadBridgeRawIndex, -1);
+  assert.deepEqual(order, ['standard', 'settings', 'panel', 'menu', 'focus']);
+  ctx.toggleTouchControls();
+  assert.equal(preference, false); assert.equal(changes, 2); assert.equal(audioUnlocks, 2);
+  ctx.runtimeFailed = true; ctx.toggleTouchControls();
+  assert.equal(changes, 2, 'a failed core must not accept controller toggles');
 });
 
 test('import stores the File/Blob directly and never enables startup preload', async () => {
@@ -426,7 +600,7 @@ test('direct game launch also runs library automount before releasing startup', 
     SharedArrayBuffer, sessionStorage: { removeItem() {} }, COI_RELOAD_KEY: 'coi',
     document: { body: { classList: { add: name => classes.add(name), toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name) }, appendChild() {} },
       querySelector: () => stage, createElement: () => ({}) },
-    byId: id => controls.get(id), PANEL_KEY: 'panel',
+    byId: id => controls.get(id), PANEL_KEY: 'panel', updateTouchControls() {},
     setStartButtonMode: noop, log: noop, showLoading: noop, setStatus: noop, setTimeout: () => 1,
     selectBuildDir: async () => {}, AudioContext: class { async resume() { assert.equal(focused, true); } }, installScriptProcessorPolyfill: async () => {},
     preferences: { getItem: () => null, setItem() {} }, BUILD_DIR: '/build/', BUILD_STAMP: 'test',
@@ -655,7 +829,7 @@ test('startup applies player preferences while preserving unrelated graphics, ti
         applyNetworkConfig: async (_, text) => text,
         opfsPut: async () => {}, log() {},
       }, declarations);
-      const FS = { readFile: () => new TextEncoder().encode(config), writeFile: (_, bytes) => { config = new TextDecoder().decode(bytes); } };
+      const FS = { readdir: () => [], readFile: () => new TextEncoder().encode(config), writeFile: (_, bytes) => { config = new TextDecoder().decode(bytes); } };
       await ctx.forceGamesDirectoryConfig(FS);
       for (const line of original.split('\n').filter(line => line.includes('=') && !line.startsWith('InternalResolution'))) assert.ok(config.includes(line), line);
       assert.match(config, /InternalResolution = 2/);
@@ -692,7 +866,7 @@ test('steady controller scans leave selector DOM alone while disconnects still u
     getBrowserGamepads: () => pads,
     connectedGamepads: new Map([[0, { id: 'pad' }]]),
     rememberGamepad: () => false,
-    updateGamepadSelector: () => updates++, log() {},
+    updateGamepadSelector: () => updates++, log() {}, refreshSDLGamepadBridge() {},
   });
   ctx.reconcileGamepads(); ctx.reconcileGamepads();
   assert.equal(updates, 0);
@@ -720,7 +894,7 @@ test('network status distinguishes a relay check from an active game and surface
   assert.equal(ctx.networkStatusView(cfg, { state: 'registered' }, {}, 200, false).title, 'You are offline');
 });
 
-test('player startup settings update global configs while preserving every per-game profile', async () => {
+test('startup disables duplicate native touch overlays while preserving other per-game preferences', async () => {
   const declarations = ast.statements.filter(n => ts.isVariableStatement(n) &&
     n.declarationList.declarations.some(d => ['WEB_NATIVE_TIMING_CONFIG', 'WEB_STABILITY_CONFIG', 'MOBILE_TOUCH_CONFIG'].includes(d.name.getText(ast))))
     .map(n => n.getText(ast)).join('\n');
@@ -729,28 +903,31 @@ test('player startup settings update global configs while preserving every per-g
   const gamePaths = roots.map((root, index) => root + '/PSP/SYSTEM/TEST0000' + (index + 1) + '_ppsspp.ini');
   const gameProfile = '[Graphics]\nInternalResolution = 5\n[CPU]\nBlockLinking = False\n';
   for (const path of gamePaths) files.set(path, new TextEncoder().encode(gameProfile));
+  files.set(gamePaths[0], new TextEncoder().encode(gameProfile + '[Control]\nShowTouchControls = True\nTouchButtonOpacity = 90\n'));
   const ctx = load(['forceGamesDirectoryConfig', 'patchIniValue', 'applyPlayerSettings', 'applyMultiplayerTimingConfig'], {
     PERSIST_ROOTS: roots, VIRTUAL_GAME_DIR: '/games', isMobileExperience: () => true,
     fsMkdirP() {}, log() {}, applyNetworkConfig: async (_, text) => text,
     loadNetworkConfig: () => ({ enabled: false }),
-    loadPlayerSettings: () => ({ resolution: 3, showFps: true, touch: false }),
+    loadPlayerSettings: () => ({ resolution: 3, showFps: true, touch: true }),
     opfsPut: async (path, bytes) => persisted.set(path, new TextDecoder().decode(bytes)),
   }, declarations);
-  const FS = { analyzePath: path => ({ exists: files.has(path) }), readFile: path => files.get(path) || new TextEncoder().encode('[General]\nLanguage = en_US\n[Network]\nEnableWlan = True\n'), writeFile: (path, bytes) => files.set(path, bytes) };
+  const FS = { readdir: dir => [...files.keys()].filter(path => path.startsWith(dir + '/')).map(path => path.slice(dir.length + 1)),
+    analyzePath: path => ({ exists: files.has(path) }), readFile: path => files.get(path) || new TextEncoder().encode('[General]\nLanguage = en_US\n[Network]\nEnableWlan = True\n'), writeFile: (path, bytes) => files.set(path, bytes) };
   await ctx.forceGamesDirectoryConfig(FS);
   for (const root of roots) {
     const path = root + '/PSP/SYSTEM/ppsspp.ini';
     assert.equal(persisted.get(path), new TextDecoder().decode(files.get(path)));
     for (const pattern of [/Language = zh_CN/, /InternalResolution = 3/, /iShowStatusFlags = 6/, /ShowTouchControls = False/, /EnableWlan = False/]) assert.match(persisted.get(path), pattern);
   }
-  for (const path of gamePaths) {
-    assert.equal(persisted.has(path), false);
-    assert.equal(new TextDecoder().decode(files.get(path)), gameProfile);
-  }
+  const expectedProfiles = [gameProfile + '[Control]\nShowTouchControls = False\nTouchButtonOpacity = 90\n', gameProfile];
+  gamePaths.forEach((path, index) => {
+    assert.equal(persisted.has(path), index === 0, 'only an explicit native touch override needs rewriting');
+    assert.equal(new TextDecoder().decode(files.get(path)), expectedProfiles[index]);
+  });
   const before = [...persisted.values()];
   await ctx.forceGamesDirectoryConfig(FS);
   assert.deepEqual([...persisted.values()], before);
-  for (const path of gamePaths) assert.equal(new TextDecoder().decode(files.get(path)), gameProfile);
+  gamePaths.forEach((path, index) => assert.equal(new TextDecoder().decode(files.get(path)), expectedProfiles[index]));
 });
 
 test('settings changed during play are durable without mutating or restarting the live core', async () => {
@@ -762,6 +939,7 @@ test('settings changed during play are durable without mutating or restarting th
   const roots = ['/home/web_user/.config/ppsspp', '/root/.config/ppsspp'];
   const writes = new Map(); let durable;
   const ctx = load(['savePlayerSettings', 'applyPlayerSettings', 'patchIniValue'], {
+    updateTouchControls() {},
     byId: id => controls.get(id), PLAYER_SETTINGS_KEY: 'player', PERSIST_ROOTS: roots,
     preferences: { setItem: (k, v) => settings.set(k, v) }, started: true, hasOPFS: () => true,
     opfsDir: async () => ({ getFileHandle: async () => ({}) }),
@@ -785,6 +963,7 @@ test('settings write failures are visible and a later queued save still commits 
   const attempted = [], preferences = new Map();
   let fail = true;
   const ctx = load(['savePlayerSettings'], {
+    updateTouchControls() {},
     byId: id => controls.get(id), PLAYER_SETTINGS_KEY: 'player', started: false,
     preferences: { setItem: (key, text) => preferences.set(key, text) }, hasOPFS: () => true,
     opfsDir: async () => ({ getFileHandle: async () => ({}) }),
@@ -1179,6 +1358,7 @@ test('game read failures show the recovery panel once and retain the first actio
   const message = { textContent: '' }, recovery = { hidden: true }, statuses = [];
   let loadingHidden = 0;
   const ctx = load(['handleBrowserGameReadError', 'failRuntime'], {
+    updateTouchControls() {},
     started: false, runtimeFailed: false, runtimeReady: true,
     window: { ModuleStartupWatchdog: 1 }, clearTimeout() {}, log() {},
     byId: id => id === 'runtimeFailureMessage' ? message : id === 'runtimeRecovery' ? recovery : null,

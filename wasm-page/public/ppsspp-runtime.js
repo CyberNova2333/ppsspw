@@ -75,7 +75,7 @@ const WEB_STABILITY_CONFIG = [
 ];
 const MOBILE_TOUCH_CONFIG = [
   ["General", "UIScaleFactor", "0"],
-  ["Control", "ShowTouchControls", "True"],
+  ["Control", "ShowTouchControls", "False"],
   ["Control", "TouchButtonStyle", "1"],
   ["Control", "TouchButtonOpacity", "78"],
   ["Control", "TouchButtonHideSeconds", "0"],
@@ -365,6 +365,10 @@ function on(target, type, handler, options) {
 }
 
 const canvas          = byId("canvas");
+let touchControlState = null, touchControlMount = null;
+let touchControlsInitialized = false, touchControlsVisible = false, touchControlError = "";
+let gamepadBridgeInstalled = false, gamepadBridgeCurrent = null, gamepadBridgeMode = "";
+let gamepadBridgeRawIndex = -1;
 const stageEl         = document.querySelector(".stage");
 const fileInput       = byId("gameFile");
 const fileLabel       = byId("fileLabel");
@@ -429,6 +433,7 @@ function setPanelOpen(open, focus = true) {
     const target = open ? byId("panelCloseBtn") : fullscreenElement() ? byId("fsMenuToggle") : panelToggleBtn;
     target?.focus({ preventScroll: true });
   }
+  updateTouchControls();
 }
 // A saved desktop drawer should not cover the game on the next mobile visit.
 setPanelOpen(!isMobileExperience() && preferences.getItem(PANEL_KEY) === "1", false);
@@ -2141,7 +2146,7 @@ function loadPlayerSettings() {
   return {
     resolution: [1, 2, 3].includes(Number(saved?.resolution)) ? Number(saved.resolution) : 1,
     showFps: saved?.showFps === true,
-    touch: typeof saved?.touch === "boolean" ? saved.touch : isMobileExperience(),
+    touch: typeof saved?.touch === "boolean" ? saved.touch : isMobileExperience() || (navigator.maxTouchPoints || 0) > 0,
   };
 }
 
@@ -2154,7 +2159,7 @@ function applyPlayerSettings(text, settings) {
     ["Achievements", "AchievementsEnableRAIntegration", "False"],
     ["Graphics", "InternalResolution", String(settings.resolution)],
     ["Graphics", "iShowStatusFlags", settings.showFps ? "6" : "0"],
-    ["Control", "ShowTouchControls", settings.touch ? "True" : "False"],
+    ["Control", "ShowTouchControls", "False"],
     ["Network", "EnableWlan", "False"],
     ["Network", "EnableAdhocServer", "False"],
     ["Network", "EnableUPnP", "False"],
@@ -2171,6 +2176,7 @@ function refreshPlayerSettingsUI() {
   if (resolution) resolution.value = String(settings.resolution);
   if (fps) fps.checked = settings.showFps;
   if (touch) touch.checked = settings.touch;
+  updateTouchControls();
 }
 
 let playerSettingsQueue = Promise.resolve();
@@ -2202,7 +2208,7 @@ async function restorePlayerSettings() {
   refreshPlayerSettingsUI();
 }
 
-function savePlayerSettings() {
+function savePlayerSettings(event) {
   const settings = {
     resolution: Number(byId("player-render-resolution")?.value || 1),
     showFps: !!byId("player-show-fps")?.checked,
@@ -2211,6 +2217,9 @@ function savePlayerSettings() {
   if (![1, 2, 3].includes(settings.resolution)) settings.resolution = 1;
   playerSettingsChanged = true;
   preferences.setItem(PLAYER_SETTINGS_KEY, JSON.stringify(settings));
+  if (event?.target?.id === "player-touch-controls" && settings.touch && gamepadBridgeRawIndex >= 0)
+    setActiveGamepadIndex(-1, "screen controls");
+  updateTouchControls();
   const task = playerSettingsQueue.then(async () => {
     const status = byId("player-settings-status");
     try {
@@ -2220,7 +2229,7 @@ function savePlayerSettings() {
       // The launcher owns this file only. Native INIs are patched immediately
       // before startup, avoiding races with the running core's persistence.
       if (status) status.textContent = started
-        ? "设置已保存，下次启动生效。请先在游戏内存档并同步到本机，再自行重新载入页面；当前游戏会继续运行。"
+        ? "屏幕手柄设置已立即生效；画质与帧率显示下次启动生效。请先在游戏内存档并同步到本机，再自行重新载入页面。"
         : "设置已保存，将在启动时生效。";
     } catch (error) {
       log("Player settings persistence failed: " + error.message, "warn");
@@ -2571,6 +2580,20 @@ async function forceGamesDirectoryConfig(FS) {
       const bytes = encoder.encode(patched);
       FS.writeFile(iniPath, bytes);
       await opfsPut(iniPath, bytes);
+      // This native option is also per-game. An imported override must not draw
+      // a second controller underneath the browser's screen controls.
+      const systemDir = root + "/PSP/SYSTEM";
+      for (const name of FS.readdir(systemDir)) {
+        if (!name.endsWith("_ppsspp.ini")) continue;
+        const gameIniPath = systemDir + "/" + name;
+        const gameText = decoder.decode(FS.readFile(gameIniPath));
+        if (!/^\s*ShowTouchControls\s*=/m.test(gameText)) continue;
+        const gamePatched = patchIniValue(gameText, "Control", "ShowTouchControls", "False");
+        if (gamePatched === gameText) continue;
+        const gameBytes = encoder.encode(gamePatched);
+        FS.writeFile(gameIniPath, gameBytes);
+        await opfsPut(gameIniPath, gameBytes);
+      }
       log("Config: missing web defaults initialized at " + iniPath + (applyMobileTouchDefaults ? " (mobile touch/UI enabled)" : ""), "ok");
     } catch(e) {
       log("Config: failed to apply web defaults at " + iniPath + ": " + e.message, "warn");
@@ -4101,6 +4124,164 @@ async function installScriptProcessorPolyfill(ctx) {
 }
 
 /* ── Gamepad ────────────────────────────────────────────────────── */
+function updateTouchControls() {
+  if (!touchControlsInitialized) return;
+  const settings = loadPlayerSettings();
+  const rawMode = gamepadBridgeRawIndex >= 0;
+  const enabled = !!touchControlMount && gamepadBridgeInstalled && runtimeReady && !runtimeFailed
+    && settings.touch && !rawMode && !document.hidden
+    && !document.body.classList.contains("panel-open")
+    && byId("fsMenuToggle")?.getAttribute("aria-expanded") !== "true";
+  touchControlMount?.setEnabled(enabled);
+  if (!enabled) touchControlState?.reset();
+  document.body.classList.toggle("touch-gamepad-visible", enabled);
+  for (const id of ["touchGamepadToggle", "fsTouchGamepadToggle"]) {
+    const toggle = byId(id);
+    if (!toggle) continue;
+    toggle.disabled = !gamepadBridgeInstalled || !runtimeReady || runtimeFailed;
+    toggle.setAttribute("aria-pressed", String(settings.touch && !rawMode));
+    toggle.title = touchControlError || (rawMode ? "启用屏幕手柄并切回标准输入" : settings.touch ? "隐藏屏幕手柄" : "显示屏幕手柄");
+  }
+  const checkbox = byId("player-touch-controls");
+  if (checkbox) {
+    checkbox.disabled = !gamepadBridgeInstalled;
+    checkbox.title = touchControlError || (rawMode ? "当前使用非标准实体手柄；顶部手柄按钮可切回屏幕操作" : "立即显示或隐藏屏幕手柄");
+  }
+  if (touchControlError) {
+    const status = byId("player-settings-status");
+    if (status) status.textContent = touchControlError;
+  }
+  if (touchControlsVisible !== enabled) {
+    touchControlsVisible = enabled;
+    scheduleRuntimeResize();
+  }
+}
+
+function toggleTouchControls() {
+  if (!gamepadBridgeInstalled || !runtimeReady || runtimeFailed) return;
+  const checkbox = byId("player-touch-controls");
+  if (!checkbox) return;
+  const enable = gamepadBridgeRawIndex >= 0 || !loadPlayerSettings().touch;
+  if (enable && gamepadBridgeRawIndex >= 0) setActiveGamepadIndex(-1, "screen controls");
+  checkbox.checked = enable;
+  // Use the normal settings event so active diagnostic recordings see the change.
+  checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+  setPanelOpen(false, false);
+  setFullscreenMenuOpen(false, false);
+  canvas?.focus({ preventScroll: true });
+  void unlockAudio();
+}
+
+function dispatchLogicalGamepad(type, gamepad) {
+  const event = new Event(type);
+  Object.defineProperty(event, "gamepad", { value: gamepad });
+  event.__ppssppLogical = true;
+  window.dispatchEvent(event);
+}
+
+function releaseLogicalGamepad(gamepad) {
+  gamepad.axes = gamepad.axes.map(() => 0);
+  gamepad.buttons = gamepad.buttons.map(() => ({ pressed: false, touched: false, value: 0 }));
+  gamepad.timestamp = performance.now();
+}
+
+function refreshSDLGamepadBridge(force = false) {
+  if (!gamepadBridgeInstalled) return;
+  const raw = getBrowserGamepads().find(pad => pad.index === activeGamepadIndex && pad.mapping !== "standard");
+  const mode = raw ? JSON.stringify([raw.index, raw.id, raw.mapping, raw.axes.length, raw.buttons.length]) : "standard";
+  if (!force && mode === gamepadBridgeMode) return;
+  touchControlState.reset();
+  if (gamepadBridgeCurrent) {
+    releaseLogicalGamepad(gamepadBridgeCurrent);
+    gamepadBridgeCurrent.connected = false;
+    // SDL recenters and releases its opened joystick when it receives removal.
+    if (started && window.Module) dispatchLogicalGamepad("gamepaddisconnected", gamepadBridgeCurrent);
+  }
+  gamepadBridgeRawIndex = raw ? raw.index : -1;
+  gamepadBridgeMode = mode;
+  const source = raw || touchControlState.gamepad;
+  gamepadBridgeCurrent = { id: source.id, mapping: source.mapping, index: 0, connected: true,
+    timestamp: performance.now(), axes: Array.from(source.axes), buttons: Array.from(source.buttons, button => ({ ...button })) };
+  releaseLogicalGamepad(gamepadBridgeCurrent);
+  if (started && window.Module) dispatchLogicalGamepad("gamepadconnected", gamepadBridgeCurrent);
+  if (raw) showToast("已使用非标准实体手柄的原映射，屏幕手柄暂时隐藏。顶部手柄按钮可切回屏幕操作。", 7000);
+  updateTouchControls();
+}
+
+function getSDLGamepads() {
+  const output = gamepadBridgeCurrent;
+  if (!output) return [];
+  const pads = getBrowserGamepads();
+  if (gamepadBridgeRawIndex >= 0) {
+    const raw = pads.find(pad => pad.index === gamepadBridgeRawIndex);
+    if (raw) {
+      // Preserve the browser's raw mapping and button/axis layout. Only the
+      // exposed index is normalized; SDL's controller database still sees its ID.
+      output.axes = raw.axes;
+      output.buttons = raw.buttons;
+    } else releaseLogicalGamepad(output);
+  } else {
+    const selected = pads.find(pad => pad.index === activeGamepadIndex);
+    const physical = (selected ? [selected] : pads).filter(pad => pad.mapping === "standard");
+    const screen = touchControlState.gamepad;
+    for (let i = 0; i < output.buttons.length; i++) {
+      let value = screen.buttons[i].value;
+      for (const pad of physical) value = Math.max(value, Number(pad.buttons[i]?.value) || 0);
+      value = Math.min(1, Math.max(0, value));
+      output.buttons[i].value = value;
+      output.buttons[i].pressed = value > 0.5;
+      output.buttons[i].touched = value > 0;
+    }
+    const screenStick = screen.axes[0] !== 0 || screen.axes[1] !== 0;
+    for (let i = 0; i < output.axes.length; i++) {
+      let value = screen.axes[i];
+      // An active screen stick owns both axes so opposing physical input cannot
+      // turn its vertical movement into an unexpected diagonal.
+      if (!(i < 2 && screenStick)) {
+        for (const pad of physical) {
+          const candidate = Number(pad.axes[i]) || 0;
+          if (Math.abs(candidate) > Math.abs(value)) value = candidate;
+        }
+      }
+      output.axes[i] = Math.min(1, Math.max(-1, value));
+    }
+  }
+  if (runtimeFailed || document.hidden) releaseLogicalGamepad(output);
+  // SDL skips unchanged timestamps, including button changes within one frame.
+  output.timestamp = Math.max(performance.now(), output.timestamp + 0.001);
+  return [output];
+}
+
+function initializeTouchGamepad() {
+  touchControlsInitialized = true;
+  try {
+    const api = globalThis.PpssppTouchControls;
+    const element = byId("touchGamepad");
+    if (!nativeGetGamepads || !api?.createState || !api?.mount || !element) throw new Error("当前页面未提供可用的屏幕手柄输入桥");
+    touchControlState = api.createState({ now: () => performance.now(), index: 0 });
+    touchControlMount = api.mount({ element, canvas, state: touchControlState, onInteraction() {
+      canvas?.focus({ preventScroll: true });
+      void unlockAudio();
+    } });
+    navigator.getGamepads = getSDLGamepads;
+    if (navigator.getGamepads !== getSDLGamepads) throw new Error("浏览器不允许接入屏幕手柄");
+    gamepadBridgeInstalled = true;
+    refreshSDLGamepadBridge();
+  } catch (error) {
+    if (gamepadBridgeInstalled) navigator.getGamepads = nativeGetGamepads;
+    gamepadBridgeInstalled = false;
+    gamepadBridgeCurrent = null;
+    gamepadBridgeMode = "";
+    gamepadBridgeRawIndex = -1;
+    touchControlMount?.destroy();
+    touchControlMount = null;
+    touchControlState = null;
+    touchControlError = "屏幕手柄不可用：" + error.message;
+    log(touchControlError, "warn");
+  }
+  updateTouchControls();
+}
+
 const connectedGamepads = new Map();
 const GAMEPAD_POLL_MS = 1000;
 const GAMEPAD_SDL_RECONNECT_MS = 5000;
@@ -4112,6 +4293,8 @@ window.__ppssppActiveGamepadIndex = activeGamepadIndex;
 const nativeGetGamepads = navigator.getGamepads ? navigator.getGamepads.bind(navigator) : null;
 
 function installGamepadSelectionFilter() {
+  initializeTouchGamepad();
+  if (gamepadBridgeInstalled) return;
   if (!nativeGetGamepads || navigator.__ppssppGamepadFiltered) return;
   try {
     Object.defineProperty(navigator, "__ppssppGamepadFiltered", { value: true });
@@ -4146,12 +4329,27 @@ function shouldHideGamepadFromSDL(gp) {
 }
 
 window.addEventListener("gamepadconnected", e => {
+  if (e.__ppssppLogical) return;
+  if (gamepadBridgeInstalled) {
+    e.stopImmediatePropagation();
+    rememberGamepad(e.gamepad, "connected", { refreshSDL: false });
+    refreshSDLGamepadBridge();
+    return;
+  }
   if (shouldHideGamepadFromSDL(e.gamepad)) {
     e.stopImmediatePropagation();
     rememberGamepad(e.gamepad, "available", { refreshSDL: false });
   }
 }, true);
 window.addEventListener("gamepaddisconnected", e => {
+  if (e.__ppssppLogical) return;
+  if (gamepadBridgeInstalled) {
+    e.stopImmediatePropagation();
+    connectedGamepads.delete(e.gamepad.index);
+    updateGamepadSelector();
+    refreshSDLGamepadBridge();
+    return;
+  }
   if (shouldHideGamepadFromSDL(e.gamepad)) {
     e.stopImmediatePropagation();
     connectedGamepads.delete(e.gamepad.index);
@@ -4160,8 +4358,9 @@ window.addEventListener("gamepaddisconnected", e => {
 }, true);
 
 function redispatchSelectedGamepadConnection(reason) {
+  if (gamepadBridgeInstalled) { refreshSDLGamepadBridge(); return; }
   if (activeGamepadIndex < 0 || typeof GamepadEvent !== "function") return;
-  const gp = connectedGamepads.get(activeGamepadIndex) || getBrowserGamepads().find(p => p.index === activeGamepadIndex);
+  const gp = getBrowserGamepads().find(p => p.index === activeGamepadIndex);
   if (!gp) return;
   try {
     const ev = new GamepadEvent("gamepadconnected", { gamepad: gp });
@@ -4224,6 +4423,7 @@ function updateGamepadSelector() {
 }
 
 function setActiveGamepadIndex(index, source = "selector") {
+  const previous = activeGamepadIndex;
   activeGamepadIndex = Number.isInteger(index) ? index : -1;
   window.__ppssppActiveGamepadIndex = activeGamepadIndex;
   preferences.setItem(GAMEPAD_SELECT_KEY, String(activeGamepadIndex));
@@ -4232,8 +4432,11 @@ function setActiveGamepadIndex(index, source = "selector") {
   const label = activeGamepadIndex < 0 ? "全部手柄" : (gp ? shortGamepadName(gp.id) : "手柄 " + (activeGamepadIndex + 1));
   log("GAMEPAD active controller: " + label + " (" + source + ")", "info");
   updateGamepadSelector();
-  reconnectKnownGamepadsForSDL("controller select", true);
-  redispatchSelectedGamepadConnection("controller select");
+  if (gamepadBridgeInstalled) refreshSDLGamepadBridge(previous !== activeGamepadIndex);
+  else {
+    reconnectKnownGamepadsForSDL("controller select", true);
+    redispatchSelectedGamepadConnection("controller select");
+  }
   canvas?.focus();
 }
 
@@ -4246,7 +4449,7 @@ function flashGamepadBadge() {
 
 function getBrowserGamepads() {
   try {
-    return nativeGetGamepads ? Array.from(nativeGetGamepads()).filter(Boolean) : [];
+    return nativeGetGamepads ? Array.from(nativeGetGamepads()).filter(pad => pad && pad.connected !== false) : [];
   } catch(e) {
     log("GAMEPAD: scan failed: " + (e?.message || e), "warn");
     return [];
@@ -4267,6 +4470,7 @@ function gamepadInfo(gp) {
 }
 
 function dispatchSDLGamepadReconnect(gp, reason, force = false) {
+  if (gamepadBridgeInstalled) return false;
   const state = connectedGamepads.get(gp.index);
   if (!started || !window.Module || !state) return false;
 
@@ -4302,6 +4506,8 @@ function rememberGamepad(gp, source, options = {}) {
   updateGamepadSelector();
   flashGamepadBadge();
   if (options.refreshSDL) dispatchSDLGamepadReconnect(gp, source, options.forceSDL);
+  if (gamepadBridgeInstalled && gp.mapping !== "standard" && activeGamepadIndex < 0)
+    showToast("检测到非标准实体手柄，请在手柄列表选择它以使用原映射；屏幕手柄仍可使用。", 7000);
   return true;
 }
 
@@ -4327,10 +4533,16 @@ function reconcileGamepads(source = "scan", options = {}) {
   if (removed || added) updateGamepadSelector();
   if (!pads.length && options.verbose)
     log("GAMEPAD: no controller detected. Press a button once if the browser is hiding it.", "warn");
+  refreshSDLGamepadBridge();
   return pads.length;
 }
 
 function reconnectKnownGamepadsForSDL(reason, force = false) {
+  if (gamepadBridgeInstalled) {
+    refreshSDLGamepadBridge();
+    if (started && window.Module && gamepadBridgeCurrent) dispatchLogicalGamepad("gamepadconnected", gamepadBridgeCurrent);
+    return gamepadBridgeCurrent ? 1 : 0;
+  }
   let n = 0;
   for (const gp of getBrowserGamepads()) {
     if (!gp || gp.connected === false) continue;
@@ -4352,10 +4564,12 @@ function startSmartGamepadPolling() {
 }
 
 function onGamepadConnected(e) {
+  if (e.__ppssppLogical) return;
   const gp = e.gamepad;
   rememberGamepad(gp, e.__ppssppSynthetic ? "refreshed" : "connected", { refreshSDL: false });
 }
 function onGamepadDisconnected(e) {
+  if (e.__ppssppLogical) return;
   const gp = e.gamepad; connectedGamepads.delete(gp.index);
   log('GAMEPAD disconnected: [' + gp.index + '] "' + gp.id + '"');
   updateGamepadSelector();
@@ -4397,8 +4611,13 @@ window.addEventListener("focus", () => {
   reconnectKnownGamepadsForSDL("window focus");
 });
 document.addEventListener("visibilitychange", () => {
+  updateTouchControls();
   if (!document.hidden) reconnectKnownGamepadsForSDL("page visible");
 });
+window.addEventListener("blur", () => touchControlState?.reset());
+window.addEventListener("pagehide", () => touchControlState?.reset());
+on("touchGamepadToggle", "click", toggleTouchControls);
+on("fsTouchGamepadToggle", "click", toggleTouchControls);
 installGamepadSelectionFilter();
 updateGamepadSelector();
 startSmartGamepadPolling();
@@ -4782,6 +5001,7 @@ function failRuntime(message) {
   runtimeFailed = true;
   clearTimeout(window.ModuleStartupWatchdog);
   runtimeReady = false;
+  updateTouchControls();
   hideLoading();
   setStatus(message, "err");
   const failureMessage = byId("runtimeFailureMessage");
@@ -4957,6 +5177,7 @@ async function start() {
       if (runtimeFailed) return;
       log("Runtime initialized.", "ok");
       runtimeReady = true;
+      updateTouchControls();
       globalThis.PpssppPerformance?.mark("runtimeReady");
       setStatus(gameArg ? "模拟器已启动" : "游戏库已就绪", "ok");
       hideLoading();
@@ -5439,6 +5660,7 @@ function setFullscreenMenuOpen(open, focus = true) {
     if (element) element.hidden = !open;
   }
   if (focus) (open ? byId("fsPanelBtn") : toggle)?.focus({ preventScroll: true });
+  updateTouchControls();
 }
 on("fsMenuToggle", "click", () => setFullscreenMenuOpen(byId("fsMenuToggle")?.getAttribute("aria-expanded") !== "true"));
 on("fsMenuBackdrop", "click", () => setFullscreenMenuOpen(false));
