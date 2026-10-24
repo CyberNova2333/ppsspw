@@ -1594,3 +1594,141 @@ body:not(.emulator-started) #stageMini { display: none; }
 .online-game-card progress { display: block; width: 100%; height: 10px; margin-top: 12px; accent-color: var(--accent); }
 .online-game-card .player-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .online-game-card .setting-field { margin-top: 12px; }
+
+/* Screen controls stay separate from the canvas so every finger has its own target. */
+#touchGamepadToggle {
+  width: 44px; min-width: 44px; height: 44px; padding: 0;
+}
+#touchGamepadToggle[aria-pressed="true"] {
+  color: var(--accent2); background: rgba(118,188,236,.12); border-color: var(--accent);
+}
+body:not(.emulator-started) #touchGamepadToggle { display: none; }
+.touch-gamepad {
+  --pad-button-size: clamp(44px, 6vw, 56px);
+  --pad-cluster-size: calc(var(--pad-button-size) * 3);
+  --pad-stick-size: clamp(76px, 12vh, 92px);
+  position: absolute; inset: 0; z-index: 8; display: none;
+  pointer-events: none; -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+}
+body.touch-gamepad-visible .touch-gamepad { display: block; }
+.touch-gamepad[hidden] { display: none !important; }
+.touch-pad-left, .touch-pad-right {
+  position: absolute; top: max(8px, env(safe-area-inset-top));
+  bottom: max(8px, env(safe-area-inset-bottom)); width: var(--pad-cluster-size);
+  pointer-events: none;
+}
+.touch-pad-left { left: max(10px, env(safe-area-inset-left)); }
+.touch-pad-right { right: max(10px, env(safe-area-inset-right)); }
+.touch-gamepad button {
+  width: var(--pad-button-size); min-width: 44px; height: var(--pad-button-size); min-height: 44px;
+  padding: 0; border: 1px solid rgba(155,186,209,.38); border-radius: 12px;
+  color: #e2edf5; background: rgba(23,31,39,.68);
+  box-shadow: 0 2px 10px rgba(0,0,0,.16);
+  font: 600 22px/1 system-ui, sans-serif;
+  touch-action: none; pointer-events: auto; transform: none;
+  transition: background .06s, border-color .06s, box-shadow .06s;
+}
+.touch-gamepad button > span { pointer-events: none; }
+.touch-gamepad button:hover { background: rgba(34,47,59,.78); }
+.touch-gamepad button:active, .touch-gamepad button.is-pressed {
+  transform: none; background: rgba(71,133,178,.84); border-color: #a4d9ff;
+  color: #fff; box-shadow: inset 0 0 0 1px rgba(164,217,255,.28), 0 0 12px rgba(118,188,236,.2);
+}
+.touch-gamepad button:focus-visible, .touch-pad-stick:focus-visible {
+  outline: 2px solid var(--accent2); outline-offset: 3px;
+}
+.touch-pad-dpad, .touch-pad-actions {
+  position: absolute; width: var(--pad-cluster-size); height: var(--pad-cluster-size);
+  display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr);
+}
+.touch-pad-dpad {
+  bottom: calc(var(--pad-stick-size) + 12px); border-radius: 24px;
+  background: radial-gradient(circle, rgba(25,35,44,.42), transparent 72%);
+  touch-action: none; pointer-events: auto;
+}
+.touch-pad-dpad button { font-size: 18px; }
+.touch-pad-actions { top: 50%; transform: translateY(-50%); pointer-events: none; }
+.touch-pad-actions button { border-radius: 50%; font-size: 29px; font-weight: 400; }
+.touch-gamepad [data-pad-button="up"], .touch-gamepad [data-pad-button="triangle"] { grid-area: 1 / 2; }
+.touch-gamepad [data-pad-button="left"], .touch-gamepad [data-pad-button="square"] { grid-area: 2 / 1; }
+.touch-gamepad [data-pad-button="right"], .touch-gamepad [data-pad-button="circle"] { grid-area: 2 / 3; }
+.touch-gamepad [data-pad-button="down"], .touch-gamepad [data-pad-button="cross"] { grid-area: 3 / 2; }
+.touch-gamepad .touch-pad-shoulder {
+  position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  width: 72px; height: 44px; border-radius: 12px 12px 18px 18px;
+  font-size: 17px; letter-spacing: .08em;
+}
+.touch-gamepad .touch-pad-shoulder:active,
+.touch-gamepad .touch-pad-shoulder.is-pressed { transform: translateX(-50%); }
+.touch-pad-stick {
+  position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+  width: var(--pad-stick-size); height: var(--pad-stick-size); border-radius: 50%;
+  border: 1px solid rgba(155,186,209,.36); background: rgba(23,31,39,.54);
+  box-shadow: inset 0 0 20px rgba(0,0,0,.24);
+  touch-action: none; pointer-events: auto;
+}
+.touch-pad-stick-cross::before, .touch-pad-stick-cross::after {
+  content: ""; position: absolute; background: rgba(155,186,209,.17); pointer-events: none;
+}
+.touch-pad-stick-cross::before { top: 50%; left: 10%; width: 80%; height: 1px; }
+.touch-pad-stick-cross::after { top: 10%; left: 50%; width: 1px; height: 80%; }
+.touch-pad-thumb {
+  position: absolute; top: 25%; left: 25%; width: 50%; height: 50%; border-radius: 50%;
+  border: 1px solid rgba(179,209,230,.62); background: rgba(81,108,130,.9);
+  box-shadow: 0 3px 9px rgba(0,0,0,.3); pointer-events: none;
+  transform: translate(var(--stick-x, 0px), var(--stick-y, 0px));
+}
+.touch-pad-stick.is-pressed .touch-pad-thumb {
+  border-color: var(--accent2); background: rgba(96,160,207,.95);
+}
+.touch-pad-system {
+  position: absolute; bottom: max(10px, env(safe-area-inset-bottom)); left: 50%;
+  display: flex; gap: 10px; transform: translateX(-50%); pointer-events: none;
+}
+.touch-gamepad .touch-pad-system button {
+  width: 66px; height: 44px; border-radius: 12px;
+  font-size: 10px; font-weight: 650; letter-spacing: .06em;
+}
+@media (max-width: 700px), (pointer: coarse) and (max-height: 560px), (pointer: coarse) and (max-width: 920px) {
+  .player-header { grid-template-columns: minmax(60px, 1fr) auto auto 40px; }
+  .player-header .logo { max-width: none; }
+  .player-header #displayGroup { gap: 4px; overflow: visible; }
+}
+@media (orientation: portrait) {
+  body.touch-gamepad-visible {
+    --touch-pad-height: calc(clamp(320px, 40vh, 348px) + env(safe-area-inset-bottom));
+    --pad-view-height: calc(var(--app-h) - var(--h) - var(--touch-pad-height) - 12px);
+  }
+  body.touch-gamepad-visible.browser-fullscreen {
+    --pad-view-height: calc(var(--app-h) - var(--touch-pad-height) - 12px);
+  }
+  body.touch-gamepad-visible .stage { padding-bottom: var(--touch-pad-height) !important; }
+  body.touch-gamepad-visible #canvas {
+    width: min(100%, calc(var(--pad-view-height) * 16 / 9)) !important;
+    height: auto !important; max-width: 100%; max-height: var(--pad-view-height) !important;
+  }
+  body.touch-gamepad-visible .touch-gamepad {
+    --pad-button-size: clamp(44px, 6vw, 52px);
+    top: auto; height: var(--touch-pad-height); border-top: 1px solid var(--border);
+    background: linear-gradient(180deg, #1c2229, #15191e);
+  }
+  body.touch-gamepad-visible .touch-pad-left,
+  body.touch-gamepad-visible .touch-pad-right { top: 12px; bottom: max(14px, env(safe-area-inset-bottom)); }
+  body.touch-gamepad-visible .touch-pad-left { left: max(14px, env(safe-area-inset-left)); }
+  body.touch-gamepad-visible .touch-pad-right { right: max(14px, env(safe-area-inset-right)); }
+  body.touch-gamepad-visible .touch-pad-actions { top: 44%; }
+  body.touch-gamepad-visible .touch-pad-system {
+    bottom: max(24px, calc(env(safe-area-inset-bottom) + 10px));
+    right: max(14px, env(safe-area-inset-right)); left: auto; transform: none; gap: 8px;
+  }
+  body.touch-gamepad-visible .touch-pad-system button { width: 62px; }
+  body.touch-gamepad-visible #stageMini { bottom: calc(var(--touch-pad-height) + 8px); }
+}
+@media (orientation: landscape) and (max-height: 360px) {
+  body.touch-gamepad-visible .touch-pad-left .touch-pad-shoulder { left: calc(100% + 48px); }
+  body.touch-gamepad-visible .touch-pad-right .touch-pad-shoulder { left: -48px; }
+}
+@media (orientation: landscape) and (max-height: 560px) {
+  body.emulator-started { --h: 50px; }
+}
