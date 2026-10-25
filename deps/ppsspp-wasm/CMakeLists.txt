@@ -334,6 +334,11 @@ include_directories(ext/glew)
 
 if(EMSCRIPTEN)
 	option(WASM_ADHOC_TESTS "Export the protocol-level socket integration probe" OFF)
+	option(WASM_IR_BLOCK_PROFILE "Export bounded IR block counters for local diagnostics only" OFF)
+	if(WASM_IR_BLOCK_PROFILE)
+		set_property(SOURCE Core/MIPS/IR/IRJit.cpp SDL/WasmPerformance.cpp APPEND PROPERTY
+			COMPILE_DEFINITIONS PPSSPP_WASM_IR_BLOCK_PROFILE=1)
+	endif()
 	option(WASM_THREADED_ADHOC "Run WLAN emulation on a pthread while the browser renders and receives packets" ON)
 	if(WASM_THREADED_ADHOC)
 		set_property(SOURCE SDL/SDLMain.cpp APPEND PROPERTY COMPILE_DEFINITIONS PPSSPP_WASM_THREADED_ADHOC=1)
@@ -1897,6 +1902,10 @@ target_include_directories(xxhash PRIVATE ext/xxhash)
 
 set(CoreExtra)
 set(CoreExtraLibs)
+
+if(EMSCRIPTEN AND WASM_IR_BLOCK_PROFILE)
+	list(APPEND CoreExtra Core/MIPS/IR/IRBlockProfile.cpp)
+endif()
 
 list(APPEND CoreExtra
 	Core/MIPS/IR/IRAnalysis.cpp
