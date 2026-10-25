@@ -232,20 +232,102 @@ test('native CDP routes worker sessions and rejects outstanding calls on disconn
   await assert.rejects(pending, /closed/); await assert.rejects(client.command('late'), /closed/);
 });
 
+test('CDP command deadlines can be shortened without closing other commands', async () => {
+  const client = await connectCdp('ws://unused', { WebSocketImpl: FakeSocket, timeoutMs: 1000 });
+  const socket = FakeSocket.instances.at(-1);
+  try {
+    const late = client.command('short', {}, 'worker', { timeoutMs: 10 });
+    const normal = client.command('normal');
+    await assert.rejects(late, /timeout: short/);
+    socket.reply({ id: socket.sent[0].id, result: { ignoredLateReply: true } });
+    socket.reply({ id: socket.sent[1].id, result: { ok: true } });
+    assert.deepEqual(await normal, { ok: true });
+    await assert.rejects(client.command('invalid', {}, undefined, { timeoutMs: 0 }), /positive integer/);
+  } finally { client.close(); }
+});
+
 test('worker profiler keeps unavailable workers explicit and stops/detaches every observed worker', async () => {
   let listener; const calls = [];
   const client = { onEvent: fn => { listener = fn; return () => { listener = null; }; },
     async command(method, params, sessionId) {
       calls.push({ method, params, sessionId });
-      if (method === 'Target.setAutoAttach' && params.autoAttach) for (const id of ['good', 'closed']) listener({ method: 'Target.attachedToTarget', params: { sessionId: id, targetInfo: { type: 'worker' } } });
+      if (method === 'Target.setAutoAttach' && params.autoAttach) for (const id of ['good', 'closed']) listener({ method: 'Target.attachedToTarget', params: { sessionId: id, targetInfo: { type: 'worker', targetId: 'target-' + id, url: 'https://private.invalid/worker' } } });
       if (sessionId === 'closed') throw new Error('worker closed');
       return method === 'Profiler.stop' ? { profile: { startTime: 1, endTime: 1001 } } : {};
     } };
   const capture = await startWorkerProfilers(client), report = await capture.finish();
   assert.deepEqual(report.workers.map(w => w.status), ['captured', 'unavailable']);
   assert.match(report.warning, /unmeasured, not idle/);
+  assert.deepEqual(report.workers.map(w => w.targetId), ['target-good', 'target-closed']);
+  assert.equal(JSON.stringify(report).includes('private.invalid'), false);
+  assert.match(report.warning, /not CPU utilization/);
   assert.equal(listener, null); assert.equal(calls.at(-1).params.autoAttach, false);
   assert(calls.some(c => c.sessionId === 'closed' && c.method === 'Profiler.disable'));
+  assert.equal(report.workers[1].failureStage, 'enable');
+  assert.equal(report.workers[1].cleanupFailed, true);
+});
+
+test('worker finish stops independent targets concurrently, preserves per-target order and is idempotent', async () => {
+  let listener; const calls = [], pending = new Map();
+  const ids = ['slow', 'fast', 'lost'];
+  const client = { onEvent: fn => { listener = fn; return () => { listener = null; }; },
+    command(method, params, sessionId, options) {
+      calls.push({ method, params, sessionId, options });
+      if (method === 'Target.setAutoAttach' && params.autoAttach) for (const id of ids) listener({ method: 'Target.attachedToTarget',
+        params: { sessionId: id, targetInfo: { type: 'worker', targetId: 'target-' + id } } });
+      if (sessionId && ['Profiler.stop', 'Profiler.disable'].includes(method)) return new Promise((resolve, reject) => {
+        pending.set(`${sessionId}:${method}`, { resolve, reject });
+      });
+      return Promise.resolve({});
+    } };
+  const capture = await startWorkerProfilers(client, { commandTimeoutMs: 25 });
+  const first = capture.finish(), second = capture.finish();
+  assert.equal(first, second, 'concurrent cleanup callers reuse one promise');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls.filter(call => call.method === 'Profiler.stop').map(call => call.sessionId), ids);
+  assert.equal(calls.some(call => call.method === 'Profiler.disable'), false);
+  pending.get('fast:Profiler.stop').resolve({ profile: { startTime: 1, endTime: 1001 } });
+  pending.get('lost:Profiler.stop').reject(new Error('target detached'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(pending.has('fast:Profiler.disable'), 'a slow target cannot delay another target cleanup');
+  assert.ok(pending.has('lost:Profiler.disable'), 'failed stops still attempt cleanup');
+  assert.equal(pending.has('slow:Profiler.disable'), false, 'disable follows stop on its own target');
+  pending.get('fast:Profiler.disable').resolve({});
+  pending.get('lost:Profiler.disable').reject(new Error('target detached'));
+  pending.get('slow:Profiler.stop').resolve({ profile: { startTime: 1, endTime: 1002 } });
+  await new Promise(resolve => setImmediate(resolve));
+  pending.get('slow:Profiler.disable').resolve({});
+  const report = await first;
+  assert.deepEqual(report.workers.map(worker => worker.targetId), ids.map(id => 'target-' + id));
+  assert.deepEqual(report.workers.map(worker => worker.status), ['captured', 'captured', 'unavailable']);
+  assert.equal(report.workers[2].failureStage, 'stop'); assert.equal(report.workers[2].cleanupFailed, true);
+  assert.equal(capture.finish(), first, 'completed cleanup is also idempotent');
+  assert.equal(calls.filter(call => call.method === 'Profiler.stop').length, 3);
+  assert.equal(calls.filter(call => call.method === 'Profiler.disable').length, 3);
+  assert.ok(calls.every(call => call.options.timeoutMs === 25));
+  assert.equal(listener, null); assert.equal(calls.at(-1).params.autoAttach, false);
+});
+
+test('lost CDP connection settles all worker stops without serial timeout retries', async () => {
+  const client = await connectCdp('ws://unused', { WebSocketImpl: FakeSocket, timeoutMs: 1000 });
+  const socket = FakeSocket.instances.at(-1);
+  socket.onSend = message => {
+    if (message.method === 'Target.setAutoAttach' && message.params.autoAttach) for (const id of ['one', 'two']) {
+      socket.reply({ method: 'Target.attachedToTarget', params: { sessionId: id, targetInfo: { type: 'worker', targetId: id } } });
+    }
+    if (message.method !== 'Profiler.stop') socket.reply({ id: message.id, result: {} });
+  };
+  try {
+    const capture = await startWorkerProfilers(client, { commandTimeoutMs: 100 });
+    const finishing = capture.finish();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(socket.sent.filter(message => message.method === 'Profiler.stop').length, 2);
+    socket.close();
+    const report = await finishing;
+    assert.ok(report.workers.every(worker => worker.status === 'unavailable' && worker.failureStage === 'stop' && worker.cleanupFailed));
+    assert.equal(await capture.finish(), report);
+    assert.equal(socket.sent.filter(message => message.method === 'Profiler.stop').length, 2);
+  } finally { client.close(); }
 });
 
 test('no-profile run emits anonymous metrics without any Profiler or Target commands', async t => {
@@ -272,6 +354,40 @@ test('no-profile run emits anonymous metrics without any Profiler or Target comm
   assert.equal(report.cpuProfiler.enabled, false); assert.equal(report.cpuProfiler.workers, null);
   assert.equal(report.before.core, null); assert.equal(report.summary.coreAverageActualFps, null);
   assert.equal(report.title, undefined); assert.equal(report.page, undefined);
+});
+
+test('run stops workers while main stop is pending and does not retry a failed main stop', async t => {
+  const folder = await mkdtemp(join(tmpdir(), 'ppsspp-profile-stop-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const env = environment(), calls = []; let mainStop;
+  class PageSocket extends FakeSocket {
+    constructor() {
+      super(); this.onSend = message => {
+        calls.push(message);
+        if (message.method === 'Runtime.evaluate') {
+          const value = vm.runInContext(message.params.expression, env.context);
+          this.reply({ id: message.id, result: { result: { value } } });
+        } else if (message.method === 'Target.setAutoAttach' && message.params.autoAttach) {
+          this.reply({ method: 'Target.attachedToTarget', params: { sessionId: 'worker', targetInfo: { type: 'worker', targetId: 'worker-id' } } });
+          this.reply({ id: message.id, result: {} });
+        } else if (message.method === 'Profiler.stop' && !message.sessionId) {
+          mainStop = message;
+        } else if (message.method === 'Profiler.stop') {
+          assert.ok(mainStop, 'worker stop is issued before the pending main stop completes');
+          this.reply({ id: mainStop.id, error: { message: 'main target gone' } });
+          this.reply({ id: message.id, result: { profile: { startTime: 1, endTime: 1001 } } });
+        } else this.reply({ id: message.id, result: {} });
+      };
+    }
+  }
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: true, json: async () => [page()] }));
+  const previousSocket = globalThis.WebSocket; globalThis.WebSocket = PageSocket;
+  t.after(() => { globalThis.WebSocket = previousSocket; });
+  await assert.rejects(run({ seconds: 1, port: 9222, output: join(folder, 'sample'), target: page().url, profile: true, screenshot: false }), /main target gone/);
+  assert.equal(calls.filter(call => call.method === 'Profiler.stop' && !call.sessionId).length, 1);
+  assert.equal(calls.filter(call => call.method === 'Profiler.stop' && call.sessionId === 'worker').length, 1);
+  assert.equal(calls.filter(call => call.method === 'Profiler.disable' && call.sessionId === 'worker').length, 1);
+  assert.equal(calls.filter(call => call.method === 'Target.setAutoAttach' && !call.params.autoAttach).length, 1);
 });
 
 test('an unavailable debugging browser fails before any page or profiler connection', async t => {

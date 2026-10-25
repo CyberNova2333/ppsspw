@@ -243,10 +243,11 @@ export async function connectCdp(url, { WebSocketImpl = WebSocket, timeoutMs = 3
   });
   return {
     onEvent(listener) { listeners.add(listener); return () => listeners.delete(listener); },
-    command(method, params = {}, sessionId) {
+    command(method, params = {}, sessionId, { timeoutMs: commandTimeoutMs = timeoutMs } = {}) {
       if (closed) return Promise.reject(new Error('DevTools connection is closed.'));
+      if (!Number.isSafeInteger(commandTimeoutMs) || commandTimeoutMs < 1) return Promise.reject(new Error('DevTools command timeout must be a positive integer.'));
       return new Promise((accept, reject) => {
-        const id = ++nextId, timer = setTimeout(() => { pending.delete(id); reject(new Error(`DevTools timeout: ${method}`)); }, timeoutMs);
+        const id = ++nextId, timer = setTimeout(() => { pending.delete(id); reject(new Error(`DevTools timeout: ${method}`)); }, commandTimeoutMs);
         pending.set(id, { accept, reject, timer, method });
         try { socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) })); }
         catch (error) { pending.delete(id); clearTimeout(timer); reject(error); }
@@ -256,42 +257,58 @@ export async function connectCdp(url, { WebSocketImpl = WebSocket, timeoutMs = 3
   };
 }
 
-export async function startWorkerProfilers(client) {
-  const workers = new Map(); let accepting = true, autoAttach = false;
+export async function startWorkerProfilers(client, { commandTimeoutMs = 5000 } = {}) {
+  if (!Number.isSafeInteger(commandTimeoutMs) || commandTimeoutMs < 1) throw new Error('Worker profiler timeout must be a positive integer.');
+  const command = (method, params = {}, sessionId) => client.command(method, params, sessionId, { timeoutMs: commandTimeoutMs });
+  const workers = new Map(); let accepting = true, autoAttach = false, finishPromise;
   const unsubscribe = client.onEvent(message => {
     if (!accepting || message.method !== 'Target.attachedToTarget' || message.params.targetInfo.type !== 'worker') return;
-    const { sessionId } = message.params;
+    const { sessionId, targetInfo } = message.params;
     if (workers.has(sessionId)) return;
-    const worker = { index: workers.size + 1, status: 'starting', started: false };
+    // Attachment order is not a thread role. Preserve the opaque target identity
+    // without exporting its URL, which may contain private paths or identifiers.
+    const worker = { index: workers.size + 1, targetId: typeof targetInfo.targetId === 'string' ? targetInfo.targetId : null,
+      status: 'starting', started: false };
     workers.set(sessionId, worker);
     worker.ready = (async () => {
+      let stage = 'enable';
       try {
-        await client.command('Profiler.enable', {}, sessionId);
-        await client.command('Profiler.setSamplingInterval', { interval: 1000 }, sessionId);
-        await client.command('Profiler.start', {}, sessionId); worker.started = true; worker.status = 'sampling';
-      } catch { worker.status = 'unavailable'; }
+        await command('Profiler.enable', {}, sessionId);
+        stage = 'set-interval'; await command('Profiler.setSamplingInterval', { interval: 1000 }, sessionId);
+        stage = 'start'; await command('Profiler.start', {}, sessionId); worker.started = true; worker.status = 'sampling';
+      } catch { worker.status = 'unavailable'; worker.failureStage = stage; }
     })();
   });
-  try { await client.command('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }); autoAttach = true; }
+  try { await command('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }); autoAttach = true; }
   catch { /* Main-only measurements must not imply that worker CPU is idle. */ }
   await Promise.all([...workers.values()].map(worker => worker.ready));
   return {
-    async finish() {
+    finish() {
+      if (finishPromise) return finishPromise;
       accepting = false; unsubscribe();
-      await Promise.all([...workers.values()].map(worker => worker.ready));
-      const results = [];
-      for (const [sessionId, worker] of workers) {
-        let profile;
-        if (worker.started) {
-          try { ({ profile } = await client.command('Profiler.stop', {}, sessionId)); worker.status = 'captured'; }
-          catch { worker.status = 'unavailable'; }
-        }
-        await client.command('Profiler.disable', {}, sessionId).catch(() => {});
-        results.push({ index: worker.index, status: worker.status, profile });
-      }
-      if (autoAttach) await client.command('Target.setAutoAttach', { autoAttach: false, waitForDebuggerOnStart: false, flatten: true }).catch(() => {});
-      return { autoAttachSupported: autoAttach, workers: results,
-        warning: 'Only related dedicated workers observed by CDP are covered. Missing/unavailable workers are unmeasured, not idle. Main-thread idle does not describe emulator CPU cost.' };
+      finishPromise = (async () => {
+        // Stop independent targets together: one lost worker must not lengthen
+        // every later worker's capture. Preserve stop-before-disable per target.
+        const results = await Promise.all([...workers].map(async ([sessionId, worker]) => {
+          await worker.ready;
+          let profile, cleanupFailed = false;
+          if (worker.started) {
+            worker.started = false;
+            try {
+              ({ profile } = await command('Profiler.stop', {}, sessionId));
+              if (!profile || typeof profile !== 'object') throw new Error('Worker profile is missing.');
+              worker.status = 'captured';
+            } catch { profile = undefined; worker.status = 'unavailable'; worker.failureStage = 'stop'; }
+          }
+          try { await command('Profiler.disable', {}, sessionId); } catch { cleanupFailed = true; }
+          return { index: worker.index, targetId: worker.targetId, status: worker.status, profile,
+            ...(worker.failureStage ? { failureStage: worker.failureStage } : {}), ...(cleanupFailed ? { cleanupFailed: true } : {}) };
+        }));
+        if (autoAttach) await command('Target.setAutoAttach', { autoAttach: false, waitForDebuggerOnStart: false, flatten: true }).catch(() => {});
+        return { autoAttachSupported: autoAttach, workers: results,
+          warning: 'Only related dedicated workers observed by CDP are covered. Missing/unavailable workers are unmeasured, not idle. Attachment indices do not identify thread roles. Samples can include blocking waits and are not CPU utilization; do not add worker percentages. Main-thread idle does not describe emulator CPU cost.' };
+      })();
+      return finishPromise;
     },
   };
 }
@@ -337,13 +354,16 @@ export async function run(options) {
     if (!sample) throw new Error('Page sampler disappeared or expired; the page may have navigated.');
     const after = await evaluate(pageSnapshot), summary = summarize(before, after, sample);
     let profile, workers = null;
-    if (profiling) { ({ profile } = await client.command('Profiler.stop')); profiling = false; }
-    if (workerProfilers) { workers = await workerProfilers.finish(); workerProfilers = null; }
+    const workerCapture = workerProfilers?.finish();
+    if (profiling) { profiling = false; ({ profile } = await client.command('Profiler.stop', {}, undefined, { timeoutMs: 5000 })); }
+    if (workerCapture) { workers = await workerCapture; workerProfilers = null; }
     if (profile) await writeFile(options.output + '.cpuprofile', JSON.stringify(profile));
     if (workers) for (const worker of workers.workers) {
       if (worker.profile) {
         await writeFile(options.output + `.worker-${worker.index}.cpuprofile`, JSON.stringify(worker.profile));
         worker.durationSeconds = (worker.profile.endTime - worker.profile.startTime) / 1e6;
+        worker.startTimeUs = worker.profile.startTime;
+        worker.endTimeUs = worker.profile.endTime;
         delete worker.profile;
       }
     }
@@ -358,9 +378,9 @@ export async function run(options) {
     return summary;
   } finally {
     if (sampling) await evaluate(stopPageSampling, key).catch(() => {});
-    if (profiling) await client.command('Profiler.stop').catch(() => {});
+    if (profiling) await client.command('Profiler.stop', {}, undefined, { timeoutMs: 5000 }).catch(() => {});
     if (workerProfilers) await workerProfilers.finish().catch(() => {});
-    if (profilerEnabled) await client.command('Profiler.disable').catch(() => {});
+    if (profilerEnabled) await client.command('Profiler.disable', {}, undefined, { timeoutMs: 5000 }).catch(() => {});
     client.close();
   }
 }
