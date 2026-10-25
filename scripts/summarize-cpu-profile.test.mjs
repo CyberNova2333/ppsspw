@@ -152,6 +152,19 @@ test('allows zero-duration sample deltas without inventing attribution', () => {
   assert.ok(report.hotspots.every(row => row.selfSharePercent === 0 && row.inclusiveSharePercent === 0));
 });
 
+test('last-sample boundaries leave the unobserved tail unknown', () => {
+  const input = fixture(); input.endTimeSource = 'last-sample'; input.endTime = input.startTime + input.timeDeltas.reduce((sum, value) => sum + value, 0);
+  const report = summarize(input);
+  assert.equal(report.endTimeSource, 'last-sample'); assert.equal(report.unassignedTailUs, null);
+  assert.equal(report.elapsedUs, 1000); assert.match(report.notes.join(' '), /not at profiler stop/);
+  input.endTime++;
+  assert.throws(() => summarize(input), /last-sample boundary/);
+  input.endTimeSource = 'inferred-stop';
+  assert.throws(() => summarize(input), /Unknown profile endTimeSource/);
+  const recorded = summarize(fixture());
+  assert.equal(recorded.endTimeSource, 'recorded'); assert.equal(recorded.unassignedTailUs, 20);
+});
+
 test('local runner verifies artifacts before writing a path-free summary', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'profile-summary-'));
   try {
