@@ -14,8 +14,11 @@ test('CLI rejects ambiguous options and accepts explicit low-disturbance capture
   const args = parseOptions(['--seconds', '1.5', '--target', 'https://example.test/player?a=1', '--no-profile', '--no-screenshot']);
   assert.equal(args.seconds, 1.5); assert.equal(args.profile, false); assert.equal(args.screenshot, false);
   assert.equal(args.target, 'https://example.test/player?a=1');
+  assert.equal(parseOptions(['--trace-cpu']).traceCpu, true);
+  assert.equal(parseOptions([]).traceCpu, false);
   for (const bad of [['--seconds'], ['--seconds', '--no-profile'], ['--seconds', 'NaN'], ['--seconds', '121'],
     ['--port', '0'], ['--port', '2.5'], ['--unknown'], ['--no-profile', '--no-profile'],
+    ['--trace-cpu', '--no-profile'], ['--trace-cpu', '--trace-cpu'],
     ['--target', 'file:///player'], ['--target', 'https://name:secret@example.test/']]) assert.throws(() => parseOptions(bad));
 });
 
@@ -393,4 +396,86 @@ test('run stops workers while main stop is pending and does not retry a failed m
 test('an unavailable debugging browser fails before any page or profiler connection', async t => {
   t.mock.method(globalThis, 'fetch', async () => { throw new Error('connection refused'); });
   await assert.rejects(run({ port: 9222 }), /Cannot reach browser DevTools.*check the debugging browser/);
+});
+
+test('trace mode uses the browser stream, records its identity and never starts per-worker profilers', async t => {
+  const folder = await mkdtemp(join(tmpdir(), 'ppsspp-browser-trace-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const env = environment(), calls = [];
+  class TraceSocket extends FakeSocket {
+    constructor(url) {
+      super(); this.onSend = message => {
+        calls.push({ url, ...message });
+        let result = {};
+        if (message.method === 'Runtime.evaluate') {
+          result = { result: { value: vm.runInContext(message.params.expression, env.context) } };
+        } else if (message.method === 'Target.getTargets') {
+          result = { targetInfos: [{ type: 'page', targetId: 'player' }, { type: 'worker', targetId: 'worker' }] };
+        } else if (message.method === 'Tracing.end') {
+          this.reply({ method: 'Tracing.tracingComplete', params: { stream: 'trace', dataLossOccurred: false } });
+        } else if (message.method === 'IO.read') {
+          result = { data: '{"traceEvents":[]}', eof: true };
+        }
+        this.reply({ id: message.id, result });
+      };
+    }
+  }
+  t.mock.method(globalThis, 'fetch', async url => ({ ok: true, json: async () => url.endsWith('/json/version')
+    ? { webSocketDebuggerUrl: 'ws://localhost/devtools/browser/test' } : [page({ id: 'player' })] }));
+  const previousSocket = globalThis.WebSocket; globalThis.WebSocket = TraceSocket;
+  t.after(() => { globalThis.WebSocket = previousSocket; });
+  const output = join(folder, 'capture');
+  await run({ seconds: 1, port: 9222, output, target: page().url, profile: true, traceCpu: true, screenshot: false });
+  const report = JSON.parse(await readFile(output + '.json', 'utf8'));
+  assert.equal(report.cpuProfiler.mode, 'trace'); assert.equal(report.cpuProfiler.intervalUs, null);
+  assert.equal(report.cpuProfiler.workers, null); assert.equal(report.cpuProfiler.traceMetadata.status, 'captured');
+  assert.equal(report.cpuProfiler.traceMetadata.dataLossOccurred, false);
+  assert.ok(calls.filter(call => call.method.startsWith('Tracing.') || call.method.startsWith('IO.')).every(call => call.url.includes('/browser/')));
+  assert.equal(calls.some(call => call.method.startsWith('Profiler.') || call.method === 'Target.setAutoAttach'), false);
+  assert.deepEqual((await readdir(folder)).sort(), ['capture.json', 'capture.trace-meta.json', 'capture.trace.json']);
+});
+
+test('failed page capture starts trace cleanup before waiting for unresponsive page cleanup', async t => {
+  const folder = await mkdtemp(join(tmpdir(), 'ppsspp-trace-cleanup-'));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const env = environment(), calls = []; let traceEndedBeforeCleanup = false, cleanupRequested = false, cleanupTimer;
+  t.after(() => clearTimeout(cleanupTimer));
+  class CleanupSocket extends FakeSocket {
+    constructor() {
+      super(); this.onSend = message => {
+        calls.push(message.method);
+        let result = {};
+        if (message.method === 'Runtime.evaluate') {
+          const expression = message.params.expression;
+          if (expression.includes('function startPageSampling')) {
+            this.reply({ id: message.id, error: { message: 'page sampler startup failed' } }); return;
+          }
+          if (expression.includes('function stopPageSampling')) {
+            cleanupRequested = true; traceEndedBeforeCleanup = calls.includes('Tracing.end');
+            // Hold this cleanup request briefly, then fail it, without waiting
+            // for the production 30-second command timeout.
+            cleanupTimer = setTimeout(() => this.reply({ id: message.id, error: { message: 'page cleanup unavailable' } }), 20);
+            return;
+          }
+          result = { result: { value: vm.runInContext(expression, env.context) } };
+        } else if (message.method === 'Target.getTargets') {
+          result = { targetInfos: [{ type: 'page', targetId: 'player' }] };
+        } else if (message.method === 'Tracing.end') {
+          this.reply({ method: 'Tracing.tracingComplete', params: { stream: 'trace', dataLossOccurred: false } });
+        }
+        this.reply({ id: message.id, result });
+      };
+    }
+  }
+  t.mock.method(globalThis, 'fetch', async url => ({ ok: true, json: async () => url.endsWith('/json/version')
+    ? { webSocketDebuggerUrl: 'ws://localhost/devtools/browser/test' } : [page({ id: 'player' })] }));
+  const previousSocket = globalThis.WebSocket; globalThis.WebSocket = CleanupSocket;
+  t.after(() => { globalThis.WebSocket = previousSocket; });
+  const output = join(folder, 'capture');
+  await assert.rejects(run({ seconds: 1, port: 9222, output, target: page().url, profile: true, traceCpu: true, screenshot: false }), /page sampler startup failed/);
+  assert.equal(cleanupRequested, true); assert.equal(traceEndedBeforeCleanup, true);
+  assert.equal(calls.filter(method => method === 'Tracing.end').length, 1);
+  assert.equal(calls.filter(method => method === 'IO.close').length, 1);
+  assert.equal(JSON.parse(await readFile(output + '.trace-meta.json', 'utf8')).status, 'failed');
+  assert.equal((await readdir(folder)).includes('capture.json'), false);
 });
