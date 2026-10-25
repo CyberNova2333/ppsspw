@@ -8,6 +8,16 @@ import re
 import shutil
 
 
+def diagnostic_metadata(cache_text, javascript):
+    """Detect profiling builds even when a prebuilt bundle has no CMake cache."""
+    values = re.findall(r'^WASM_IR_BLOCK_PROFILE:[^=\r\n]+=(.*)$', cache_text, re.MULTILINE)
+    false_values = {'', '0', 'OFF', 'NO', 'FALSE', 'N', 'IGNORE', 'NOTFOUND'}
+    cache_enabled = any(value.strip().upper() not in false_values and
+                        not value.strip().upper().endswith('-NOTFOUND') for value in values)
+    exports = ('ppssppRequestIRBlockProfile', 'ppssppGetIRBlockProfileMetric')
+    return {'irBlockProfile': cache_enabled or any(name in javascript for name in exports)}
+
+
 def resource_metadata(cache_text, source_fingerprint=None):
     """Export only resource numbers; CMake caches can also contain private paths."""
     fields = {'WASM_INITIAL_MEMORY': 'initialMemoryBytes', 'WASM_MAXIMUM_MEMORY': 'maximumMemoryBytes',
@@ -47,6 +57,8 @@ def main():
     parser.add_argument('--build-dir', type=Path, default=repo / 'deps/ppsspp-wasm/build-wasm-release')
     parser.add_argument('--expected-revision', help='For a verified prebuilt bundle without CMakeCache.txt')
     parser.add_argument('--source-fingerprint', help='SHA-256 of the source tree verified by the local build workflow')
+    parser.add_argument('--allow-diagnostics', action='store_true',
+                        help='Allow profiling artifacts for local testing; do not publish this package')
     args = parser.parse_args()
     source = args.build_dir.resolve()
     output = repo / 'wasm-page/dist/ppsspp-web'
@@ -67,6 +79,11 @@ def main():
     digest = revision.hexdigest()
     cache = source / 'CMakeCache.txt'
     cache_text = cache.read_text(encoding='utf-8') if cache.is_file() else ''
+    javascript = '\n'.join((source / name).read_text(encoding='utf-8', errors='replace')
+                           for name in names if name.endswith('.js'))
+    diagnostics = diagnostic_metadata(cache_text, javascript)
+    if diagnostics['irBlockProfile'] and not args.allow_diagnostics:
+        parser.error('IR block profiling artifacts require --allow-diagnostics for local testing')
     try:
         resources = resource_metadata(cache_text, args.source_fingerprint)
     except ValueError as error:
@@ -84,7 +101,8 @@ def main():
     # A worker file from an earlier build must not survive a switch to an embedded worker.
     if 'PPSSPPSDL.worker.js' not in names:
         (destination / 'PPSSPPSDL.worker.js').unlink(missing_ok=True)
-    (output / 'build-info.json').write_text(json.dumps({'revision': digest, 'resources': resources}, indent=2) + '\n', encoding='utf-8')
+    (output / 'build-info.json').write_text(json.dumps({'revision': digest, 'resources': resources,
+                                                      'diagnostics': diagnostics}, indent=2) + '\n', encoding='utf-8')
     (output / 'LICENSE').write_bytes((repo / 'LICENSE').read_bytes())
     (output / 'UPSTREAM-LICENSE.txt').write_bytes((repo / 'LICENSE.TXT').read_bytes())
     print(f'Packaged {len(names)} emulator artifacts: {digest}')

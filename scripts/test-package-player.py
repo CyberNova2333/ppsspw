@@ -108,9 +108,97 @@ class PackageIntegration(unittest.TestCase):
                             '--source-fingerprint', 'b' * 64], capture_output=True, check=True)
             metadata = json.loads((output / 'build-info.json').read_text())
             self.assertEqual(metadata, {'revision': expected.hexdigest(),
-                                        'resources': {**DEFAULT_RESOURCES, 'sourceFingerprint': 'b' * 64}})
+                                        'resources': {**DEFAULT_RESOURCES, 'sourceFingerprint': 'b' * 64},
+                                        'diagnostics': {'irBlockProfile': False}})
             self.assertEqual(sorted(path.name for path in destination.iterdir()),
                              ['PPSSPPSDL.data', 'PPSSPPSDL.js', 'PPSSPPSDL.wasm'])
+
+
+class DiagnosticPackaging(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='player-package-diagnostics-')
+        self.addCleanup(temporary.cleanup)
+        self.repo = Path(temporary.name)
+        (self.repo / 'scripts').mkdir()
+        self.script = self.repo / 'scripts/package-player.py'
+        shutil.copyfile(SCRIPT, self.script)
+        self.output = self.repo / 'wasm-page/dist/ppsspp-web'
+        self.output.mkdir(parents=True)
+        (self.output / 'index.html').write_text('<!doctype html>')
+        (self.repo / 'LICENSE').write_text('License')
+        (self.repo / 'LICENSE.TXT').write_text('Upstream license')
+        self.source = self.repo / 'compilation-output'
+        self.source.mkdir()
+        for name in ('PPSSPPSDL.js', 'PPSSPPSDL.wasm', 'PPSSPPSDL.data'):
+            (self.source / name).write_bytes(name.encode())
+
+    def package(self, *arguments):
+        return subprocess.run([sys.executable, str(self.script), '--build-dir', str(self.source), *arguments],
+                              capture_output=True, text=True)
+
+    def revision_arguments(self):
+        digest = hashlib.sha256()
+        for name in ('PPSSPPSDL.js', 'PPSSPPSDL.wasm', 'PPSSPPSDL.data'):
+            digest.update(name.encode())
+            digest.update((self.source / name).read_bytes())
+        return ('--expected-revision', digest.hexdigest())
+
+    def output_snapshot(self):
+        return {str(path.relative_to(self.output)): path.read_bytes()
+                for path in self.output.rglob('*') if path.is_file()}
+
+    def test_cache_truth_values_refuse_before_writing_dist_even_with_verified_revision(self):
+        for value in ('ON', 'TRUE', 'YES', 'Y', '1', '-1'):
+            with self.subTest(value=value):
+                (self.source / 'CMakeCache.txt').write_text(DEFAULT_CACHE + f'WASM_IR_BLOCK_PROFILE:BOOL={value}\n')
+                before = self.output_snapshot()
+                result = self.package(*self.revision_arguments())
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('--allow-diagnostics', result.stderr)
+                self.assertEqual(self.output_snapshot(), before)
+                self.assertFalse((self.output / 'build-wasm').exists())
+
+    def test_exports_refuse_prebuilt_and_cache_off_bundles_without_changing_existing_dist(self):
+        destination = self.output / 'build-wasm'
+        destination.mkdir()
+        (destination / 'PPSSPPSDL.js').write_text('previous release')
+        (self.output / 'build-info.json').write_text('{"previous": true}')
+        for cache in (None, DEFAULT_CACHE + 'WASM_IR_BLOCK_PROFILE:BOOL=OFF\n'):
+            for name in ('ppssppRequestIRBlockProfile', 'ppssppGetIRBlockProfileMetric'):
+                with self.subTest(cache_present=cache is not None, export=name):
+                    if cache is not None:
+                        (self.source / 'CMakeCache.txt').write_text(cache)
+                    (self.source / 'PPSSPPSDL.js').write_text(f'Module["_{name}"] = wasmExports["{name}"];')
+                    before = self.output_snapshot()
+                    result = self.package(*self.revision_arguments())
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('--allow-diagnostics', result.stderr)
+                    self.assertEqual(self.output_snapshot(), before)
+
+    def test_disabled_or_legacy_prebuilt_packages_are_not_diagnostics(self):
+        for value in (None, 'OFF', 'FALSE', 'NO', 'N', '0', '', 'IGNORE', 'NOTFOUND', 'option-NOTFOUND'):
+            with self.subTest(value=value):
+                if value is not None:
+                    (self.source / 'CMakeCache.txt').write_text(DEFAULT_CACHE + f'WASM_IR_BLOCK_PROFILE:BOOL={value}\n')
+                result = self.package(*self.revision_arguments())
+                self.assertEqual(result.returncode, 0, result.stderr)
+                metadata = json.loads((self.output / 'build-info.json').read_text())
+                self.assertEqual(metadata['diagnostics'], {'irBlockProfile': False})
+
+    def test_explicit_override_marks_diagnostics_from_cache_or_prebuilt_exports(self):
+        for cache, javascript in ((DEFAULT_CACHE + 'WASM_IR_BLOCK_PROFILE:BOOL=ON\n', 'normal exports'),
+                                  (None, 'Module["_ppssppRequestIRBlockProfile"] = function() {};')):
+            with self.subTest(cache_present=cache is not None):
+                if cache is None:
+                    (self.source / 'CMakeCache.txt').unlink(missing_ok=True)
+                else:
+                    (self.source / 'CMakeCache.txt').write_text(cache)
+                (self.source / 'PPSSPPSDL.js').write_text(javascript)
+                result = self.package('--allow-diagnostics', *self.revision_arguments())
+                self.assertEqual(result.returncode, 0, result.stderr)
+                metadata = json.loads((self.output / 'build-info.json').read_text())
+                self.assertEqual(metadata['diagnostics'], {'irBlockProfile': True})
+                self.assertEqual((self.output / 'build-wasm/PPSSPPSDL.js').read_text(), javascript)
 
 
 if __name__ == '__main__':
