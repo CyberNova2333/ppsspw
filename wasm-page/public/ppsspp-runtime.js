@@ -4185,9 +4185,16 @@ function dispatchLogicalGamepad(type, gamepad) {
 }
 
 function releaseLogicalGamepad(gamepad) {
-  gamepad.axes = gamepad.axes.map(() => 0);
-  gamepad.buttons = gamepad.buttons.map(() => ({ pressed: false, touched: false, value: 0 }));
-  gamepad.timestamp = performance.now();
+  let changed = false;
+  for (let i = 0; i < gamepad.axes.length; i++) {
+    if (gamepad.axes[i] !== 0) { gamepad.axes[i] = 0; changed = true; }
+  }
+  for (const button of gamepad.buttons) {
+    if (button.value !== 0 || button.pressed || button.touched) {
+      button.value = 0; button.pressed = false; button.touched = false; changed = true;
+    }
+  }
+  if (changed) gamepad.timestamp = Math.max(performance.now(), gamepad.timestamp + 0.001);
 }
 
 function refreshSDLGamepadBridge(force = false) {
@@ -4206,7 +4213,9 @@ function refreshSDLGamepadBridge(force = false) {
   gamepadBridgeMode = mode;
   const source = raw || touchControlState.gamepad;
   gamepadBridgeCurrent = { id: source.id, mapping: source.mapping, index: 0, connected: true,
-    timestamp: performance.now(), axes: Array.from(source.axes), buttons: Array.from(source.buttons, button => ({ ...button })) };
+    // SDL treats zero as an unsupported timestamp and compares every value.
+    timestamp: Math.max(0.001, performance.now()), axes: Array.from(source.axes),
+    buttons: Array.from(source.buttons, button => ({ value: button.value, pressed: !!button.pressed, touched: !!button.touched })) };
   releaseLogicalGamepad(gamepadBridgeCurrent);
   if (started && window.Module) dispatchLogicalGamepad("gamepadconnected", gamepadBridgeCurrent);
   if (raw) showToast("已使用非标准实体手柄的原映射，屏幕手柄暂时隐藏。顶部手柄按钮可切回屏幕操作。", 7000);
@@ -4217,14 +4226,38 @@ function getSDLGamepads() {
   const output = gamepadBridgeCurrent;
   if (!output) return [];
   const pads = getBrowserGamepads();
+  // Compare the final neutral output while suspended, not a held physical input
+  // followed by its release on every poll.
+  if (runtimeFailed || document.hidden) {
+    releaseLogicalGamepad(output);
+    return [output];
+  }
+  let changed = false;
   if (gamepadBridgeRawIndex >= 0) {
     const raw = pads.find(pad => pad.index === gamepadBridgeRawIndex);
     if (raw) {
       // Preserve the browser's raw mapping and button/axis layout. Only the
       // exposed index is normalized; SDL's controller database still sees its ID.
-      output.axes = raw.axes;
-      output.buttons = raw.buttons;
-    } else releaseLogicalGamepad(output);
+      // Own these values: browsers may mutate native arrays in place or restart
+      // their timestamp after reconnect, and releases must not modify the device.
+      if (output.axes.length !== raw.axes.length || output.buttons.length !== raw.buttons.length) changed = true;
+      output.axes.length = raw.axes.length;
+      output.buttons.length = raw.buttons.length;
+      for (let i = 0; i < raw.axes.length; i++) {
+        if (output.axes[i] !== raw.axes[i]) { output.axes[i] = raw.axes[i]; changed = true; }
+      }
+      for (let i = 0; i < raw.buttons.length; i++) {
+        const source = raw.buttons[i];
+        const button = output.buttons[i] || (output.buttons[i] = { value: 0, pressed: false, touched: false });
+        const pressed = !!source.pressed, touched = !!source.touched;
+        if (button.value !== source.value || button.pressed !== pressed || button.touched !== touched) {
+          button.value = source.value; button.pressed = pressed; button.touched = touched; changed = true;
+        }
+      }
+    } else {
+      releaseLogicalGamepad(output);
+      return [output];
+    }
   } else {
     const selected = pads.find(pad => pad.index === activeGamepadIndex);
     const physical = (selected ? [selected] : pads).filter(pad => pad.mapping === "standard");
@@ -4233,9 +4266,10 @@ function getSDLGamepads() {
       let value = screen.buttons[i].value;
       for (const pad of physical) value = Math.max(value, Number(pad.buttons[i]?.value) || 0);
       value = Math.min(1, Math.max(0, value));
-      output.buttons[i].value = value;
-      output.buttons[i].pressed = value > 0.5;
-      output.buttons[i].touched = value > 0;
+      const button = output.buttons[i], pressed = value > 0.5, touched = value > 0;
+      if (button.value !== value || button.pressed !== pressed || button.touched !== touched) {
+        button.value = value; button.pressed = pressed; button.touched = touched; changed = true;
+      }
     }
     const screenStick = screen.axes[0] !== 0 || screen.axes[1] !== 0;
     for (let i = 0; i < output.axes.length; i++) {
@@ -4248,12 +4282,13 @@ function getSDLGamepads() {
           if (Math.abs(candidate) > Math.abs(value)) value = candidate;
         }
       }
-      output.axes[i] = Math.min(1, Math.max(-1, value));
+      value = Math.min(1, Math.max(-1, value));
+      if (output.axes[i] !== value) { output.axes[i] = value; changed = true; }
     }
   }
-  if (runtimeFailed || document.hidden) releaseLogicalGamepad(output);
-  // SDL skips unchanged timestamps, including button changes within one frame.
-  output.timestamp = Math.max(performance.now(), output.timestamp + 0.001);
+  // SDL can skip its comparison loop when the logical values stay unchanged.
+  // Actual changes still advance with a coarse clock or several polls per frame.
+  if (changed) output.timestamp = Math.max(performance.now(), output.timestamp + 0.001);
   return [output];
 }
 
