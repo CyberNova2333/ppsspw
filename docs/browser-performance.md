@@ -94,6 +94,30 @@ worker 的 `index` 仅表示附加顺序，`targetId` 是本次调试会话里�
 
 工作线程收尾按目标并行停止，同一目标保持停止后再禁用的顺序；重复清理复用同一结果。worker profiler 命令及主线程 profiler 收尾命令默认每条最多等待 5 秒，其他调试命令使用各自的超时，这不是整次采样的总时限。失败的 worker 保留 `unavailable` 和 `failureStage`，禁用失败另记 `cleanupFailed`；这些状态表示未测到或清理未确认，不能当作空闲。成功返回的部分 profile 仍需逐一检查时间窗口。
 
+## 活跃工作线程的浏览器级追踪
+
+如果普通采样在活跃 WASM 线程的 `Profiler.enable` 阶段超时，可以显式使用 `--trace-cpu`。它调用浏览器级 V8 Tracing，不依赖逐 Worker 启用 Profiler；普通模式不会自动切换到这条路径。浏览器内部导致超时的确切原因尚未证实，不能仅凭同步 WASM 循环断定是事件循环阻塞。
+
+Tracing 覆盖整个浏览器实例。必须使用独立配置启动的专用调试浏览器，只打开被测播放器；采样中不要新增标签页或其他目标。工具在开始时拒绝额外页面、共享 Worker、Service Worker 和后台目标，但这个检查不能代替专用浏览器隔离。它只启用 CPU profile 分类，不开启截图、网络或系统追踪分类；原始栈仍可能含源码 URL，留在本地忽略目录。
+
+```sh
+node scripts/profile-browser.mjs --port 9222 --seconds 20 \
+  --out .local/scene-trace --trace-cpu --no-screenshot
+
+node scripts/extract-trace-profiles.mjs \
+  --trace .local/scene-trace.trace.json \
+  --metadata .local/scene-trace.trace-meta.json \
+  --out-dir .local/scene-trace-profiles
+```
+
+随后对 `scene-trace-profiles/` 中每份 `.cpuprofile` 使用前节的符号汇总命令。`manifest.json` 保留进程、profile 标识、原始采样线程与文件摘要；线程职责仍以调用栈判断。Trace 分片可能由另一条线程写出，提取器按进程及 profile 标识归组，不能按分片的 `tid` 合并。
+
+采集通过 JSON 流分块写入，输出上限 128 MiB，逐命令、结束通知和读流均有截止时间。Trace 与元数据采用排他创建；提取也只接受尚不存在的新目录。只有捕获完成、数据丢失标记明确为 `false`、摘要匹配且结构有效时才能提取；失败或未知状态不生成有效热点结论。`cleanupFailed` 表示流或文件清理未获确认，须保留这个状态。
+
+当前实测 trace 没有记录各线程的停止时刻。提取器将 `endTimeSource` 标为 `last-sample`，边界只到 `startTime + sum(timeDeltas)`，汇总的 `unassignedTailUs` 为 `null`。这不表示尾部为零，也不表示已经知道完整采样时长。若格式提供明确的结束时刻，则保留 `recorded` 边界并校验样本没有越界。
+
+Tracing 的采样间隔由浏览器实现控制，报告因此记为 `null`，不能当作普通 Profiler 的 1,000 微秒。当前 [V8 实现](https://raw.githubusercontent.com/v8/v8/main/src/profiler/tracing-cpu-profiler.cc) 使用更高频的内部采样，但这不是所有浏览器版本的固定承诺。调用依据是 [CDP Tracing 协议](https://chromedevtools.github.io/devtools-protocol/tot/Tracing/)。热点比例包含等待、调度及采样开销，帧率与音频基线仍必须另用 `--no-profile` 采集。
+
 ## 内存和线程的独立对照
 
 默认仍为 512 MiB 初始容量、4 GiB 上限、2 个计算线程；ThreadManager 另建 4 个 I/O 线程。默认预建 Worker 数沿用 `max(4, hardwareConcurrency)`。计算线程数与预建池是两个参数，不能用浏览器 Worker 总数推断 CPU 并行度。
@@ -246,11 +270,30 @@ cmake --build deps/ppsspp-wasm/build-wasm-release -j4
 
 2026-10-25 另在全新 context 中使用默认控制映射自动载入对话存档，通过真实页面触摸事件点击圆圈。记录确认 SDL 查询到了按下与释放，按钮和摇杆随后归零；截图确认游戏进入下一段对话，未只凭页面像素变化判定输入成功。证据在 `.local/gameplay/touch-defaults-settled/`。这仍是桌面触摸事件回归，不是手机或实体手柄验收。自动化用例另覆盖短按、多来源同时持有、隐藏与恢复、非标准手柄的可变数组、粗粒度时钟及断开重连。
 
+## 活跃线程覆盖验证（2026-10-25）
+
+本轮继续使用前述带符号核心与存档；浏览器已更新为 Edge `157.0.4341.16`。在同一个独立浏览器中，普通 Profiler 仍只采到 14 个空闲 Worker，10 个活跃 Worker 在启用阶段超时；浏览器级追踪则在移动与战斗两段均得到 12 个 profile。每段都通过 `EmuThreadFunc` 栈确认了一条仿真线程，而不是沿用之前的 Worker 编号。两份 trace 均完成、摘要校验通过，未报告数据丢失。这里确认的是核心线程已可采样，不是全部线程的完整覆盖。
+
+每段请求 20 秒，移动执行 16 次方向短按；战斗在第 3 秒攻击一次，第 7、11、15 秒后退、前进、后退。读档与截图均在录制窗口之外。下表只描述仿真线程的样本归因，窗口截止到最后样本，未知尾部没有补零：
+
+| 场景 | 首时刻至末样本 | futex self | IR 循环 self | IR 循环 inclusive |
+| --- | --- | --- | --- | --- |
+| 3D 移动 | 20.258 秒 | 68.282% | 12.309% | 99.054% |
+| 战斗入口 | 20.106 秒 | 65.680% | 14.037% | 99.517% |
+
+futex 的绝大部分归因来自 `hleLagSync` 限速路径。IR inclusive 包含这些子调用，不能将约 99% 解读为解释器消耗了约 99% CPU。IR self 提供了继续细查执行循环的依据，但函数已包含内联解释逻辑，本轮还不能确定哪条 IR 指令或哪个块是主要成本，也没有据此修改 PSP 时钟或限速。
+
+移动追踪期间的计数为 29.601 FPS、98.769% 仿真时间／墙钟，新增音频欠载 53 次；战斗追踪为 29.912 FPS、99.806%、零欠载。关闭追踪后重新读入同一移动存档、执行原 56 次方向序列，60 秒不采样复测为 29.919 FPS、99.831%、零欠载。追踪结果不能当作正常运行基线，也不能仅凭这几轮把全部差异归因于追踪器。本轮未改网页运行时或模拟核心，不声称获得 FPS 提升。
+
+原始证据保存在 `.local/gameplay/`：`direct-cdp-20261025`、`movement-trace-20261025`、`battle-trace-20261025`、`movement-unprofiled-20261025`，离线汇总为 `trace-scenes-20261025-audit.json`。所有游戏数据、截图、trace 与还原后的 profile 继续不入库。
+
 ## 验证命令
 
 ```sh
 npm --prefix wasm-page test
 node --test scripts/profile-browser.test.mjs
+node --test scripts/trace-browser-cpu.test.mjs
+node --test scripts/extract-trace-profiles.test.mjs
 node --test scripts/summarize-cpu-profile.test.mjs
 node --test scripts/compare-browser-performance.test.mjs
 python3 scripts/test-wasm-resources.py
