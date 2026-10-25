@@ -54,6 +54,46 @@ node scripts/profile-browser.mjs --port 9222 --seconds 20 --out .local/cpu
 
 CPU 采样会扰动运行；各线程采样窗口也可能不同，不能把百分比直接相加成总 CPU 占用。原始 `.cpuprofile` 可能包含源码 URL，默认截图会包含游戏画面，分享前检查内容。脚本不下载游戏，不修改游戏设置。桌面 CPU 限速、移动视口和软件渲染均不能替代手机真机结果。
 
+## 用符号表分析工作线程
+
+发行版 WASM 可以不带函数名，此时浏览器只记录 `wasm-function[编号]`。需要符号时，在原有 Release 链接参数上额外追加 `--emit-symbol-map`，保留源码、SDK、FFmpeg、优化级别和资源配置。以下示例假设现有 `CMAKE_EXE_LINKER_FLAGS` 为空；已有其他链接参数时应保留原值再追加：
+
+```sh
+emcmake cmake -S deps/ppsspp-wasm -B deps/ppsspp-wasm/build-wasm-release \
+  -DCMAKE_EXE_LINKER_FLAGS=--emit-symbol-map
+cmake --build deps/ppsspp-wasm/build-wasm-release -j4
+```
+
+该选项生成 `PPSSPPSDL.js.symbols`，内容为函数编号到名称的映射，不包含源码行号。将同一次链接的 WASM、符号表和完整构建产物保存在本地忽略目录中。先比较新旧 WASM 文件的 SHA-256；重新链接不保证与旧产物逐字节相同。不同产物的函数编号不能混用，需要让浏览器加载对应的新核心，再为它建立基线和 CPU 采样。
+
+本地 metadata 至少包含以下两个字段，值填写对应文件实际 SHA-256 的 64 位小写十六进制文本。这里的 `wasmSha256` 是单个 WASM 文件的摘要，不是打包清单里整个核心产物的 `revision`：
+
+```json
+{
+  "wasmSha256": "<本次 WASM 文件的 SHA-256>",
+  "symbolsSha256": "<同次链接符号表的 SHA-256>"
+}
+```
+
+分别汇总主页面与每条 worker 的原始文件，例如：
+
+```sh
+node scripts/summarize-cpu-profile.mjs \
+  --profile .local/cpu.worker-1.cpuprofile \
+  --wasm .local/symbol-core/PPSSPPSDL.wasm \
+  --symbols .local/symbol-core/PPSSPPSDL.js.symbols \
+  --metadata .local/symbol-core/metadata.json \
+  --out .local/cpu.worker-1.summary.json
+```
+
+输出须指定尚不存在的新路径；已有文件会被拒绝，重新汇总时使用新的 `--out` 路径。工具先核对两个文件摘要，再解析编号；摘要不符、符号缺失或同一 profile 含多个 WASM script identity 时拒绝汇总。它不会自动证明采样时浏览器加载的是所提供的 WASM：采集者仍须核对报告里的核心版本、实际打包产物和构建记录。原始 profile 的摘要也会写入汇总，便于复核输入来源。不能拿旧核心的采样配新符号表，即使所有编号都能查到名称。
+
+worker 的 `index` 仅表示附加顺序，`targetId` 是本次调试会话里的不透明身份，都不是线程职责。结合符号化调用栈识别模拟、渲染提交和线程池；不能确认时保留未知。每条捕获记录保留自己的起止时间及实际时长，须与页面计数窗口一起检查。采样窗口因启动、停止或失败而明显延长时，不将它用于原定场景的热点结论。
+
+汇总的 self 表示样本落在该函数，inclusive 包含其子调用；它们都是样本归属的经过时间，包含等待和调度延迟，不是测得的 CPU 执行时间。inclusive 行之间重叠，不能相加；不同线程也不能合成一个 CPU 百分比。`possibleWait` 只是函数名提示，未命中不代表没有等待。限速、条件变量、futex 和睡眠须结合完整调用栈判断，不能因为占比大就删除。该采样也不测 GPU 执行耗时。
+
+工作线程收尾按目标并行停止，同一目标保持停止后再禁用的顺序；重复清理复用同一结果。worker profiler 命令及主线程 profiler 收尾命令默认每条最多等待 5 秒，其他调试命令使用各自的超时，这不是整次采样的总时限。失败的 worker 保留 `unavailable` 和 `failureStage`，禁用失败另记 `cleanupFailed`；这些状态表示未测到或清理未确认，不能当作空闲。成功返回的部分 profile 仍需逐一检查时间窗口。
+
 ## 内存和线程的独立对照
 
 默认仍为 512 MiB 初始容量、4 GiB 上限、2 个计算线程；ThreadManager 另建 4 个 I/O 线程。默认预建 Worker 数沿用 `max(4, hardwareConcurrency)`。计算线程数与预建池是两个参数，不能用浏览器 Worker 总数推断 CPU 并行度。
@@ -167,11 +207,51 @@ cmake --build deps/ppsspp-wasm/build-wasm-release -j4
 
 修复前使用上节的 512 MiB 自动池产物。修复后源码摘要为 `e331909ef5a6d4107b4d8b06ecc23d5e91ce32cd20c91c2fe232a63391bf50a3`，核心产物摘要为 `5d9293637828f1d289c7bedeb35f91dd9635e67090549c30608809eb4332819f`。本地证据为 `.local/resource-benchmark/restart-before.json` 和 `restart-after.json`；截图及存档继续留在忽略目录。
 
+## 交互场景与线程覆盖（2026-10-24）
+
+从新游戏推进并保存了三份本地即时存档：剧情对话、3D 迷宫入口和首个战斗入口。它们及操作脚本、截图、原始采样均留在忽略目录 `.local/gameplay/`。测试继续使用独立的 Windows 无头 Edge 157、844×390、DPR 1、1×内部渲染、512 MiB 初始容量和自动线程池；这里没有手机真机、功耗或长期热降频结果。
+
+每段先读档、稳定约 2.5 秒，再单独录制 60 秒计数，不开启 CPU Profiler。移动段按前进、后退、右转、左转循环，每秒短按一次，共 56 次；战斗段在第 3 秒攻击一次，然后从第 7 秒起每隔 4 秒交替后退、前进，共 12 次。截图确认移动、伤害显示及敌人仍在场。战斗段包含等待与移动，不代表持续攻击、多敌人或高特效压力场景。动作按墙钟调度并记录实际模拟时间，不是确定性的逐帧重放。
+
+| 场景 | 计数窗口 | 实际 FPS | 仿真时间／墙钟 | 新增音频欠载 |
+| --- | --- | --- | --- | --- |
+| 对话，等待输入 | 60.018 秒 | 29.924 | 99.848% | 0 |
+| 3D 迷宫移动 | 60.017 秒 | 29.942 | 99.905% | 0 |
+| 战斗入口，攻击与移动 | 60.033 秒 | 29.934 | 99.879% | 0 |
+
+三段均全程前台，区间内没有新增堆扩容。这是每场景一次的基线，不能据此宣称所有设备或整款游戏满速。原始计数报告分别为 `dialogue-baseline-a.json`、`movement-baseline-a.json`、`battle-baseline-a.json`。
+
+本轮带符号表的核心产物摘要为 `77cb884ea94b5f67d8c356734b54165b3c85ee70fe5d6b717eafec03d2ff2638`，源码摘要为 `61df85a731a817387119056e317e914d37b161d89bcfcc01b9d8264d54b6bc60`。WASM 文件 SHA-256 为 `f9a646f67986509ec319aa9f18fd8039c649b0f0930a2172af0f921a7052f6fa`，符号表 SHA-256 为 `e898c0afceea7ddd1ef6b7ee44ed293d8e339213aa0874e1d0ded487bb381c36`。它与前节核心不是同一份二进制，不能交叉使用符号表。
+
+对话的独立 CPU 采样通过 `EmuThreadFunc` 栈识别出仿真线程：约 78.994% 的自身采样归因区间落在 futex 等待，绝大部分来自节拍限速路径，`IRJit::RunLoopUntil` 为 11.830%。后者包含被内联的解释执行逻辑，无法据此判断哪条 IR 指令值得改。等待并不等于浪费计算，也不能直接删除限速或提高 PSP 时钟。
+
+移动场景首次采样暴露了串行收尾的问题：两个工作线程超时使后续线程窗口从约 50 秒拖到 110 秒，结果已作废。采样器现并行收尾并限制逐命令等待。重采移动和战斗时，页面计数窗口均约 20 秒，主线程及可捕获线程的 profile 窗口仍约 25 秒，包含约 5 秒准备等待。两次都只有 14 个空闲工作线程成功采集，另 10 个在线程 `Profiler.enable` 阶段失败，没有仿真线程栈。这两组因此不能提供 IR 热点比较；没有沿用对话的线程编号推断角色，也没有把失败线程记为空闲。下一步核心分析需要先补齐活跃线程覆盖。
+
+## 输入桥的重复状态比较
+
+屏幕手柄与实体手柄合并成逻辑手柄后，原实现每次轮询都递增 `timestamp`，即使按钮和轴没有变化，也会使 SDL 重新执行状态比较。现在只在最终逻辑值改变时递增时间戳，实际变化在同一帧或粗粒度时钟下仍能递增；隐藏页面、运行失败、断开与重连时继续正确释放。非标准手柄的数组由桥接层独立持有，避免浏览器原地修改数组或重置设备时间戳造成漏报，也避免释放操作修改设备对象。缓存版本同步更新。
+
+这只减少 SDL 的重复比较；浏览器查询、逻辑输入合并以及 Emscripten 状态复制仍会运行，非标准手柄还增加了 JavaScript 数值比较。不能由此声称总 CPU 成本、功耗或帧率必然降低。
+
+2026-10-24 用前节同一迷宫存档、56 次方向按键及核心，按旧版／新版／新版／旧版进行四轮 60 秒对照。每轮使用新的浏览器 context，禁用 Service Worker；记录实际 runtime 响应体摘要，并向浏览器提供固定、已计算摘要的 WASM 字节。准备阶段未取得完整响应证据的尝试均在计数采样前终止，不纳入下表。有效记录在 `.local/gameplay/input-abba-final/`。
+
+| 次序 | 输入桥 | 计数窗口 | 实际 FPS | 仿真时间／墙钟 | 新增音频欠载 |
+| --- | --- | --- | --- | --- | --- |
+| A1 | 旧版 | 60.026 秒 | 29.954 | 99.946% | 0 |
+| B1 | 新版 | 60.019 秒 | 29.940 | 99.901% | 0 |
+| B2 | 新版 | 60.029 秒 | 29.919 | 99.829% | 0 |
+| A2 | 旧版 | 60.015 秒 | 29.942 | 99.908% | 0 |
+
+四轮均前台、没有页面异常。两轮按时长加权后，旧版为 29.948 FPS，新版为 29.930 FPS，相差约 -0.062%；本组没有证明帧率提升，也不足以把小幅差异归因于输入桥。方向序列通过键盘驱动，逻辑手柄保持静止，因此它检查的是静止桥接路径在实际游戏中的表现，不能代替持续触摸或实体手柄的性能测量。
+
+2026-10-25 另在全新 context 中使用默认控制映射自动载入对话存档，通过真实页面触摸事件点击圆圈。记录确认 SDL 查询到了按下与释放，按钮和摇杆随后归零；截图确认游戏进入下一段对话，未只凭页面像素变化判定输入成功。证据在 `.local/gameplay/touch-defaults-settled/`。这仍是桌面触摸事件回归，不是手机或实体手柄验收。自动化用例另覆盖短按、多来源同时持有、隐藏与恢复、非标准手柄的可变数组、粗粒度时钟及断开重连。
+
 ## 验证命令
 
 ```sh
 npm --prefix wasm-page test
 node --test scripts/profile-browser.test.mjs
+node --test scripts/summarize-cpu-profile.test.mjs
 node --test scripts/compare-browser-performance.test.mjs
 python3 scripts/test-wasm-resources.py
 python3 scripts/test-package-player.py
