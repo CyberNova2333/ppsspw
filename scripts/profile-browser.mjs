@@ -4,24 +4,26 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { startBrowserCpuTrace } from './trace-browser-cpu.mjs';
 
-const USAGE = 'node scripts/profile-browser.mjs [--port 9222] [--seconds 20] [--out artifacts/browser-profile] [--target <exact URL>] [--no-profile] [--no-screenshot]';
+const USAGE = 'node scripts/profile-browser.mjs [--port 9222] [--seconds 20] [--out artifacts/browser-profile] [--target <exact URL>] [--no-profile | --trace-cpu] [--no-screenshot]';
 export function parseOptions(args) {
   const values = {};
   for (let i = 0; i < args.length; i++) {
     const key = args[i];
-    if (!['--port', '--seconds', '--out', '--target', '--no-profile', '--no-screenshot'].includes(key) || Object.hasOwn(values, key)) throw new Error(`Invalid or repeated option. Usage: ${USAGE}`);
-    if (key.startsWith('--no-')) values[key] = true;
+    if (!['--port', '--seconds', '--out', '--target', '--no-profile', '--trace-cpu', '--no-screenshot'].includes(key) || Object.hasOwn(values, key)) throw new Error(`Invalid or repeated option. Usage: ${USAGE}`);
+    if (key.startsWith('--no-') || key === '--trace-cpu') values[key] = true;
     else { const value = args[++i]; if (!value || value.startsWith('--')) throw new Error(`Missing option value. Usage: ${USAGE}`); values[key] = value; }
   }
   const seconds = Number(values['--seconds'] ?? 20), port = Number(values['--port'] ?? 9222);
+  if (values['--trace-cpu'] && values['--no-profile']) throw new Error('--trace-cpu and --no-profile are mutually exclusive.');
   if (!Number.isFinite(seconds) || seconds < 1 || seconds > 120 || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Usage: ${USAGE}`);
   if (values['--target']) {
     const url = new URL(values['--target']);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('--target requires an HTTP(S) URL without credentials.');
   }
   return { seconds, port, output: resolve(values['--out'] ?? 'artifacts/browser-profile'), target: values['--target'] ?? null,
-    profile: !values['--no-profile'], screenshot: !values['--no-screenshot'] };
+    profile: !values['--no-profile'], traceCpu: !!values['--trace-cpu'], screenshot: !values['--no-screenshot'] };
 }
 
 export function selectPage(pages, target = null) {
@@ -314,6 +316,7 @@ export async function startWorkerProfilers(client, { commandTimeoutMs = 5000 } =
 }
 
 export async function run(options) {
+  if (options.traceCpu && !options.profile) throw new Error('--trace-cpu and --no-profile are mutually exclusive.');
   const response = await fetch(`http://127.0.0.1:${options.port}/json`, { signal: AbortSignal.timeout(10000) })
     .catch(() => { throw new Error(`Cannot reach browser DevTools on loopback port ${options.port}; check the debugging browser and --port.`); });
   if (!response.ok) throw new Error(`DevTools discovery failed: ${response.status}`);
@@ -333,14 +336,21 @@ export async function run(options) {
     if (result.exceptionDetails) throw new Error('Page evaluation failed: ' + (result.exceptionDetails.text || 'exception'));
     return result.result.value;
   };
-  let profiling = false, profilerEnabled = false, sampling = false, workerProfilers;
+  let profiling = false, profilerEnabled = false, sampling = false, workerProfilers, traceCapture, traceClient;
   try {
     const initial = await evaluate(() => ({ ready: typeof runtimeReady !== 'undefined' && runtimeReady,
       failed: typeof runtimeFailed !== 'undefined' && runtimeFailed, visibility: document.visibilityState }));
     if (!initial.ready || initial.failed) throw new Error('Start PPSSPP and reach the desired scene before capturing.');
     if (initial.visibility !== 'visible') throw new Error('Keep the PPSSPP tab visible during measurement.');
     await mkdir(dirname(options.output), { recursive: true });
-    if (options.profile) {
+    if (options.traceCpu) {
+      const versionResponse = await fetch(`http://127.0.0.1:${options.port}/json/version`, { signal: AbortSignal.timeout(10000) });
+      if (!versionResponse.ok) throw new Error('Cannot discover the dedicated browser tracing endpoint.');
+      const { webSocketDebuggerUrl } = await versionResponse.json();
+      if (!webSocketDebuggerUrl) throw new Error('Browser tracing WebSocket is unavailable.');
+      traceClient = await connectCdp(webSocketDebuggerUrl, { timeoutMs: 5000 });
+      traceCapture = await startBrowserCpuTrace(traceClient, { targetId: page.id, output: options.output });
+    } else if (options.profile) {
       await client.command('Profiler.enable'); profilerEnabled = true;
       await client.command('Profiler.setSamplingInterval', { interval: 1000 });
       await client.command('Profiler.start'); profiling = true;
@@ -348,12 +358,13 @@ export async function run(options) {
     }
     const before = await evaluate(pageSnapshot);
     sampling = true; await evaluate(startPageSampling, key, options.seconds);
-    console.log(`Measuring ${options.seconds}s; CPU sampling ${options.profile ? 'enabled' : 'disabled'}. Keep the tab visible.`);
+    console.log(`Measuring ${options.seconds}s; CPU sampling ${options.traceCpu ? 'browser trace' : options.profile ? 'enabled' : 'disabled'}. Keep the tab visible.`);
     await new Promise(accept => setTimeout(accept, options.seconds * 1000));
     const sample = await evaluate(stopPageSampling, key); sampling = false;
     if (!sample) throw new Error('Page sampler disappeared or expired; the page may have navigated.');
     const after = await evaluate(pageSnapshot), summary = summarize(before, after, sample);
-    let profile, workers = null;
+    let profile, workers = null, traceMetadata = null;
+    if (traceCapture) traceMetadata = await traceCapture.finish();
     const workerCapture = workerProfilers?.finish();
     if (profiling) { profiling = false; ({ profile } = await client.command('Profiler.stop', {}, undefined, { timeoutMs: 5000 })); }
     if (workerCapture) { workers = await workerCapture; workerProfilers = null; }
@@ -368,8 +379,10 @@ export async function run(options) {
       }
     }
     await writeFile(options.output + '.json', JSON.stringify({ schemaVersion: 2, date: new Date().toISOString(), requestedSeconds: options.seconds,
-      cpuProfiler: { enabled: options.profile, intervalUs: options.profile ? 1000 : null, mainDurationSeconds: profile ? (profile.endTime - profile.startTime) / 1e6 : null,
-        meaning: 'CPU sampling can perturb timing. Main-page and worker profiles have independent time windows.', workers }, before, after, summary }, null, 2));
+      cpuProfiler: { enabled: options.profile, mode: options.traceCpu ? 'trace' : options.profile ? 'profiler' : 'disabled',
+        intervalUs: options.profile && !options.traceCpu ? 1000 : null, mainDurationSeconds: profile ? (profile.endTime - profile.startTime) / 1e6 : null,
+        meaning: 'CPU sampling can perturb timing. Main-page and worker profiles have independent time windows. Browser trace intervals are implementation-controlled.',
+        workers, ...(traceMetadata ? { traceMetadata } : {}) }, before, after, summary }, null, 2));
     if (options.screenshot) {
       const { data } = await client.command('Page.captureScreenshot', { format: 'png' });
       await writeFile(options.output + '.png', Buffer.from(data, 'base64'));
@@ -377,7 +390,10 @@ export async function run(options) {
     console.log(`Saved measurement to ${options.output}.json.`);
     return summary;
   } finally {
+    const traceCleanup = traceCapture?.abort().catch(() => {});
     if (sampling) await evaluate(stopPageSampling, key).catch(() => {});
+    await traceCleanup;
+    traceClient?.close();
     if (profiling) await client.command('Profiler.stop', {}, undefined, { timeoutMs: 5000 }).catch(() => {});
     if (workerProfilers) await workerProfilers.finish().catch(() => {});
     if (profilerEnabled) await client.command('Profiler.disable', {}, undefined, { timeoutMs: 5000 }).catch(() => {});
