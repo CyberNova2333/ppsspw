@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import test from 'node:test';
 import ts from 'typescript';
 import '../public/browser-storage.js';
+import '../public/touch-controls.js';
 import { storageLocks } from './storage-locks.mjs';
 
 // Load the actual runtime functions without running browser startup side effects.
@@ -221,25 +222,26 @@ function standardPad(index = 0) {
     axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ value: 0, pressed: false, touched: false })) };
 }
 
-function logicalPadFixture() {
-  const screen = standardPad(); screen.id = 'Screen controller';
+function logicalPadFixture({ now = () => 100, state = null } = {}) {
+  const screen = state?.gamepad || standardPad(); screen.id = 'Screen controller';
   const pads = [], events = [], notices = [];
+  let polls = 0;
   const window = new EventTarget(); window.Module = {};
   for (const type of ['gamepadconnected', 'gamepaddisconnected']) window.addEventListener(type, event => {
     events.push({ type, id: event.gamepad.id, mapping: event.gamepad.mapping, index: event.gamepad.index,
       values: event.gamepad.buttons.map(button => button.value), axes: [...event.gamepad.axes] });
   });
   const ctx = load(['getSDLGamepads', 'refreshSDLGamepadBridge', 'releaseLogicalGamepad', 'dispatchLogicalGamepad', 'setActiveGamepadIndex'], {
-    Event, window, performance: { now: () => 100 }, document: { hidden: false }, runtimeFailed: false,
+    Event, window, performance: { now }, document: { hidden: false }, runtimeFailed: false,
     gamepadBridgeInstalled: true, gamepadBridgeCurrent: null, gamepadBridgeMode: '', gamepadBridgeRawIndex: -1,
-    activeGamepadIndex: -1, started: true, getBrowserGamepads: () => pads,
-    touchControlState: { gamepad: screen, reset() { screen.axes.fill(0); for (const button of screen.buttons) Object.assign(button, { value: 0, pressed: false, touched: false }); } },
+    activeGamepadIndex: -1, started: true, getBrowserGamepads: () => { polls++; return pads; },
+    touchControlState: state || { gamepad: screen, reset() { screen.axes.fill(0); for (const button of screen.buttons) Object.assign(button, { value: 0, pressed: false, touched: false }); } },
     updateTouchControls() {}, showToast: message => notices.push(message),
     preferences: { setItem() {} }, GAMEPAD_SELECT_KEY: 'selected', connectedGamepads: new Map(),
     log() {}, shortGamepadName: String, updateGamepadSelector() {}, canvas: null,
   });
   ctx.refreshSDLGamepadBridge();
-  return { ctx, screen, pads, events, notices };
+  return { ctx, screen, pads, events, notices, get polls() { return polls; } };
 }
 
 test('logical standard controller merges buttons and preserves continuous screen stick ownership', () => {
@@ -280,7 +282,10 @@ test('explicit raw controller selection releases the old pad and preserves raw l
   assert.ok(screen.buttons.every(button => button.value === 0));
   const result = ctx.getSDLGamepads()[0];
   assert.equal(result.id, raw.id); assert.equal(result.mapping, ''); assert.equal(result.index, 0);
-  assert.equal(result.axes, raw.axes); assert.equal(result.buttons, raw.buttons);
+  assert.notEqual(result.axes, raw.axes); assert.notEqual(result.buttons, raw.buttons);
+  assert.deepEqual(Array.from(result.axes), raw.axes);
+  assert.equal(result.buttons[0].value, raw.buttons[0].value);
+  assert.equal(result.buttons[0].pressed, raw.buttons[0].pressed);
   assert.equal(raw.index, 4, 'do not mutate browser-owned device objects');
   assert.match(notices[0], /非标准.*原映射/);
   ctx.activeGamepadIndex = -1; ctx.refreshSDLGamepadBridge();
@@ -308,6 +313,120 @@ test('manual standard controller selection releases held input before reconnect 
   ctx.setActiveGamepadIndex(5);
   ctx.refreshSDLGamepadBridge(); ctx.refreshSDLGamepadBridge();
   assert.equal(events.length, 3);
+});
+
+test('idle logical polls keep a nonzero timestamp without skipping browser polls', () => {
+  const fixture = logicalPadFixture({ now: () => 0 });
+  const { ctx, events } = fixture;
+  const pad = ctx.getSDLGamepads()[0], stamp = pad.timestamp, polls = fixture.polls;
+  assert.ok(stamp > 0, 'SDL treats zero as unsupported and always compares its input');
+  let comparisons = 0;
+  for (let i = 0; i < 1000; i++) {
+    const current = ctx.getSDLGamepads()[0];
+    assert.equal(current, pad);
+    if (current.timestamp === 0 || current.timestamp !== stamp) comparisons++;
+  }
+  assert.equal(comparisons, 0, 'unchanged values never request the SDL comparison loop');
+  assert.equal(fixture.polls - polls, 1000, 'physical input is still polled on every query');
+  assert.equal(events.length, 1);
+});
+
+test('only final merged changes advance timestamps with a frozen clock and unchanged native timestamp', () => {
+  const { ctx, screen, pads } = logicalPadFixture({ now: () => 0 });
+  const physical = standardPad(3); physical.timestamp = 0; pads.push(physical);
+  const pad = ctx.getSDLGamepads()[0], initial = pad.timestamp;
+  screen.buttons[0].value = 1;
+  ctx.getSDLGamepads(); const pressed = pad.timestamp;
+  assert.ok(pressed > initial);
+  physical.buttons[0].value = 1; ctx.getSDLGamepads();
+  assert.equal(pad.timestamp, pressed, 'a second holder does not change the logical button');
+  screen.buttons[0].value = 0; ctx.getSDLGamepads();
+  assert.equal(pad.timestamp, pressed, 'the physical holder keeps the button pressed');
+  physical.buttons[0].value = 0; ctx.getSDLGamepads();
+  assert.ok(pad.timestamp > pressed); assert.equal(pad.buttons[0].pressed, false);
+  const released = pad.timestamp;
+  physical.axes[0] = 0.25; ctx.getSDLGamepads();
+  assert.ok(pad.timestamp > released); const moved = pad.timestamp;
+  ctx.getSDLGamepads(); assert.equal(pad.timestamp, moved);
+  physical.axes[0] = 0; ctx.getSDLGamepads(); assert.ok(pad.timestamp > moved);
+});
+
+test('quick screen taps keep the existing latch and publish both observed transitions', () => {
+  let time = 0, timer = null;
+  const state = globalThis.PpssppTouchControls.createState({ now: () => time,
+    setTimeout: callback => { timer = callback; return 1; }, clearTimeout: () => { timer = null; } });
+  const { ctx } = logicalPadFixture({ now: () => time, state });
+  const pad = ctx.getSDLGamepads()[0];
+  state.setButtons('finger', ['circle']); ctx.getSDLGamepads();
+  const pressed = pad.timestamp;
+  state.release('finger'); ctx.getSDLGamepads();
+  assert.equal(pad.buttons[1].pressed, true); assert.equal(pad.timestamp, pressed);
+  assert.equal(typeof timer, 'function');
+  time = 60; timer(); ctx.getSDLGamepads();
+  assert.equal(pad.buttons[1].pressed, false); assert.ok(pad.timestamp > pressed);
+});
+
+test('hidden and failed polls publish one neutral transition and keep it stable until resuming', () => {
+  for (const field of ['hidden', 'runtimeFailed']) {
+    const { ctx, pads } = logicalPadFixture();
+    const physical = standardPad(2); physical.buttons[0].value = 1; physical.axes[0] = 0.8; pads.push(physical);
+    const pad = ctx.getSDLGamepads()[0], held = pad.timestamp;
+    const target = field === 'hidden' ? ctx.document : ctx;
+    target[field] = true; ctx.getSDLGamepads();
+    const released = pad.timestamp;
+    assert.ok(released > held);
+    assert.ok(pad.buttons.every(button => button.value === 0)); assert.ok(pad.axes.every(value => value === 0));
+    for (let i = 0; i < 100; i++) ctx.getSDLGamepads();
+    assert.equal(pad.timestamp, released);
+    assert.equal(physical.buttons[0].value, 1); assert.equal(physical.axes[0], 0.8);
+    target[field] = false; ctx.getSDLGamepads();
+    assert.ok(pad.timestamp > released); assert.equal(pad.buttons[0].pressed, true); assert.equal(pad.axes[0], 0.8);
+  }
+});
+
+test('raw values are compared independently of mutable native arrays and native timestamps', () => {
+  const { ctx, pads } = logicalPadFixture({ now: () => 0 });
+  const raw = { index: 4, id: 'Raw pad', mapping: '', connected: true, timestamp: 0,
+    axes: [0, 0], buttons: [{ value: 0, pressed: false, touched: false }] };
+  pads.push(raw); ctx.activeGamepadIndex = 4; ctx.refreshSDLGamepadBridge();
+  const pad = ctx.getSDLGamepads()[0], initial = pad.timestamp;
+  raw.axes[0] = -0.3; Object.assign(raw.buttons[0], { value: 0.4, pressed: true, touched: true });
+  assert.equal(pad.axes[0], 0); assert.equal(pad.buttons[0].pressed, false);
+  ctx.getSDLGamepads(); const pressed = pad.timestamp;
+  assert.ok(pressed > initial); assert.equal(pad.axes[0], -0.3);
+  assert.equal(pad.buttons[0].pressed, true, 'raw pressed is not reinterpreted from its analog value');
+  raw.timestamp = 900; ctx.getSDLGamepads(); assert.equal(pad.timestamp, pressed);
+  raw.timestamp = 0; ctx.getSDLGamepads(); assert.equal(pad.timestamp, pressed);
+  raw.axes[0] = 0; Object.assign(raw.buttons[0], { value: 0, pressed: false, touched: false });
+  ctx.getSDLGamepads(); assert.ok(pad.timestamp > pressed);
+  raw.axes[0] = 1; Object.assign(raw.buttons[0], { value: 1, pressed: true, touched: true });
+  ctx.getSDLGamepads(); ctx.document.hidden = true; ctx.getSDLGamepads();
+  const hidden = pad.timestamp;
+  for (let i = 0; i < 100; i++) ctx.getSDLGamepads();
+  assert.equal(pad.timestamp, hidden); assert.equal(raw.axes[0], 1); assert.equal(raw.buttons[0].value, 1);
+});
+
+test('raw removal and same-index reconnect release held values and observe the replacement device', () => {
+  const { ctx, pads, events } = logicalPadFixture({ now: () => 0 });
+  const raw = { index: 4, id: 'Raw pad', mapping: '', connected: true, timestamp: 0,
+    axes: [1, 0], buttons: [{ value: 1, pressed: true, touched: true }] };
+  pads.push(raw); ctx.activeGamepadIndex = 4; ctx.refreshSDLGamepadBridge();
+  const old = ctx.getSDLGamepads()[0];
+  pads.length = 0; ctx.getSDLGamepads(); const released = old.timestamp;
+  assert.equal(old.axes[0], 0); assert.equal(old.buttons[0].pressed, false);
+  ctx.getSDLGamepads(); assert.equal(old.timestamp, released);
+  ctx.refreshSDLGamepadBridge();
+  const replacement = { ...raw, axes: [-0.5, 0], buttons: [{ value: 0.6, pressed: true, touched: true }] };
+  pads.push(replacement); ctx.refreshSDLGamepadBridge();
+  const current = ctx.gamepadBridgeCurrent, connected = current.timestamp;
+  assert.equal(current.axes[0], 0); assert.equal(current.buttons[0].pressed, false, 'connection is neutral before the first poll');
+  ctx.getSDLGamepads();
+  assert.ok(current.timestamp > connected); assert.equal(current.axes[0], -0.5); assert.equal(current.buttons[0].pressed, true);
+  assert.notEqual(current, old); assert.equal(old.connected, false);
+  for (const event of events.filter(event => event.type === 'gamepaddisconnected')) {
+    assert.ok(event.values.every(value => value === 0)); assert.ok(event.axes.every(value => value === 0));
+  }
+  assert.equal(raw.axes[0], 1); assert.equal(raw.buttons[0].value, 1);
 });
 
 test('touch defaults detect touch-capable fine pointers but honor a saved disabled preference', () => {
