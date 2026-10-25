@@ -16,6 +16,10 @@
 #include "Core/CoreTiming.h"
 #include "Core/HW/Display.h"
 #include "Core/System.h"
+#ifdef PPSSPP_WASM_IR_BLOCK_PROFILE
+#include "Core/MIPS/IR/IRBlockProfile.h"
+#include "Core/MIPS/JitCommon/JitCommon.h"
+#endif
 
 namespace {
 // Atomic payloads avoid a C++ data race even when a reader retries a snapshot.
@@ -154,6 +158,10 @@ void WasmPublishPerformance(double frameMilliseconds) {
 	metrics[26].store(static_cast<double>(emscripten_get_heap_size()));
 	publishedAt.store(now);
 	sequence.fetch_add(1);
+#ifdef PPSSPP_WASM_IR_BLOCK_PROFILE
+	std::lock_guard<std::recursive_mutex> profileGuard(MIPSComp::jitLock);
+	WasmIRBlockProfile::Frame(emulatedUs, emulating);
+#endif
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE double ppssppGetPerformanceMetric(int slot) {

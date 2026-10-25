@@ -38,6 +38,9 @@
 #include "Core/MIPS/IR/IRRegCache.h"
 #include "Core/MIPS/IR/IRInterpreter.h"
 #include "Core/MIPS/IR/IRJit.h"
+#ifdef PPSSPP_WASM_IR_BLOCK_PROFILE
+#include "Core/MIPS/IR/IRBlockProfile.h"
+#endif
 #include "Core/MIPS/IR/IRNativeCommon.h"
 #include "Core/MIPS/JitCommon/JitCommon.h"
 #include "Core/Reporting.h"
@@ -168,6 +171,11 @@ bool IRJit::CompileBlock(u32 em_address, std::vector<IRInst> &instructions, u32 
 
 void IRJit::RunLoopUntil(u64 globalticks) {
 	PROFILE_THIS_SCOPE("jit");
+#ifdef PPSSPP_WASM_IR_BLOCK_PROFILE
+	// Serialize the diagnostic sidecar with cache reset and frame publication.
+	// One recursive lock per run loop, never one lock or clock per block.
+	std::lock_guard<std::recursive_mutex> profileGuard(jitLock);
+#endif
 
 	// ApplyRoundingMode(true);
 	// IR Dispatcher
@@ -189,6 +197,9 @@ void IRJit::RunLoopUntil(u64 globalticks) {
 			u32 opcode = inst & 0xFF000000;
 			if (opcode == MIPS_EMUHACK_OPCODE) {
 				u32 offset = inst & 0x00FFFFFF; // Alternatively, inst - opcode
+#ifdef PPSSPP_WASM_IR_BLOCK_PROFILE
+				WasmIRBlockProfile::EnterBlock(offset);
+#endif
 				const IRInst *instPtr = blocks_.GetArenaPtr() + offset;
 				// First op is always, except when using breakpoints, downcount, to save one dispatch inside IRInterpret.
 				// This branch is very cpu-branch-predictor-friendly so this still beats the dispatch.
@@ -247,6 +258,12 @@ void IRJit::UnlinkBlock(u8 *checkedEntry, u32 originalAddress) {
 }
 
 void IRBlockCache::Clear() {
+#ifdef PPSSPP_WASM_IR_BLOCK_PROFILE
+	std::lock_guard<std::recursive_mutex> profileGuard(jitLock);
+	if (!compileToNative_) {
+		WasmIRBlockProfile::ClearCache();
+	}
+#endif
 	for (int i = 0; i < (int)blocks_.size(); ++i) {
 		int cookie = compileToNative_ ? blocks_[i].GetNativeOffset() : blocks_[i].GetIRArenaOffset();
 		blocks_[i].Destroy(cookie);
@@ -273,6 +290,19 @@ int IRBlockCache::AllocateBlock(int emAddr, u32 origSize, const std::vector<IRIn
 	}
 	int newBlockIndex = (int)blocks_.size();
 	blocks_.push_back(IRBlock(emAddr, origSize, offset, (u32)insts.size()));
+#ifdef PPSSPP_WASM_IR_BLOCK_PROFILE
+	if (!compileToNative_) {
+		std::lock_guard<std::recursive_mutex> profileGuard(jitLock);
+		std::vector<WasmIRBlockProfile::Instruction> instructions;
+		instructions.reserve(insts.size());
+		for (const IRInst &inst : insts) {
+			const uint32_t word = static_cast<uint32_t>(inst.op) | (uint32_t(inst.dest) << 8) |
+				(uint32_t(inst.src1) << 16) | (uint32_t(inst.src2) << 24);
+			instructions.push_back({word, inst.constant});
+		}
+		WasmIRBlockProfile::RegisterBlock(offset, emAddr, std::move(instructions));
+	}
+#endif
 	return newBlockIndex;
 }
 
