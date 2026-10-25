@@ -62,6 +62,9 @@ function validateProfile(profile) {
       || !integer(profile.startTime) || !integer(profile.endTime) || profile.endTime < profile.startTime) {
     throw new Error('Profile requires nodes, equal nonempty samples/timeDeltas and ordered microsecond timestamps.');
   }
+  if (profile.endTimeSource !== undefined && !['recorded', 'last-sample'].includes(profile.endTimeSource)) {
+    throw new Error('Unknown profile endTimeSource.');
+  }
   const nodes = new Map(), parents = new Map();
   for (const node of profile.nodes) {
     if (!integer(node?.id) || nodes.has(node.id) || typeof node.callFrame?.functionName !== 'string'
@@ -95,6 +98,9 @@ function validateProfile(profile) {
     if (!integer(attributedUs)) throw new Error('Profile time-delta total exceeds safe integer precision.');
   }
   if (attributedUs > profile.endTime - profile.startTime) throw new Error('Profile time deltas exceed its elapsed interval.');
+  if (profile.endTimeSource === 'last-sample' && attributedUs !== profile.endTime - profile.startTime) {
+    throw new Error('A last-sample boundary must equal startTime plus all sample deltas.');
+  }
   return { nodes, parents, attributedUs };
 }
 
@@ -153,9 +159,13 @@ export function summarizeProfile(profile, symbols, verifiedArtifacts) {
     schemaVersion: 1, measurement: 'sample-attributed-elapsed-time', threadCount: 1,
     artifacts: { wasmSha256: verifiedArtifacts.wasmSha256, symbolsSha256: verifiedArtifacts.symbolsSha256 },
     elapsedUs: profile.endTime - profile.startTime, sampleCount: profile.samples.length,
-    attributedUs, unassignedTailUs: profile.endTime - profile.startTime - attributedUs, hotspots,
+    endTimeSource: profile.endTimeSource ?? 'recorded',
+    attributedUs, unassignedTailUs: profile.endTimeSource === 'last-sample' ? null : profile.endTime - profile.startTime - attributedUs, hotspots,
     notes: [
-      'Each CDP timeDelta is attributed to its corresponding sample, including the first interval from profile start. The final unsampled tail is not attributed.',
+      'Each timeDelta is attributed to its corresponding sample, including the first interval from profile start. The final unsampled tail is not attributed.',
+      profile.endTimeSource === 'last-sample'
+        ? 'elapsedUs ends at the last recorded sample, not at profiler stop. The unsampled tail length is unknown; unassignedTailUs is null.'
+        : 'elapsedUs uses the recorded profile start and end timestamps; the final unsampled tail is reported separately.',
       'These are sample-attributed elapsed intervals, not measured CPU execution time or CPU utilization. Waits, scheduling delays and profiler overhead can be included.',
       'One report describes one thread. Do not add elapsed attribution across threads or sum overlapping inclusive rows.',
       'possibleWait is a function-name hint, not proof of blocking. Original function names remain available; wait attribution is not evidence of removable execution cost.',
