@@ -5,9 +5,10 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 const origin = 'http://127.0.0.1:18089';
-const root = resolve(new URL('..', import.meta.url).pathname);
+const root = fileURLToPath(new URL('..', import.meta.url));
 const server = spawn('python3', ['server/serve.py', '--bind', '127.0.0.1', '--port', '18089', '--adhoc-ws', '--adhoc-ws-port', '0'], {
   cwd: root, stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, RELAY_AUTH_MODE: 'open' },
 });

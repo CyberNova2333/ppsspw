@@ -23,7 +23,7 @@ Recent upstream sources were inspected at [PRO networking](https://github.com/hr
 
 ## Launch and use
 
-Core source edits live in the submodule checkout. A matching patch is included at `patches/ppsspp-wasm-adhoc.patch` so the changes are preserved independently of an uncommitted submodule pointer. On a fresh checkout of the pinned core, apply it once with `git -C deps/ppsspp-wasm apply ../../patches/ppsspp-wasm-adhoc.patch`; do not reapply it to the already modified checkout. Commit/publish the core changes separately before advancing the parent repository's submodule pointer.
+The core and its dependencies are tracked directly under `deps/ppsspp-wasm/` in this repository. Edit and commit them together with the web client; no submodule initialization or separate core push is required. `patches/ppsspp-wasm-adhoc.patch` is a historical reference for the original networking changes, which are already present in the source tree. Do not apply it again. See [source provenance](../UPSTREAM.md) for the imported versions and update process.
 
 Build the core using the existing `make wasm-release` path and then:
 
