@@ -1,6 +1,6 @@
 # Multiplayer validation — 2026-10-18
 
-Core base: `0dbfaca62a8a924abc2c5dd5dd0733b668e5e68a`. Changes remain in the working tree, including the core submodule; `patches/ppsspp-wasm-adhoc.patch` preserves the core diff. No commercial game image is included.
+This historical validation used core base `0dbfaca62a8a924abc2c5dd5dd0733b668e5e68a`. The current repository tracks the core and its dependencies directly under `deps/ppsspp-wasm/`; there is no core submodule to initialize or publish separately. `patches/ppsspp-wasm-adhoc.patch` preserves the original networking diff for reference and must not be reapplied to the current source tree. See [source provenance](../UPSTREAM.md) for the current import baseline. No commercial game image is included.
 
 ## Automated checks
 
