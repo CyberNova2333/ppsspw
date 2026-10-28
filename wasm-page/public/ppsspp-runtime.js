@@ -604,9 +604,11 @@ async function opfsPut(path, data) {
   await writeOpfsHandle(handle, data);
 }
 
-async function opfsRead(path) {
-  const { dir, name } = await opfsParent(path, false);
-  const handle = await dir.getFileHandle(name);
+async function opfsRead(path, handle) {
+  if (!handle) {
+    const { dir, name } = await opfsParent(path, false);
+    handle = await dir.getFileHandle(name);
+  }
   return new Uint8Array(await (await handle.getFile()).arrayBuffer());
 }
 
@@ -655,6 +657,24 @@ async function opfsWalk(base = OPFS_PERSIST_DIR, prefix = "", includeData = true
       files.push(entry);
     }
   }
+  return files;
+}
+
+async function opfsRestoreEntries() {
+  let dir;
+  try { dir = await opfsDir([OPFS_PERSIST_DIR], false); }
+  catch (error) { if (error.name === "NotFoundError") return []; throw error; }
+  const files = [];
+  // Restoration needs paths and fresh reads, not size snapshots. Keep handles
+  // only for this attempt, using enumerated directories instead of reopening them.
+  async function walk(directory, prefix) {
+    for await (const [name, handle] of directory.entries()) {
+      const relative = prefix ? prefix + "/" + name : name;
+      if (handle.kind === "directory") await walk(handle, relative);
+      else files.push({ path: "/" + relative, handle });
+    }
+  }
+  await walk(dir, "");
   return files;
 }
 
@@ -2056,14 +2076,14 @@ async function importSaveSlot(file) {
 async function loadPersistedFiles(FS) {
   try {
     await rollbackSaveMigration(FS);
-    const stored = await opfsWalk(OPFS_PERSIST_DIR, "", false);
+    const stored = await opfsRestoreEntries();
     if (!stored.length) { log("Persistence: no saved data in OPFS.", "dim"); return; }
     const { entries, skipped, skippedEntries } = selectPersistEntries(stored);
     // Read everything before changing either store. Starting with a partial
     // restore could let the game overwrite an unreadable but valid saved slot.
     const loaded = [];
     for (const entry of [...entries, ...skippedEntries]) {
-      loaded.push({ ...entry, data: await opfsRead(entry.sourcePath) });
+      loaded.push({ ...entry, data: await opfsRead(entry.sourcePath, entry.handle) });
     }
     const selected = loaded.slice(0, entries.length);
     const migrated = selected.filter(entry => entry.legacy);

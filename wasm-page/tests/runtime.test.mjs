@@ -24,7 +24,7 @@ function saveRestoreFixture(initial) {
   const copy = bytes => typeof bytes === 'string' ? bytes : new Uint8Array(bytes);
   const storage = new Map(initial.map(([path, bytes]) => [path, copy(bytes)]));
   const backups = new Map(), player = new Map(), live = new Map(), state = new Map();
-  const failures = {}, hooks = {}, reads = [], writes = [];
+  const failures = {}, hooks = {}, reads = [], writes = [], handles = new Map();
   const missing = () => Object.assign(new Error('missing'), { name: 'NotFoundError' });
   const directory = (map, type) => ({
     getFileHandle: async (name, { create = false } = {}) => {
@@ -50,11 +50,32 @@ function saveRestoreFixture(initial) {
     'archiveLegacyPersistFile', 'beginSaveMigration', 'rollbackSaveMigration', 'writeOpfsHandle'], {
     PERSIST_ROOTS: roots, OPFS_PERSIST_DIR: 'persist', _persistedFileState: state,
     opfsWalk: async () => [...storage.keys()].map(path => ({ path })),
-    opfsRead: async path => {
+    opfsRestoreEntries: async () => {
+      const entries = [...storage.keys()].map(path => {
+        const handle = {
+          kind: 'file',
+          getFile: async () => {
+            if (failures.getFile === path) throw Object.assign(new Error('file unavailable'), { name: failures.getFileError || 'NotFoundError' });
+            if (!storage.has(path)) throw missing();
+            const snapshot = copy(storage.get(path));
+            return { arrayBuffer: async () => {
+              if (failures.arrayBuffer === path) throw Object.assign(new Error('file unreadable'), { name: 'NotReadableError' });
+              return snapshot.buffer;
+            } };
+          },
+        };
+        handles.set(path, handle);
+        return { path, handle };
+      });
+      await hooks.afterEnumeration?.();
+      return entries;
+    },
+    opfsRead: async (path, handle) => {
       if (failures.read === path) throw new Error('read denied');
       if (!storage.has(path)) throw missing();
-      const data = copy(storage.get(path));
-      reads.push({ path, data });
+      if (handle !== undefined) assert.equal(handle, handles.get(path), 'restore must preserve the enumerated handle for its source path');
+      const data = handle ? new Uint8Array(await (await handle.getFile()).arrayBuffer()) : copy(storage.get(path));
+      reads.push({ path, data, handle });
       return data;
     },
     opfsPut: async (path, bytes) => {
@@ -76,7 +97,92 @@ function saveRestoreFixture(initial) {
     },
     unlink: path => live.delete(path),
   };
-  return { roots, storage, backups, player, live, state, failures, hooks, reads, writes, restore: () => ctx.loadPersistedFiles(FS) };
+  return { roots, storage, backups, player, live, state, failures, hooks, reads, writes, handles, restore: () => ctx.loadPersistedFiles(FS) };
+}
+
+function restoreTreeFixture(initial) {
+  const files = new Map(initial.map(([path, data]) => [path, new Uint8Array(data)]));
+  const counters = { directoryLookups: 0, fileHandleLookups: 0, snapshots: 0, arrays: 0, parentLookups: 0 };
+  const failures = { directories: new Map(), iterations: new Map(), snapshots: new Map(), arrays: new Map() };
+  const directories = new Map();
+  const missing = () => Object.assign(new Error('missing'), { name: 'NotFoundError' });
+  function directory(path) {
+    if (directories.has(path)) return directories.get(path);
+    const children = new Map();
+    const handle = {
+      kind: 'directory', children,
+      getDirectoryHandle: async (name, options) => {
+        counters.directoryLookups++;
+        assert.notEqual(options?.create, true, 'restore must not create directories while scanning');
+        const full = path ? path + '/' + name : name;
+        if (failures.directories.has(full)) throw failures.directories.get(full);
+        const found = children.get(name);
+        if (found?.kind !== 'directory') throw missing();
+        return found;
+      },
+      getFileHandle: async name => {
+        counters.fileHandleLookups++;
+        const found = children.get(name);
+        if (found?.kind !== 'file') throw missing();
+        return found;
+      },
+      entries: async function* () {
+        let yielded = 0;
+        for (const entry of children) {
+          const failure = failures.iterations.get(path);
+          if (failure && yielded === failure.after) throw failure.error;
+          yield entry;
+          yielded++;
+        }
+        const failure = failures.iterations.get(path);
+        if (failure && yielded === failure.after) throw failure.error;
+      },
+    };
+    directories.set(path, handle);
+    return handle;
+  }
+  const root = directory('');
+  const persist = directory('persist');
+  root.children.set('persist', persist);
+  for (const path of files.keys()) {
+    const parts = ['persist', ...path.split('/').filter(Boolean)];
+    const name = parts.pop();
+    let parent = root, prefix = '';
+    for (const part of parts) {
+      prefix = prefix ? prefix + '/' + part : part;
+      const child = directory(prefix);
+      parent.children.set(part, child);
+      parent = child;
+    }
+    parent.children.set(name, {
+      kind: 'file',
+      getFile: async () => {
+        counters.snapshots++;
+        if (failures.snapshots.has(path)) throw failures.snapshots.get(path);
+        if (!files.has(path)) throw missing();
+        const snapshot = new Uint8Array(files.get(path));
+        return { size: snapshot.byteLength, arrayBuffer: async () => {
+          counters.arrays++;
+          if (failures.arrays.has(path)) throw failures.arrays.get(path);
+          return snapshot.buffer;
+        } };
+      },
+    });
+  }
+  async function opfsDir(parts, create) {
+    let handle = root;
+    for (const part of parts) handle = await handle.getDirectoryHandle(part, { create });
+    return handle;
+  }
+  const ctx = load(['opfsRestoreEntries', 'opfsRead', 'opfsWalk', 'opfsPathParts'], {
+    OPFS_PERSIST_DIR: 'persist', opfsRoot: async () => root, opfsDir,
+    opfsParent: async (path, create) => {
+      counters.parentLookups++;
+      const parts = path.split('/').filter(Boolean), name = parts.pop();
+      return { dir: await opfsDir(['persist', ...parts], create), name };
+    },
+  });
+  return { ctx, root, files, counters, failures };
 }
 
 test('mobile keyboard preserves portrait height and tracks the visible viewport while opening and closing', () => {
@@ -1213,6 +1319,132 @@ test('audio pump keeps clock-based lookahead without overproducing and tolerates
   assert.equal(calls, beforePause);
   shim.disconnect();
   assert.equal(timers.size, 0);
+});
+
+test('restore scanning reuses enumerated directory handles without requesting file snapshots', async () => {
+  const paths = ['/home/web_user/.config/ppsspp/PSP/SAVEDATA/A/DATA.BIN', '/home/web_user/.config/ppsspp/PSP/SYSTEM/controls.ini'];
+  const fixture = restoreTreeFixture(paths.map(path => [path, new Uint8Array([1, 2])]));
+  const entries = await fixture.ctx.opfsRestoreEntries();
+  assert.deepEqual(Array.from(entries, entry => entry.path).sort(), paths.slice().sort());
+  assert.ok(entries.every(entry => entry.handle.kind === 'file'));
+  assert.equal(fixture.counters.directoryLookups, 1, 'only the persist root needs lookup');
+  assert.equal(fixture.counters.fileHandleLookups, 0);
+  assert.equal(fixture.counters.snapshots, 0);
+  assert.equal(fixture.counters.arrays, 0);
+});
+
+test('restore handle reads take a fresh snapshot without resolving the source path again', async () => {
+  const path = '/home/web_user/.config/ppsspp/PSP/SAVEDATA/A/DATA.BIN';
+  const fixture = restoreTreeFixture([[path, new Uint8Array([1])]]);
+  const [entry] = await fixture.ctx.opfsRestoreEntries();
+  fixture.files.set(path, new Uint8Array([7, 8, 9]));
+  const data = await fixture.ctx.opfsRead(entry.path, entry.handle);
+  assert.deepEqual(data, new Uint8Array([7, 8, 9]));
+  assert.equal(fixture.counters.directoryLookups, 1);
+  assert.equal(fixture.counters.parentLookups, 0);
+  assert.equal(fixture.counters.fileHandleLookups, 0);
+  assert.equal(fixture.counters.snapshots, 1);
+  assert.equal(fixture.counters.arrays, 1);
+});
+
+test('OPFS reads without a supplied handle retain path lookup behavior', async () => {
+  const path = '/home/web_user/.config/ppsspp/PSP/SAVEDATA/A/DATA.BIN';
+  const fixture = restoreTreeFixture([[path, new Uint8Array([3, 4])]]);
+  assert.deepEqual(await fixture.ctx.opfsRead(path), new Uint8Array([3, 4]));
+  assert.equal(fixture.counters.parentLookups, 1);
+  assert.equal(fixture.counters.fileHandleLookups, 1);
+  assert.equal(fixture.counters.snapshots, 1);
+  assert.equal(fixture.counters.arrays, 1);
+});
+
+test('restore scanning accepts a missing persist root but propagates permission failures', async () => {
+  const empty = restoreTreeFixture([]);
+  empty.root.children.delete('persist');
+  assert.equal((await empty.ctx.opfsRestoreEntries()).length, 0);
+  const denied = Object.assign(new Error('storage denied'), { name: 'NotAllowedError' });
+  const fixture = restoreTreeFixture([]);
+  fixture.failures.directories.set('persist', denied);
+  await assert.rejects(fixture.ctx.opfsRestoreEntries(), error => error === denied);
+});
+
+test('restore scanning rejects enumeration errors after yielding a partial subtree', async () => {
+  const path = '/home/web_user/.config/ppsspp/PSP/SAVEDATA/A/DATA.BIN';
+  for (const name of ['NotFoundError', 'NotAllowedError']) {
+    const fixture = restoreTreeFixture([[path, new Uint8Array([1])]]);
+    const error = Object.assign(new Error('enumeration interrupted'), { name });
+    fixture.failures.iterations.set('persist', { after: 1, error });
+    await assert.rejects(fixture.ctx.opfsRestoreEntries(), result => result === error);
+    assert.equal(fixture.counters.snapshots, 0);
+  }
+});
+
+test('failed handle snapshots and reads propagate without retrying path lookup', async () => {
+  const path = '/home/web_user/.config/ppsspp/PSP/SAVEDATA/A/DATA.BIN';
+  for (const [phase, name] of [['snapshots', 'NotFoundError'], ['snapshots', 'NotAllowedError'], ['arrays', 'NotReadableError']]) {
+    const fixture = restoreTreeFixture([[path, new Uint8Array([1])]]);
+    const [entry] = await fixture.ctx.opfsRestoreEntries();
+    const error = Object.assign(new Error('file unavailable'), { name });
+    fixture.failures[phase].set(path, error);
+    await assert.rejects(fixture.ctx.opfsRead(entry.path, entry.handle), result => result === error);
+    assert.equal(fixture.counters.parentLookups, 0);
+    assert.equal(fixture.counters.fileHandleLookups, 0);
+  }
+});
+
+test('general OPFS metadata walking still returns file sizes without reading content', async () => {
+  const first = '/home/web_user/.config/ppsspp/PSP/SAVEDATA/A/DATA.BIN';
+  const second = '/home/web_user/.config/ppsspp/PSP/SYSTEM/controls.ini';
+  const fixture = restoreTreeFixture([[first, new Uint8Array([1])], [second, new Uint8Array([2, 3, 4])]]);
+  const entries = await fixture.ctx.opfsWalk('persist', '', false);
+  assert.deepEqual(Array.from(entries, ({ path, size }) => ({ path, size })).sort((a, b) => a.path.localeCompare(b.path)),
+    [{ path: first, size: 1 }, { path: second, size: 3 }]);
+  assert.ok(entries.every(entry => !('data' in entry)));
+  assert.equal(fixture.counters.snapshots, 2);
+  assert.equal(fixture.counters.arrays, 0);
+});
+
+test('startup restore preserves handles through conflict selection and reads current file snapshots', async () => {
+  const current = '/home/web_user/.config/ppsspp/PSP/SAVEDATA/A/DATA.BIN';
+  const conflicting = '/root/.config/ppsspp/PSP/SAVEDATA/A/DATA.BIN';
+  const migrated = '/root/.config/ppsspp/PSP/SAVEDATA/B/DATA.BIN';
+  const fixture = saveRestoreFixture([[current, new Uint8Array([1])], [conflicting, new Uint8Array([2])], [migrated, new Uint8Array([3])]]);
+  fixture.hooks.afterEnumeration = async () => fixture.storage.set(current, new Uint8Array([9]));
+  await fixture.restore();
+  assert.equal(fixture.reads.length, 3, 'conflicting legacy files must still be read for archival');
+  assert.ok(fixture.reads.every(entry => entry.handle && entry.handle === fixture.handles.get(entry.path)));
+  assert.equal(fixture.live.get(current)[0], 9);
+  assert.equal(fixture.backups.get(conflicting)[0], 2);
+  assert.equal(fixture.backups.get(migrated)[0], 3);
+});
+
+test('startup stops before writing when restore enumeration fails with partial results', async () => {
+  const path = '/home/web_user/.config/ppsspp/PSP/SAVEDATA/A/DATA.BIN';
+  const fixture = saveRestoreFixture([[path, new Uint8Array([1])]]);
+  fixture.hooks.afterEnumeration = async () => { throw Object.assign(new Error('enumeration interrupted'), { name: 'NotAllowedError' }); };
+  await assert.rejects(fixture.restore(), { name: 'SaveRestoreError' });
+  assert.equal(fixture.writes.length, 0);
+  assert.equal(fixture.player.size, 0);
+  assert.equal(fixture.backups.size, 0);
+  assert.equal(fixture.state.size, 0);
+  assert.deepEqual(fixture.storage.get(path), new Uint8Array([1]));
+});
+
+test('unavailable enumerated files stop startup before any migration or live write', async () => {
+  const current = '/home/web_user/.config/ppsspp/PSP/SAVEDATA/A/DATA.BIN';
+  const legacy = '/root/.config/ppsspp/PSP/SAVEDATA/B/DATA.BIN';
+  for (const [phase, name] of [['getFile', 'NotFoundError'], ['getFile', 'NotAllowedError'], ['arrayBuffer', 'NotReadableError']]) {
+    const fixture = saveRestoreFixture([[current, new Uint8Array([1])], [legacy, new Uint8Array([2])]]);
+    fixture.failures[phase] = legacy;
+    fixture.failures.getFileError = name;
+    await assert.rejects(fixture.restore(), { name: 'SaveRestoreError' });
+    assert.equal(fixture.writes.length, 0);
+    assert.equal(fixture.live.size, 0);
+    assert.equal(fixture.player.size, 0);
+    assert.equal(fixture.backups.size, 0);
+    assert.equal(fixture.state.size, 0);
+    assert.deepEqual(fixture.storage.get(current), new Uint8Array([1]));
+    assert.deepEqual(fixture.storage.get(legacy), new Uint8Array([2]));
+  }
 });
 
 test('current-root restore transfers its read buffer to MEMFS without sharing durable storage', async () => {
