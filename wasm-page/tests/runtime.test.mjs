@@ -21,8 +21,10 @@ const availableStartupCapabilities = () => ({ webgl2: true, simd: true, crossOri
 
 function saveRestoreFixture(initial) {
   const roots = ['/home/web_user/.config/ppsspp', '/root/.config/ppsspp'];
-  const storage = new Map(initial), backups = new Map(), player = new Map(), live = new Map(), state = new Map();
-  const failures = {};
+  const copy = bytes => typeof bytes === 'string' ? bytes : new Uint8Array(bytes);
+  const storage = new Map(initial.map(([path, bytes]) => [path, copy(bytes)]));
+  const backups = new Map(), player = new Map(), live = new Map(), state = new Map();
+  const failures = {}, hooks = {}, reads = [], writes = [];
   const missing = () => Object.assign(new Error('missing'), { name: 'NotFoundError' });
   const directory = (map, type) => ({
     getFileHandle: async (name, { create = false } = {}) => {
@@ -32,7 +34,11 @@ function saveRestoreFixture(initial) {
         createWritable: async () => {
           let pending;
           return {
-            write: async bytes => { if (failures.backup && type === 'backup') throw new Error('backup quota'); pending = bytes; },
+            write: async bytes => {
+              if (failures.backup && type === 'backup') throw new Error('backup quota');
+              if (type === 'backup') await hooks.beforeBackup?.(name);
+              pending = copy(bytes);
+            },
             close: async () => map.set(name, pending), abort: async () => {},
           };
         },
@@ -44,11 +50,17 @@ function saveRestoreFixture(initial) {
     'archiveLegacyPersistFile', 'beginSaveMigration', 'rollbackSaveMigration', 'writeOpfsHandle'], {
     PERSIST_ROOTS: roots, OPFS_PERSIST_DIR: 'persist', _persistedFileState: state,
     opfsWalk: async () => [...storage.keys()].map(path => ({ path })),
-    opfsRead: async path => { if (failures.read === path) throw new Error('read denied'); if (!storage.has(path)) throw missing(); return storage.get(path); },
+    opfsRead: async path => {
+      if (failures.read === path) throw new Error('read denied');
+      if (!storage.has(path)) throw missing();
+      const data = copy(storage.get(path));
+      reads.push({ path, data });
+      return data;
+    },
     opfsPut: async (path, bytes) => {
       if (!storage.has(path)) storage.set(path, new Uint8Array());
       if (failures.write === path) throw new Error('write quota');
-      storage.set(path, bytes);
+      storage.set(path, copy(bytes));
     },
     opfsDelete: async path => { if (failures.remove === path) throw new Error('remove denied'); if (!storage.delete(path)) throw missing(); },
     opfsDir: async () => directory(player, 'player'),
@@ -56,8 +68,15 @@ function saveRestoreFixture(initial) {
     fsMkdirP() {}, log() {}, showToast() {},
     fsStatDir: () => new Map([...live].map(([path, data]) => [path, { size: data.length, mtime: 1 }])),
   }, 'let _detectedMemstick;');
-  const FS = { writeFile: (path, data) => live.set(path, data), unlink: path => live.delete(path) };
-  return { roots, storage, backups, player, live, state, failures, restore: () => ctx.loadPersistedFiles(FS) };
+  const FS = {
+    writeFile: (path, data, options = {}) => {
+      writes.push({ path, data, options });
+      if (failures.liveWrite === path) { live.set(path, new Uint8Array()); throw new Error('MEMFS write failed'); }
+      live.set(path, options.canOwn ? data : copy(data));
+    },
+    unlink: path => live.delete(path),
+  };
+  return { roots, storage, backups, player, live, state, failures, hooks, reads, writes, restore: () => ctx.loadPersistedFiles(FS) };
 }
 
 test('mobile keyboard preserves portrait height and tracks the visible viewport while opening and closing', () => {
@@ -1196,6 +1215,45 @@ test('audio pump keeps clock-based lookahead without overproducing and tolerates
   assert.equal(timers.size, 0);
 });
 
+test('current-root restore transfers its read buffer to MEMFS without sharing durable storage', async () => {
+  const path = '/home/web_user/.config/ppsspp/PSP/PPSSPP_STATE/TEST_0.ppst';
+  const original = new Uint8Array([1, 2, 3, 4]);
+  const fixture = saveRestoreFixture([[path, original]]);
+  await fixture.restore();
+  assert.equal(fixture.writes[0].options.canOwn, true);
+  assert.equal(fixture.live.get(path), fixture.reads[0].data, 'MEMFS may own the fresh OPFS read allocation');
+  assert.notEqual(fixture.live.get(path).buffer, fixture.storage.get(path).buffer);
+  fixture.live.get(path)[0] = 99;
+  assert.deepEqual(fixture.storage.get(path), original);
+  fixture.live.clear();
+  await fixture.restore();
+  assert.deepEqual(fixture.live.get(path), original, 'a later startup still reads the durable bytes');
+});
+
+test('legacy restore keeps archive bytes independent while the live file changes', async () => {
+  const legacy = '/root/.config/ppsspp/PSP/SAVEDATA/A/DATA.BIN';
+  const current = '/home/web_user/.config/ppsspp/PSP/SAVEDATA/A/DATA.BIN';
+  const original = new Uint8Array([7, 8]);
+  const fixture = saveRestoreFixture([[legacy, original]]);
+  fixture.hooks.beforeBackup = async () => {
+    fixture.live.get(current)[0] = 99;
+    await Promise.resolve();
+  };
+  await fixture.restore();
+  assert.notEqual(fixture.writes[0].options.canOwn, true);
+  assert.notEqual(fixture.live.get(current).buffer, fixture.reads[0].data.buffer);
+  assert.deepEqual(fixture.backups.get(legacy), original);
+  assert.deepEqual(fixture.storage.get(current), original);
+  assert.equal(fixture.live.get(current)[0], 99);
+  fixture.live.get(current)[1] = 100;
+  assert.deepEqual(fixture.backups.get(legacy), original, 'committed backup must not alias live memory');
+  assert.deepEqual(fixture.storage.get(current), original);
+  assert.equal(fixture.storage.has(legacy), false);
+  fixture.live.clear();
+  await fixture.restore();
+  assert.deepEqual(fixture.live.get(current), original);
+});
+
 test('legacy-root restore migrates complete missing slots and never mixes with current-root slots', async () => {
   const roots = ['/home/web_user/.config/ppsspp', '/root/.config/ppsspp'];
   const currentSlot = roots[0] + '/PSP/SAVEDATA/TEST00001A/';
@@ -1240,6 +1298,64 @@ test('unreadable current-root saves stop startup before any migration or live wr
   assert.equal(fixture.backups.size, 0);
   assert.equal(fixture.storage.size, 2);
   assert.equal(fixture.state.size, 0);
+});
+
+test('an unreadable conflicting legacy file blocks all writes after reading the selected files', async () => {
+  const current = '/home/web_user/.config/ppsspp/PSP/SAVEDATA/A/DATA.BIN';
+  const conflicting = '/root/.config/ppsspp/PSP/SAVEDATA/A/DATA.BIN';
+  const missingSlot = '/root/.config/ppsspp/PSP/SAVEDATA/B/DATA.BIN';
+  const fixture = saveRestoreFixture([
+    [current, new Uint8Array([1])], [conflicting, new Uint8Array([2])], [missingSlot, new Uint8Array([3])],
+  ]);
+  fixture.failures.read = conflicting;
+  await assert.rejects(fixture.restore(), { name: 'SaveRestoreError' });
+  assert.deepEqual(fixture.reads.map(entry => entry.path), [current, missingSlot]);
+  assert.equal(fixture.writes.length, 0);
+  assert.equal(fixture.live.size, 0);
+  assert.equal(fixture.backups.size, 0);
+  assert.equal(fixture.storage.size, 3);
+  assert.equal(fixture.player.size, 0);
+  assert.equal(fixture.state.size, 0);
+});
+
+test('a current-root MEMFS write failure preserves durable files and can retry startup', async () => {
+  const root = '/home/web_user/.config/ppsspp/PSP/SAVEDATA/A/';
+  const fixture = saveRestoreFixture([
+    [root + 'PARAM.SFO', new Uint8Array([1])], [root + 'DATA.BIN', new Uint8Array([2])],
+  ]);
+  fixture.failures.liveWrite = root + 'DATA.BIN';
+  await assert.rejects(fixture.restore(), { name: 'SaveRestoreError' });
+  fixture.live.get(root + 'PARAM.SFO')[0] = 99;
+  assert.deepEqual(fixture.storage.get(root + 'PARAM.SFO'), new Uint8Array([1]));
+  assert.deepEqual(fixture.storage.get(root + 'DATA.BIN'), new Uint8Array([2]));
+  assert.equal(fixture.backups.size, 0);
+  assert.equal(fixture.player.size, 0);
+  assert.equal(fixture.state.size, 0);
+  delete fixture.failures.liveWrite;
+  fixture.live.clear();
+  await fixture.restore();
+  assert.deepEqual(fixture.live.get(root + 'PARAM.SFO'), new Uint8Array([1]));
+  assert.deepEqual(fixture.live.get(root + 'DATA.BIN'), new Uint8Array([2]));
+  assert.equal(fixture.state.size, 2);
+});
+
+test('a migrated MEMFS write failure rolls back durable and live targets before retry', async () => {
+  const legacy = '/root/.config/ppsspp/PSP/SAVEDATA/A/';
+  const current = '/home/web_user/.config/ppsspp/PSP/SAVEDATA/A/';
+  const fixture = saveRestoreFixture([
+    [legacy + 'PARAM.SFO', new Uint8Array([1])], [legacy + 'DATA.BIN', new Uint8Array([2])],
+  ]);
+  fixture.failures.liveWrite = current + 'DATA.BIN';
+  await assert.rejects(fixture.restore(), { name: 'SaveRestoreError' });
+  assert.deepEqual([...fixture.storage.keys()], [legacy + 'PARAM.SFO', legacy + 'DATA.BIN']);
+  assert.equal(fixture.live.size, 0);
+  assert.equal(fixture.backups.size, 0);
+  assert.equal(fixture.player.size, 0);
+  assert.equal(fixture.state.size, 0);
+  delete fixture.failures.liveWrite;
+  await fixture.restore();
+  assert.deepEqual([...fixture.live.keys()], [current + 'PARAM.SFO', current + 'DATA.BIN']);
+  assert.equal(fixture.backups.size, 2);
 });
 
 test('failed migration rolls back a partial slot, including an empty failed-write target', async () => {

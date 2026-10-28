@@ -2072,10 +2072,14 @@ async function loadPersistedFiles(FS) {
       // Journal only absent canonical targets. If rollback itself fails, the
       // next startup retries it before conflict selection can see a half slot.
       if (migrated.length) journal = await beginSaveMigration(migrated.map(entry => entry.path));
-      for (const { path, data, legacy } of selected) {
+      for (const entry of selected) {
+        const { path, data, legacy } = entry;
         if (legacy) await opfsPut(path, data);
         fsMkdirP(FS, path.substring(0, path.lastIndexOf("/")));
-        FS.writeFile(path, data);
+        // OPFS reads have private buffers. Keep legacy snapshots independent
+        // of live writes until their asynchronous archive has committed.
+        FS.writeFile(path, data, { canOwn: !legacy });
+        if (!legacy) entry.data = null;
       }
       // Removing the journal commits the complete canonical copy. Only then
       // may legacy sources be archived and removed from the active save store.
@@ -2089,8 +2093,11 @@ async function loadPersistedFiles(FS) {
     }
     // Failure here must also block startup: otherwise the user could delete a
     // slot during play and its unarchived legacy copy would return next time.
-    for (const { sourcePath, data, legacy } of loaded) {
-      if (legacy) await archiveLegacyPersistFile(sourcePath, data);
+    for (const entry of loaded) {
+      if (entry.legacy) {
+        await archiveLegacyPersistFile(entry.sourcePath, entry.data);
+        entry.data = null;
+      }
     }
     log("Persistence: restored " + selected.length + "/" + entries.length + " files from OPFS.", "ok");
     if (skipped) log("Persistence: kept current-root saves over " + skipped + " legacy-root files.", "info");
