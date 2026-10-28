@@ -23,6 +23,8 @@
 
 浏览器性能诊断在仿真帧边界发布只读原子快照，提供真实时间归一的帧率与速度，网页按需采样并使用有界记录。音频泵检查间隔依据本地对照调整为 8 ms，缓冲和仿真节拍保持不变；方法与验证范围见 [性能测量](docs/browser-performance.md)。
 
+网页核心使用随附 ZSTD 库加载即时存档时，常规路径以最多 1 MiB 的输入块解压到完整输出，减少压缩输入与输出同时存在时的临时分配。仅遇到流式接口特有的窗口上限错误时，释放流式存储并重新定位，交给原解压路径验证；该兼容回退、系统库和其他压缩格式仍可能分配完整压缩输入。存档格式与写入方式保持兼容，生产加载路径的合成数据差分测试见 `scripts/test-state-zstd-input.py`。
+
 ## GPLv3 与第三方声明
 
 PPSSPP 核心的 `Core/Core.cpp` 等文件及网页 `wasm-page/public/ppsspp-runtime.js` 的许可头明确允许 GPL 第 2 版或任何后续版本。本项目选择按 GPLv3 条款发布组合程序，并保留原作者声明和 [上游许可文本](LICENSE.TXT)。GPL-2.0-only 与 GPL-2.0-or-later 的含义不同，此选择依据后者；参见 [GNU 的版本兼容说明](https://www.gnu.org/licenses/gpl-faq.en.html#v2v3Compatibility)。

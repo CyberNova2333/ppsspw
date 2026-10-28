@@ -15,10 +15,19 @@
 // Official SVN repository and contact information can be found at
 // http://code.google.com/p/dolphin-emu/
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <snappy-c.h>
+#if defined(__EMSCRIPTEN__) && defined(PPSSPP_BUNDLED_ZSTD)
+// Only the parameter enum is experimental; all functions used below are public.
+#define ZSTD_STATIC_LINKING_ONLY
+#endif
 #include <zstd.h>
+#if defined(__EMSCRIPTEN__) && defined(PPSSPP_BUNDLED_ZSTD)
+#include <zstd_errors.h>
+#endif
 
 #include "Common/Serialize/Serializer.h"
 #include "Common/Serialize/SerializeFuncs.h"
@@ -32,6 +41,43 @@ enum class SerializeCompressType {
 };
 
 static constexpr SerializeCompressType SAVE_TYPE = SerializeCompressType::ZSTD;
+
+#if defined(__EMSCRIPTEN__) && defined(PPSSPP_BUNDLED_ZSTD) && defined(ZSTD_d_stableOutBuffer)
+enum class ZstdReadResult { COMPLETE, FAILED, WINDOW_TOO_LARGE };
+
+static ZstdReadResult ReadZstdChunks(File::IOFile &file, ZSTD_DCtx *ctx, size_t compressedSize, u8 *output, size_t outputSize) {
+	if (compressedSize == 0)
+		return outputSize == 0 ? ZstdReadResult::COMPLETE : ZstdReadResult::FAILED;
+
+	// A whole compressed state otherwise remains live alongside the full output.
+	// Keep reads large enough to amortize the browser's filesystem proxy calls.
+	const size_t inputSize = std::min(compressedSize, size_t{1024 * 1024});
+	std::unique_ptr<u8[]> input(new u8[inputSize]);
+	ZSTD_outBuffer out{output, outputSize, 0};
+	size_t remaining = compressedSize;
+	size_t result = 1;
+	while (remaining != 0) {
+		const size_t count = std::min(remaining, inputSize);
+		if (!file.ReadBytes(input.get(), count))
+			return ZstdReadResult::FAILED;
+		remaining -= count;
+		ZSTD_inBuffer in{input.get(), count, 0};
+		while (in.pos != in.size) {
+			const size_t previousInput = in.pos;
+			const size_t previousOutput = out.pos;
+			result = ZSTD_decompressStream(ctx, &out, &in);
+			if (ZSTD_isError(result)) {
+				return ZSTD_getErrorCode(result) == ZSTD_error_frameParameter_windowTooLarge ?
+					ZstdReadResult::WINDOW_TOO_LARGE : ZstdReadResult::FAILED;
+			}
+			if (in.pos == previousInput && out.pos == previousOutput)
+				return ZstdReadResult::FAILED;
+		}
+	}
+	// Consume concatenated and skippable frames too, as the one-shot decoder does.
+	return result == 0 && out.pos == outputSize ? ZstdReadResult::COMPLETE : ZstdReadResult::FAILED;
+}
+#endif
 
 void PointerWrap::RewindForWrite(u8 *writePtr) {
 	_assert_(mode == MODE_MEASURE);
@@ -358,6 +404,40 @@ CChunkFileReader::Error CChunkFileReader::LoadFile(const Path &filename, std::st
 	if (err != ERROR_NONE) {
 		return err;
 	}
+
+#if defined(__EMSCRIPTEN__) && defined(PPSSPP_BUNDLED_ZSTD) && defined(ZSTD_d_stableOutBuffer)
+	if (SerializeCompressType(header.Compress) == SerializeCompressType::ZSTD && ZSTD_versionNumber() == ZSTD_VERSION_NUMBER) {
+		bool retryOriginal = false;
+		const u64 payloadOffset = pFile.Tell();
+		{
+			std::unique_ptr<ZSTD_DCtx, decltype(&ZSTD_freeDCtx)> ctx(payloadOffset == u64(-1) ? nullptr : ZSTD_createDCtx(), ZSTD_freeDCtx);
+			// Unsupported parameters keep the original path without reading input.
+			if (ctx && !ZSTD_isError(ZSTD_DCtx_setParameter(ctx.get(), ZSTD_d_stableOutBuffer, 1)) &&
+				!ZSTD_isError(ZSTD_DCtx_setParameter(ctx.get(), ZSTD_d_windowLogMax, ZSTD_WINDOWLOG_MAX))) {
+				std::unique_ptr<u8[]> output(new u8[header.UncompressedSize]);
+				const ZstdReadResult result = ReadZstdChunks(pFile, ctx.get(), header.ExpectedSize, output.get(), header.UncompressedSize);
+				if (result == ZstdReadResult::COMPLETE) {
+					_buffer = output.release();
+					sz = header.UncompressedSize;
+					*gitVersion = header.GitVersion[31] ? std::string(header.GitVersion, 32) : std::string(header.GitVersion);
+					return ERROR_NONE;
+				}
+				if (result != ZstdReadResult::WINDOW_TOO_LARGE) {
+					ERROR_LOG(Log::SaveState, "ChunkReader: Failed to read or decompress file");
+					return ERROR_BAD_FILE;
+				}
+				// Streaming caps the window at a power of two, but one-shot decoding
+				// also accepts larger windows with the maximum exponent's mantissa.
+				// Release all streaming storage before retrying this precise boundary.
+				retryOriginal = true;
+			}
+		}
+		if (retryOriginal && !pFile.Seek(payloadOffset, SEEK_SET)) {
+			ERROR_LOG(Log::SaveState, "ChunkReader: Failed to rewind file");
+			return ERROR_BAD_FILE;
+		}
+	}
+#endif
 
 	// read the state
 	sz = header.ExpectedSize;
