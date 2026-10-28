@@ -10,12 +10,19 @@ import shutil
 
 def diagnostic_metadata(cache_text, javascript):
     """Detect profiling builds even when a prebuilt bundle has no CMake cache."""
-    values = re.findall(r'^WASM_IR_BLOCK_PROFILE:[^=\r\n]+=(.*)$', cache_text, re.MULTILINE)
     false_values = {'', '0', 'OFF', 'NO', 'FALSE', 'N', 'IGNORE', 'NOTFOUND'}
-    cache_enabled = any(value.strip().upper() not in false_values and
-                        not value.strip().upper().endswith('-NOTFOUND') for value in values)
-    exports = ('ppssppRequestIRBlockProfile', 'ppssppGetIRBlockProfileMetric')
-    return {'irBlockProfile': cache_enabled or any(name in javascript for name in exports)}
+    features = {
+        'irBlockProfile': ('WASM_IR_BLOCK_PROFILE',
+                           ('ppssppRequestIRBlockProfile', 'ppssppGetIRBlockProfileMetric')),
+        'frameTiming': ('WASM_FRAME_TIMING', ('ppssppRequestFrameTiming', 'ppssppGetFrameTimingMetric')),
+    }
+    result = {}
+    for field, (option, exports) in features.items():
+        values = re.findall(rf'^{option}:[^=\r\n]+=(.*)$', cache_text, re.MULTILINE)
+        cache_enabled = any(value.strip().upper() not in false_values and
+                            not value.strip().upper().endswith('-NOTFOUND') for value in values)
+        result[field] = cache_enabled or any(name in javascript for name in exports)
+    return result
 
 
 def resource_metadata(cache_text, source_fingerprint=None):
@@ -82,8 +89,11 @@ def main():
     javascript = '\n'.join((source / name).read_text(encoding='utf-8', errors='replace')
                            for name in names if name.endswith('.js'))
     diagnostics = diagnostic_metadata(cache_text, javascript)
-    if diagnostics['irBlockProfile'] and not args.allow_diagnostics:
-        parser.error('IR block profiling artifacts require --allow-diagnostics for local testing')
+    if not args.allow_diagnostics:
+        if diagnostics['irBlockProfile']:
+            parser.error('IR block profiling artifacts require --allow-diagnostics for local testing')
+        if diagnostics['frameTiming']:
+            parser.error('Frame timing diagnostic artifacts require --allow-diagnostics for local testing')
     try:
         resources = resource_metadata(cache_text, args.source_fingerprint)
     except ValueError as error:
