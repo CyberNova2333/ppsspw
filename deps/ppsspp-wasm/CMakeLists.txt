@@ -2740,6 +2740,11 @@ else()
 	add_subdirectory(ext/zstd-build)
 	list(APPEND CoreExtraLibs libzstd_static)
 	include_directories(ext/zstd/lib)
+	if(EMSCRIPTEN)
+		# Serializer.cpp belongs to Common. System libraries may support legacy
+		# frames that cannot use ZSTD's stable-output streaming contract.
+		target_compile_definitions(Common PRIVATE PPSSPP_BUNDLED_ZSTD)
+	endif()
 endif()
 
 if(USE_SYSTEM_LIBCHDR)
