@@ -88,17 +88,37 @@ test('snapshots separate capacity from heap and reject absent or torn core snaps
 
 test('snapshot settings keep only known numeric/boolean performance values', () => {
   const env = environment();
-  const ini = '[General]\nForceLagSync2 = True\n[CPU]\nCPUCore=3\nFastMemory=False\n[Graphics]\nInternalResolution=2\nFrameSkip=2<script>\nDisplayRefreshRate=59.94\nCustomShader=private/path\n[PostShaderList]\n0=private/shader\n[Sound]\nEnable=True\nAudioLatency=Infinity\n[Network]\nAddress=private-host';
+  const ini = '[General]\nForceLagSync2 = True\nPauseOnLostFocus=True\nPauseWhenMinimized=False\n[CPU]\nCPUCore=3\nFastMemory=False\n[Graphics]\nInternalResolution=2\nFrameSkip=2<script>\nDisplayRefreshRate=59.94\nCustomShader=private/path\n[PostShaderList]\n0=private/shader\n[Sound]\nEnable=True\nAudioLatency=Infinity\n[Network]\nEnableWlan=False\nAddress=private-host';
   env.context.Module = { FS: { stat: () => ({ size: ini.length }), readFile: () => new TextEncoder().encode(ini) } };
   env.context.PERSIST_ROOTS = ['/config']; env.context.BUILD_STAMP = 'unverified-string';
   env.context.PpssppBrowserFiles = { stats: () => ({ readCount: 2, lastError: { path: 'private-file', message: 'private-detail' } }) };
   const snapshot = env.call(pageSnapshot), serialized = JSON.stringify(snapshot);
   assert.doesNotMatch(serialized, /private|unverified|<script>|Infinity/);
   assert.equal(snapshot.settings.persistedIni[0].General.ForceLagSync2, true);
+  assert.equal(snapshot.settings.persistedIni[0].General.PauseOnLostFocus, true);
+  assert.equal(snapshot.settings.persistedIni[0].General.PauseWhenMinimized, false);
+  assert.equal(snapshot.settings.persistedIni[0].Network.EnableWlan, false);
   assert.equal(snapshot.settings.persistedIni[0].CPU.FastMemory, false);
   assert.equal(snapshot.settings.persistedIni[0].Graphics.DisplayRefreshRate, 59.94);
   assert.equal(snapshot.settings.persistedIni[0].Graphics.FrameSkip, undefined);
   assert.equal(snapshot.buildStamp, undefined); assert.equal(snapshot.gameReads.hasReadError, true);
+});
+
+test('snapshots read actual scheduler numbers without assuming RAF value means milliseconds', () => {
+  const env = environment();
+  assert.equal(env.call(pageSnapshot).mainLoopTiming, null);
+  for (const [mode, value] of [[0, 16], [0, 4], [1, 1], [1, 2], [2, 0]]) {
+    env.context.MainLoop = { timingMode: mode, timingValue: value, scheduler: 'private-detail' };
+    const snapshot = env.call(pageSnapshot);
+    assert.deepEqual({ ...snapshot.mainLoopTiming }, { mode, value });
+    assert.doesNotMatch(JSON.stringify(snapshot), /private-detail/);
+  }
+  for (const [mode, value] of [[3, 1], [0, -1], [1, 1.5], [0, Infinity], [0, Number.MAX_SAFE_INTEGER + 1]]) {
+    env.context.MainLoop = { timingMode: mode, timingValue: value };
+    assert.equal(env.call(pageSnapshot).mainLoopTiming, null);
+  }
+  Object.defineProperty(env.context, 'MainLoop', { get() { throw new Error('unavailable'); } });
+  assert.equal(env.call(pageSnapshot).mainLoopTiming, null);
 });
 
 test('schema 2 snapshots read one consistent native resource payload and allowlist build metadata', () => {
