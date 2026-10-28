@@ -118,6 +118,31 @@ node scripts/extract-trace-profiles.mjs \
 
 Tracing 的采样间隔由浏览器实现控制，报告因此记为 `null`，不能当作普通 Profiler 的 1,000 微秒。当前 [V8 实现](https://raw.githubusercontent.com/v8/v8/main/src/profiler/tracing-cpu-profiler.cc) 使用更高频的内部采样，但这不是所有浏览器版本的固定承诺。调用依据是 [CDP Tracing 协议](https://chromedevtools.github.io/devtools-protocol/tot/Tracing/)。热点比例包含等待、调度及采样开销，帧率与音频基线仍必须另用 `--no-profile` 采集。
 
+## CPU 侧换帧提交间隔
+
+每秒的核心快照不能还原逐帧间隔，页面 RAF 也不等于游戏帧。需要排查长间隔时，可在已有、经过源码核验的本地 Release 配置上开启独立诊断，其他参数保持不变：
+
+```sh
+emcmake cmake -S deps/ppsspp-wasm -B deps/ppsspp-wasm/build-wasm-release \
+  -DWASM_FRAME_TIMING=ON -DWASM_IR_BLOCK_PROFILE=OFF
+cmake --build deps/ppsspp-wasm/build-wasm-release -j4
+python3 scripts/package-player.py --allow-diagnostics
+
+# 专用调试浏览器进入固定场景后；URL 替换为实际完整播放器地址。
+node scripts/profile-frame-timing.mjs --port 9222 --seconds 60 \
+  --target http://localhost:8000/ --out .local/submitted-frames.json
+```
+
+仍须保留实际源码摘要、全部构建配置和产物摘要，并按前述方法将核验后的摘要传给打包器。此开关默认关闭；关闭时不编译记录模块、不插入记录调用，也不导出两个诊断接口。打包器检查 CMake 标记和实际 JavaScript 导出，默认拒绝诊断包，即使提供 `--expected-revision` 也不能绕过；本地显式放行后，`build-info.json` 的 `diagnostics.frameTiming` 标为 `true`。
+
+记录点位于 OpenGL 渲染任务的 `swapFunction_()` 返回后，覆盖常规及队列排空路径；跳过 swap 或没有回调时不记。每次捕获最多保存 8,192 个微秒时间戳，渲染路径不分配内存、不加锁。开始和停止请求在下一个实际提交边界确认，两个边界都保留；脚本最多请求 120 秒，每次确认最多等待 10 秒，输出采用排他创建。
+
+报告保存原始时间戳，按相邻完整间隔计算 p50／p95／p99、最大值及严格大于 25／50／100／250 毫秒的次数。间隔频率为 `(count - 1) / 原生首尾时长`，不会把长间隔拆成假想的缺失帧。它是 **CPU 侧 swap 提交完成间隔**，包含生产者等待、调度、排队及驱动调用；不是 CPU 工作耗时、GPU 执行时间、屏幕物理呈现或游戏掉帧数。
+
+页面观察先于原生开始请求安装，覆盖捕获全过程。容量溢出、时钟不递增、渲染上下文变化、切后台、核心快照过期或暂停、捕获被替换等情况保留无效或失败证据，不输出有效的提交间隔分布。原生时钟与浏览器 trace 没有校准，不能直接对齐横轴；页面 RAF、核心计数差分与原生提交窗口也不完全相同，计数不可直接相减。诊断本身存在开销，普通版本的 FPS 和音频回归仍单独关闭诊断采集。
+
+如果开始请求已接受，但一直没有提交边界确认，当前原生接口不能取消该 pending 请求。脚本会明确记录 `failed` 与 `cleanupFailed`；释放页面采集器不代表原生请求已取消。重新捕获前应重新加载诊断播放器。结束实验后，重新配置 `-DWASM_FRAME_TIMING=OFF`、编译并正常打包，确认 `diagnostics.frameTiming` 为 `false`。
+
 ## 内存和线程的独立对照
 
 默认仍为 512 MiB 初始容量、4 GiB 上限、2 个计算线程；ThreadManager 另建 4 个 I/O 线程。默认预建 Worker 数沿用 `max(4, hardwareConcurrency)`。计算线程数与预建池是两个参数，不能用浏览器 Worker 总数推断 CPU 并行度。
@@ -471,4 +496,7 @@ python3 scripts/test-wasm-performance.py
 # C++17 编译器；直接编译生产计数模块并验证缓存与并发边界。
 python3 scripts/test-ir-block-profile.py
 node --test wasm-page/tests/profile-ir-blocks.mjs
+# C++17 编译器；验证真实提交记录模块及并发、确认和失败边界。
+python3 scripts/test-wasm-frame-timing.py
+node --test wasm-page/tests/profile-frame-timing.mjs
 ```

@@ -335,6 +335,11 @@ include_directories(ext/glew)
 if(EMSCRIPTEN)
 	option(WASM_ADHOC_TESTS "Export the protocol-level socket integration probe" OFF)
 	option(WASM_IR_BLOCK_PROFILE "Export bounded IR block counters for local diagnostics only" OFF)
+	option(WASM_FRAME_TIMING "Export bounded CPU-side swap timestamps for local diagnostics only" OFF)
+	if(WASM_FRAME_TIMING)
+		set_property(SOURCE Common/GPU/OpenGL/GLRenderManager.cpp Common/GPU/WasmFrameTiming.cpp APPEND PROPERTY
+			COMPILE_DEFINITIONS PPSSPP_WASM_FRAME_TIMING=1)
+	endif()
 	if(WASM_IR_BLOCK_PROFILE)
 		set_property(SOURCE Core/MIPS/IR/IRJit.cpp SDL/WasmPerformance.cpp APPEND PROPERTY
 			COMPILE_DEFINITIONS PPSSPP_WASM_IR_BLOCK_PROFILE=1)
@@ -1056,6 +1061,10 @@ add_library(Common STATIC
 	Common/TimeUtil.cpp
 	Common/TimeUtil.h
 )
+
+if(EMSCRIPTEN AND WASM_FRAME_TIMING)
+	target_sources(Common PRIVATE Common/GPU/WasmFrameTiming.cpp)
+endif()
 
 if(LIBRETRO)
 	target_include_directories(Common PRIVATE libretro/libretro-common/include)

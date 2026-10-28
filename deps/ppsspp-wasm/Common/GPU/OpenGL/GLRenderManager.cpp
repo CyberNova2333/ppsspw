@@ -5,6 +5,9 @@
 #include "GLRenderManager.h"
 #include "Common/GPU/OpenGL/GLFeatures.h"
 #include "Common/GPU/thin3d.h"
+#ifdef PPSSPP_WASM_FRAME_TIMING
+#include "Common/GPU/WasmFrameTiming.h"
+#endif
 #include "Common/Thread/ThreadUtil.h"
 #include "Common/VR/PPSSPPVR.h"
 
@@ -41,11 +44,17 @@ GLRTexture::~GLRTexture() {
 }
 
 GLRenderManager::GLRenderManager(HistoryBuffer<FrameTimeData, FRAME_TIME_HISTORY_LENGTH> &frameTimeHistory) : frameTimeHistory_(frameTimeHistory) {
+#ifdef PPSSPP_WASM_FRAME_TIMING
+	WasmFrameTiming::ContextChanged();
+#endif
 	// size_t sz = sizeof(GLRRenderData);
 	// _dbg_assert_(sz == 88);
 }
 
 GLRenderManager::~GLRenderManager() {
+#ifdef PPSSPP_WASM_FRAME_TIMING
+	WasmFrameTiming::ContextChanged();
+#endif
 	_dbg_assert_(!runCompileThread_);
 
 	for (int i = 0; i < MAX_INFLIGHT_FRAMES; i++) {
@@ -58,6 +67,9 @@ GLRenderManager::~GLRenderManager() {
 }
 
 void GLRenderManager::ThreadStart(Draw::DrawContext *draw) {
+#ifdef PPSSPP_WASM_FRAME_TIMING
+	WasmFrameTiming::ContextChanged();
+#endif
 	queueRunner_.CreateDeviceObjects();
 	renderThreadId = std::this_thread::get_id();
 
@@ -102,6 +114,9 @@ void GLRenderManager::ThreadStart(Draw::DrawContext *draw) {
 }
 
 void GLRenderManager::ThreadEnd() {
+#ifdef PPSSPP_WASM_FRAME_TIMING
+	WasmFrameTiming::ContextChanged();
+#endif
 	INFO_LOG(Log::G3D, "GLRenderManager::ThreadEnd begin");
 
 	runCompileThread_ = false;
@@ -496,6 +511,9 @@ bool GLRenderManager::Run(GLRRenderThreadTask &task) {
 			if (swapFunction_) {
 				VLOG("  PULL: SwapFunction()");
 				swapFunction_();
+#ifdef PPSSPP_WASM_FRAME_TIMING
+				WasmFrameTiming::Submit(time_now_d());
+#endif
 			}
 			swapRequest = true;
 		} else {
