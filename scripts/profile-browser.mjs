@@ -73,13 +73,14 @@ export function pageSnapshot() {
   const canvas = document.querySelector('canvas'), rect = canvas?.getBoundingClientRect(), heap = performance.memory;
   const context = m?.SDL2?.audioContext, configs = [], fs = m?.FS || globalThis.FS;
   const allowedSettings = {
-    General: ['ForceLagSync2'],
+    General: ['ForceLagSync2', 'PauseOnLostFocus', 'PauseWhenMinimized'],
     CPU: ['CPUCore', 'FastMemory', 'IgnoreBadMemAccess', 'SeparateSASThread'],
     Graphics: ['RenderingMode', 'InternalResolution', 'FrameSkip', 'FrameSkipType', 'AutoFrameSkip',
       'HardwareTransform', 'SoftwareSkinning', 'VertexCache', 'HardwareTessellation', 'TexScalingLevel',
       'TexScalingType', 'TextureFiltering', 'AnisotropyLevel', 'DisplayRefreshRate', 'FrameRate', 'FrameRate2',
       'VerticalSync', 'LowLatencyPresent', 'SkipGPUReadbacks', 'DisableSlowFramebufEffects'],
     Sound: ['Enable', 'EnableSound', 'AudioLatency', 'AudioResampler'],
+    Network: ['EnableWlan'],
   };
   function setting(result, section, key, raw) {
     if (!allowedSettings[section]?.includes(key)) return;
@@ -114,12 +115,16 @@ export function pageSnapshot() {
   } : null;
   const capacityObservations = exported?.capacityObservations ? Object.fromEntries(
     ['firstBytes', 'peakBytes', 'increases', 'increaseBytes'].map(key => [key, finite(exported.capacityObservations[key])])) : null;
+  const mainLoopTiming = safe(() => {
+    const mode = globalThis.MainLoop?.timingMode, value = globalThis.MainLoop?.timingValue;
+    return [0, 1, 2].includes(mode) && Number.isSafeInteger(value) && value >= 0 ? { mode, value } : null;
+  });
   return {
     timestampMs: performance.now(), timeOriginMs: performance.timeOrigin,
     ready: typeof runtimeReady !== 'undefined' && runtimeReady, failed: typeof runtimeFailed !== 'undefined' && runtimeFailed,
     visibility: document.visibilityState,
     coreRevision: typeof BUILD_STAMP !== 'undefined' && /^[a-f0-9]{64}$/.test(String(BUILD_STAMP)) ? BUILD_STAMP : null,
-    build, resources, capacityObservations,
+    build, resources, capacityObservations, mainLoopTiming,
     browser: { userAgent: navigator.userAgent, platform: navigator.platform, brands: safe(() => navigator.userAgentData.toJSON()) },
     hardware: { concurrency: finite(navigator.hardwareConcurrency), deviceMemoryGB: finite(navigator.deviceMemory), maxTouchPoints: finite(navigator.maxTouchPoints) },
     viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio, screenWidth: screen.width, screenHeight: screen.height,
