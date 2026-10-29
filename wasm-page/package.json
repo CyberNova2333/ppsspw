@@ -17,6 +17,7 @@
     "@angular/compiler": "22.2.3",
     "@angular/core": "22.2.3",
     "@angular/platform-browser": "22.2.3",
+    "animejs": "4.5.0",
     "jsqr": "^1.4.0",
     "lucide": "1.59.0",
     "qrcode": "^1.5.4",
