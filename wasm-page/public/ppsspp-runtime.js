@@ -1391,9 +1391,9 @@ async function ensureGameMetadata(name) {
 function gameAccent(name) {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  const hue = hash % 360;
+
   const hue2 = (hue + 42) % 360;
-  return `linear-gradient(135deg, hsl(${hue} 42% 28%), hsl(${hue2} 50% 13%) 58%, #080a0c)`;
+  return '#0a4a8a';
 }
 
 async function refreshLibrary() {
