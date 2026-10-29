@@ -1,6 +1,7 @@
-import { afterNextRender, ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { afterNextRender, ChangeDetectionStrategy, Component, DestroyRef, inject } from '@angular/core';
 
 import { PpssppRuntime } from './ppsspp-runtime';
+import { mountInterfaceMotion } from './interface-motion';
 
 @Component({
   selector: 'app-root',
@@ -9,9 +10,11 @@ import { PpssppRuntime } from './ppsspp-runtime';
 })
 export class AppComponent {
   private readonly runtime = inject(PpssppRuntime);
+  private readonly destroyRef = inject(DestroyRef);
 
   constructor() {
     afterNextRender(() => {
+      this.destroyRef.onDestroy(mountInterfaceMotion());
       void this.runtime.bootstrap().catch((error: unknown) => {
         console.error(error);
         const recovery = document.getElementById('runtimeRecovery');
