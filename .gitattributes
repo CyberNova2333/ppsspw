@@ -6,3 +6,9 @@ configure text eol=lf
 *.pl text eol=lf
 *.mjs text eol=lf
 /wasm-page/package-lock.json text eol=lf
+
+# Portable repository maintenance hooks
+tools/repo_maintenance_guard.py text eol=lf
+tools/repo_maintenance_hooks/pre-commit text eol=lf
+tools/repo_maintenance_hooks/commit-msg text eol=lf
+tools/repo_maintenance_hooks/pre-push text eol=lf

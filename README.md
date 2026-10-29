@@ -1,5 +1,7 @@
 # PPSSPW · PSP 网页模拟器
 
+**简体中文** | [English](README.en.md)
+
 **PPSSPW** 全称为 **P**layStation **P**ortable **S**imulator **S**uitable for **P**laying on the **W**eb，是基于 PPSSPP WebAssembly 的中文浏览器客户端，属于非官方修改版本。
 
 网页、模拟器核心及其递归依赖的源码直接保存在本仓库，便于独立维护；不需要拉取上游或应用补丁才能构建。
@@ -84,3 +86,17 @@ node --test scripts/profile-browser.test.mjs
 ## 许可
 
 本项目按 [GPLv3](LICENSE) 发布。引入的 PPSSPP 核心和网页运行时声明为 GPL-2.0-or-later，可选择 GPLv3 条款分发；所有第三方源码保留原有版权与许可声明，详见 [UPSTREAM.md](UPSTREAM.md) 和各组件的许可文件。游戏本体与素材不由本项目许可证授权。
+
+## 源码阅读与文档站
+
+从[中文阅读路径](repo-docs/README.md)进入[一次真实主流程](repo-docs/walkthroughs/one-real-run.md)，再查[代码地图](repo-docs/code-map.md)与[源码证据](repo-docs/references/source-evidence.md)。指南明确限定覆盖范围，不把未运行的测试写成通过。
+
+文档站采用 VitePress 默认主题，依赖与业务项目分开安装。默认输出 `docs-site/.vitepress/dist/`；独立核验可在构建命令后加 `-- --outDir <仓库外绝对目录>`。指南正文只维护 `repo-docs/`，站点通过 include 读取；网页中的仓库源码链接显示为精确文件路径，不复制源码或本机资源。
+
+```sh
+npm --prefix docs-site ci
+npm --prefix docs-site run docs:dev -- --host 127.0.0.1
+npm --prefix docs-site run docs:build
+```
+
+文档站采用 VitePress 默认主题；默认输出 `docs-site/.vitepress/dist/`，独立验证使用 `-- --outDir <仓库外绝对目录>`。指南正文由 repo-docs include 引入，源码链接在网页中显示为精确路径。
