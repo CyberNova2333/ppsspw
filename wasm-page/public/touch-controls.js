@@ -47,11 +47,17 @@
     }
     return {
       gamepad,
-      setButtons(source, names) {
+      setButtons(source, names, { replaceImmediately = false } = {}) {
         const indices = new Set(names.map(name => BUTTONS[name]).filter(Number.isInteger));
+        const released = replaceImmediately ? new Set() : false;
+        // A drag is continuous input: do not keep the old direction alive as a quick tap.
+        // Other fingers (including their pending taps) still own their buttons.
+        if (replaceImmediately) owners.forEach((sources, i) => {
+          if (!indices.has(i) && sources.delete(source) && !sources.size) released.add(i);
+        });
         indices.forEach(i => owners[i].add(source));
         buttons.set(source, indices);
-        update();
+        update(released);
       },
       setAxes(source, x, y) {
         const length = Math.max(1, Math.hypot(x, y));
@@ -71,12 +77,24 @@
     };
   }
 
-  function dpadButtons(x, y) {
+  function dpadButtons(x, y, previous = []) {
     if (Math.hypot(x, y) < 0.2) return [];
     const names = [];
-    if (Math.abs(x) >= Math.abs(y) * 0.4142) names.push(x < 0 ? 'left' : 'right');
-    if (Math.abs(y) >= Math.abs(x) * 0.4142) names.push(y < 0 ? 'up' : 'down');
+    const horizontal = x < 0 ? 'left' : 'right';
+    const vertical = y < 0 ? 'up' : 'down';
+    // A small angular hysteresis prevents a resting thumb flickering between sectors.
+    const threshold = name => !previous.length ? 0.4142 : previous.includes(name) ? 0.3346 : 0.4986;
+    if (Math.abs(x) >= Math.abs(y) * threshold(horizontal)) names.push(horizontal);
+    if (Math.abs(y) >= Math.abs(x) * threshold(vertical)) names.push(vertical);
     return names;
+  }
+
+  function stickAxes(x, y) {
+    const distance = Math.hypot(x, y);
+    const deadZone = 0.12;
+    if (distance <= deadZone) return [0, 0];
+    const magnitude = Math.min(1, (distance - deadZone) / (1 - deadZone));
+    return [x / distance * magnitude, y / distance * magnitude];
   }
 
   function mount({ element, canvas, state, onInteraction = () => canvas.focus({ preventScroll: true }) }) {
@@ -86,7 +104,13 @@
     const listeners = [];
     const pulses = new Set();
     const stick = element.querySelector('[data-pad-stick]');
+    const buttons = [...element.querySelectorAll('[data-pad-button]')];
+    const geometryTargets = [element, canvas, stick, ...element.querySelectorAll('[data-pad-dpad]'), ...buttons]
+      .filter(target => typeof target?.getBoundingClientRect === 'function');
     let enabled = false;
+    let destroyed = false;
+    let geometry = [];
+    let stickRadius = 0;
     let stickPointer = null;
     let lastPointerTime = -Infinity;
 
@@ -95,14 +119,13 @@
       listeners.push(() => target.removeEventListener(type, listener, options));
     }
     function render() {
-      element.querySelectorAll('[data-pad-button]').forEach(button => {
+      buttons.forEach(button => {
         const pressed = state.gamepad.buttons[BUTTONS[button.dataset.padButton]].pressed;
         button.classList.toggle('is-pressed', pressed);
         button.setAttribute('aria-pressed', String(pressed));
       });
-      const radius = stick.getBoundingClientRect().width * 0.3;
-      stick.style.setProperty('--stick-x', `${state.gamepad.axes[0] * radius}px`);
-      stick.style.setProperty('--stick-y', `${state.gamepad.axes[1] * radius}px`);
+      stick.style.setProperty('--stick-x', `${state.gamepad.axes[0] * stickRadius}px`);
+      stick.style.setProperty('--stick-y', `${state.gamepad.axes[1] * stickRadius}px`);
       stick.classList.toggle('is-pressed', stickPointer !== null);
     }
     function releasePointer(id, immediate = false) {
@@ -121,18 +144,37 @@
       state.reset();
       render();
     }
+    function refreshGeometry() {
+      if (destroyed) return;
+      // Measure on layout changes or a fresh touch, never on every pointermove.
+      const next = geometryTargets.flatMap(target => {
+        const rect = target.getBoundingClientRect();
+        if (target === stick) stickRadius = Math.min(rect.width, rect.height) * 0.3;
+        return [rect.left, rect.top, rect.width, rect.height];
+      });
+      // Pinch zoom, viewport panning and display-density changes can change
+      // pointer coordinates even when the element's layout box stays the same.
+      next.push(window.devicePixelRatio || 1, window.visualViewport?.scale || 1,
+        window.visualViewport?.offsetLeft || 0, window.visualViewport?.offsetTop || 0);
+      const changed = geometry.length > 0 && next.some((value, i) => value !== geometry[i]);
+      geometry = next;
+      if (changed) reset();
+    }
+    const layoutChanged = () => refreshGeometry();
     function move(event, pointer) {
       if (pointer.kind === 'button') {
         const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-pad-button]');
-        state.setButtons(event.pointerId, target && element.contains(target) ? [target.dataset.padButton] : []);
+        state.setButtons(event.pointerId, target && element.contains(target) ? [target.dataset.padButton] : [],
+          { replaceImmediately: true });
         return;
       }
-      const rect = pointer.control.getBoundingClientRect();
-      const radius = Math.min(rect.width, rect.height) * (pointer.kind === 'stick' ? 0.3 : 0.5);
-      const x = (event.clientX - rect.left - rect.width / 2) / radius;
-      const y = (event.clientY - rect.top - rect.height / 2) / radius;
-      if (pointer.kind === 'stick') state.setAxes(event.pointerId, x, y);
-      else state.setButtons(event.pointerId, dpadButtons(x, y));
+      const x = (event.clientX - pointer.originX) / pointer.radius;
+      const y = (event.clientY - pointer.originY) / pointer.radius;
+      if (pointer.kind === 'stick') state.setAxes(event.pointerId, ...stickAxes(x, y));
+      else {
+        pointer.directions = dpadButtons(x, y, pointer.directions);
+        state.setButtons(event.pointerId, pointer.directions, { replaceImmediately: true });
+      }
     }
     listen(element, 'pointerdown', event => {
       if (!enabled || (event.pointerType === 'mouse' && event.button !== 0)) return;
@@ -142,8 +184,17 @@
       const kind = control.hasAttribute('data-pad-stick') ? 'stick' : dpad ? 'dpad' : 'button';
       event.preventDefault();
       event.stopPropagation();
+      refreshGeometry();
       if (kind === 'stick' && stickPointer !== null) return;
       const pointer = { control: dpad || control, kind };
+      if (kind !== 'button') {
+        const rect = pointer.control.getBoundingClientRect();
+        pointer.radius = Math.max(1, Math.min(rect.width, rect.height) * (kind === 'stick' ? 0.3 : 0.5));
+        // Anchor at this finger's landing point, so an off-centre touch starts neutral.
+        pointer.originX = kind === 'stick' ? event.clientX : rect.left + rect.width / 2;
+        pointer.originY = kind === 'stick' ? event.clientY : rect.top + rect.height / 2;
+        pointer.directions = [];
+      }
       pointers.set(event.pointerId, pointer);
       if (kind === 'stick') stickPointer = event.pointerId;
       lastPointerTime = window.performance.now();
@@ -183,21 +234,35 @@
     listen(element, 'contextmenu', event => event.preventDefault());
     listen(window, 'blur', reset);
     listen(window, 'pagehide', reset);
-    listen(window, 'resize', reset);
-    listen(window, 'orientationchange', reset);
+    listen(window, 'resize', layoutChanged);
+    listen(window, 'orientationchange', layoutChanged);
+    listen(document, 'scroll', layoutChanged, { capture: true, passive: true });
+    listen(document, 'fullscreenchange', layoutChanged);
+    listen(document, 'ppsspp-player-layout', layoutChanged);
+    if (window.visualViewport) {
+      listen(window.visualViewport, 'resize', layoutChanged);
+      listen(window.visualViewport, 'scroll', layoutChanged, { passive: true });
+    }
+    if (typeof window.ResizeObserver === 'function') {
+      const observer = new window.ResizeObserver(() => refreshGeometry());
+      geometryTargets.forEach(target => observer.observe(target));
+      listeners.push(() => observer.disconnect());
+    }
     listen(document, 'visibilitychange', () => { if (document.hidden) reset(); });
     const unsubscribe = state.subscribe(render);
     element.hidden = true;
+    refreshGeometry();
     render();
     return {
       setEnabled(value) {
         enabled = Boolean(value);
         if (!enabled) reset();
         element.hidden = !enabled;
+        refreshGeometry();
         render();
       },
-      destroy() { enabled = false; reset(); element.hidden = true; unsubscribe(); listeners.forEach(remove => remove()); },
+      destroy() { destroyed = true; enabled = false; reset(); element.hidden = true; unsubscribe(); listeners.forEach(remove => remove()); },
     };
   }
-  root.PpssppTouchControls = Object.freeze({ BUTTONS, createState, dpadButtons, mount });
+  root.PpssppTouchControls = Object.freeze({ BUTTONS, createState, dpadButtons, stickAxes, mount });
 })(globalThis);
