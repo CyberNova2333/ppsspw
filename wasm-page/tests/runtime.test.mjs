@@ -19,6 +19,68 @@ function load(names, globals = {}, declarations = '') {
 
 const availableStartupCapabilities = () => ({ webgl2: true, simd: true, crossOriginIsolated: true, sharedArrayBuffer: true });
 
+function panelNavigationFixture() {
+  const names = ['library', 'online', 'settings', 'saves', 'storage', 'info', 'log', 'about'];
+  const calls = [];
+  function node(name) {
+    const classes = new Set(name === 'library' ? ['active'] : []);
+    return {
+      dataset: { tab: name }, hidden: name !== 'library', tabIndex: name === 'library' ? 0 : -1,
+      attributes: { 'aria-selected': String(name === 'library') },
+      classList: { toggle(key, enabled) { if (enabled) classes.add(key); else classes.delete(key); }, contains: key => classes.has(key) },
+      setAttribute(key, value) { this.attributes[key] = value; },
+      focus(options) { calls.push(['focus', name, options.preventScroll]); },
+      scrollIntoView(options) { calls.push(['reveal', name, options.block, options.inline]); },
+    };
+  }
+  const tabs = names.map(node), panels = names.map(node);
+  const byId = new Map(panels.map((panel, index) => ['tab' + names[index][0].toUpperCase() + names[index].slice(1), panel]));
+  const ctx = load(['activatePanelTab', 'onPanelTabKeyDown'], {
+    document: {
+      querySelectorAll: selector => selector === '#panelTabList .tab' ? tabs : selector === '#sidePanel .tab-panel' ? panels : [],
+      getElementById: id => byId.get(id),
+    },
+    refreshLibrary: () => calls.push(['library']), flushLog: () => calls.push(['flush']), renderLog: () => calls.push(['render']),
+  });
+  return { ctx, tabs, panels, calls };
+}
+
+test('panel navigation exposes only the selected panel and keeps programmatic changes from moving focus', () => {
+  const { ctx, tabs, panels, calls } = panelNavigationFixture();
+  ctx.activatePanelTab('settings');
+  assert.deepEqual(tabs.filter(tab => tab.tabIndex === 0).map(tab => tab.dataset.tab), ['settings']);
+  for (let index = 0; index < tabs.length; index++) {
+    const selected = tabs[index].dataset.tab === 'settings';
+    assert.equal(tabs[index].attributes['aria-selected'], String(selected));
+    assert.equal(tabs[index].classList.contains('active'), selected);
+    assert.equal(panels[index].hidden, !selected);
+    assert.equal(panels[index].classList.contains('active'), selected);
+  }
+  assert.deepEqual(calls, []);
+  ctx.activatePanelTab('missing');
+  assert.deepEqual(panels.filter(panel => !panel.hidden).map(panel => panel.dataset.tab), ['settings']);
+  ctx.activatePanelTab('log', true);
+  assert.deepEqual(calls, [['focus', 'log', true], ['reveal', 'log', 'nearest', 'nearest'], ['flush'], ['render']]);
+});
+
+test('panel keyboard navigation wraps, reveals the selected tab and preserves ordinary Tab and modified keys', () => {
+  const { ctx, tabs, calls } = panelNavigationFixture();
+  let prevented = 0;
+  const key = (name, value, options = {}) => ctx.onPanelTabKeyDown({ currentTarget: tabs.find(tab => tab.dataset.tab === name), key: value, preventDefault() { prevented++; }, ...options });
+  key('library', 'ArrowLeft');
+  assert.equal(tabs.at(-1).attributes['aria-selected'], 'true');
+  key('about', 'ArrowRight');
+  assert.equal(tabs[0].attributes['aria-selected'], 'true');
+  key('library', 'End');
+  key('about', 'Home');
+  assert.equal(prevented, 4);
+  assert.deepEqual(calls.filter(call => call[0] === 'focus').map(call => call[1]), ['about', 'library', 'about', 'library']);
+  key('library', 'Tab');
+  key('library', 'ArrowRight', { ctrlKey: true });
+  assert.equal(prevented, 4);
+  assert.equal(tabs[0].attributes['aria-selected'], 'true');
+});
+
 function saveRestoreFixture(initial) {
   const roots = ['/home/web_user/.config/ppsspp', '/root/.config/ppsspp'];
   const copy = bytes => typeof bytes === 'string' ? bytes : new Uint8Array(bytes);

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import '../public/touch-controls.js';
 
-const { BUTTONS, createState, dpadButtons } = globalThis.PpssppTouchControls;
+const { BUTTONS, createState, dpadButtons, stickAxes, mount } = globalThis.PpssppTouchControls;
 
 function fakeClock() {
   let time = 1000, nextId = 0;
@@ -111,6 +111,39 @@ test('a quick tap remains readable for a frame and releases at the hold deadline
   clock.advance(1);
   assertHeld(state, []);
   assert.equal(clock.pending, 0);
+});
+
+test('dragging across opposite directions replaces the old direction without a latched overlap', () => {
+  const { clock, state } = fixture();
+  state.setButtons('drag', ['up']);
+  clock.advance(8);
+  state.setButtons('drag', ['down'], { replaceImmediately: true });
+  assertHeld(state, ['down']);
+  assert.equal(clock.pending, 0);
+  state.setButtons('drag', [], { replaceImmediately: true });
+  assertHeld(state, []);
+  state.setButtons('drag', ['right'], { replaceImmediately: true });
+  clock.advance(8);
+  state.release('drag');
+  assertHeld(state, ['right'], 'lifting a quick tap still preserves the sampling window');
+  clock.advance(52);
+  assertHeld(state, []);
+});
+
+test('drag replacement preserves another finger and its pending quick tap on the old direction', () => {
+  const { clock, state } = fixture();
+  state.setButtons('drag', ['up']);
+  state.setButtons('other', ['up']);
+  clock.advance(8);
+  state.setButtons('drag', ['right'], { replaceImmediately: true });
+  assertHeld(state, ['up', 'right']);
+  state.release('other');
+  state.setButtons('drag', ['down'], { replaceImmediately: true });
+  assertHeld(state, ['up', 'down']);
+  clock.advance(52);
+  assertHeld(state, ['down']);
+  state.release('drag', { immediate: true });
+  assertHeld(state, []);
 });
 
 test('re-pressing a pending button cancels its old release while another finger holds it', () => {
@@ -237,6 +270,36 @@ test('direction pad has a radial dead zone and recognizes all four diagonals', (
   ]) assert.deepEqual(dpadButtons(x, y).sort(), expected.sort(), `direction at ${x}, ${y}`);
 });
 
+test('a direction drag holds its sector across minor boundary jitter and switches on deliberate movement', () => {
+  let held = ['right'];
+  for (const y of [0.4, 0.43, 0.41, 0.48]) {
+    held = dpadButtons(1, y, held);
+    assert.deepEqual(held, ['right']);
+  }
+  held = dpadButtons(1, 0.6, held);
+  assert.deepEqual(held, ['right', 'down']);
+  for (const y of [0.43, 0.41, 0.36]) {
+    held = dpadButtons(1, y, held);
+    assert.deepEqual(held, ['right', 'down']);
+  }
+  assert.deepEqual(dpadButtons(1, 0.3, held), ['right']);
+  assert.deepEqual(dpadButtons(0, 0, held), []);
+  assert.deepEqual(dpadButtons(-1, 0, held), ['left']);
+});
+
+test('the stick has a small radial dead zone with continuous response and a circular maximum', () => {
+  for (const [x, y] of [[0, 0], [0.1, 0], [-0.05, 0.08], [0, -0.12]]) {
+    assert.deepEqual(stickAxes(x, y), [0, 0]);
+  }
+  assert.ok(stickAxes(0.120001, 0)[0] < 0.00001, 'leaving the dead zone must not jump');
+  assert.ok(Math.abs(stickAxes(0.56, 0)[0] - 0.5) < 1e-12);
+  assert.deepEqual(stickAxes(3, 4), [0.6, 0.8]);
+  assert.deepEqual(stickAxes(-2, 0), [-1, 0]);
+  const diagonal = stickAxes(0.4, -0.4);
+  assert.equal(diagonal[0], -diagonal[1]);
+  assert.ok(Math.hypot(...diagonal) < 1);
+});
+
 test('subscriptions report state changes with monotonic timestamps and can unsubscribe', () => {
   const { state } = fixture();
   const snapshots = [];
@@ -253,4 +316,291 @@ test('subscriptions report state changes with monotonic timestamps and can unsub
   unsubscribe();
   state.reset();
   assert.equal(snapshots.length, 3);
+});
+
+function mountedFixture({ withLayoutObservers = true } = {}) {
+  const { clock, state } = fixture();
+  function eventTarget() {
+    const listeners = new Map();
+    return {
+      addEventListener(type, listener) {
+        if (!listeners.has(type)) listeners.set(type, new Set());
+        listeners.get(type).add(listener);
+      },
+      removeEventListener(type, listener) { listeners.get(type)?.delete(listener); },
+      fire(type, event = {}) {
+        for (const listener of listeners.get(type) || []) listener({
+          preventDefault() {}, stopPropagation() {}, ...event,
+        });
+      },
+    };
+  }
+  const window = { ...eventTarget(), performance: { now: clock.now },
+    setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout };
+  const resizeObservers = [];
+  if (withLayoutObservers) {
+    window.visualViewport = eventTarget();
+    window.ResizeObserver = class {
+      constructor(callback) { this.callback = callback; this.targets = new Set(); resizeObservers.push(this); }
+      observe(target) { this.targets.add(target); }
+      disconnect() { this.targets.clear(); }
+    };
+  }
+  const document = { ...eventTarget(), defaultView: window, hidden: false };
+  const nodes = [];
+  let geometryReads = 0;
+  function node(attributes, rect, parent = null) {
+    const captured = new Set();
+    const classes = new Set();
+    const style = new Map();
+    const element = {
+      ...eventTarget(), ownerDocument: document, parent, hidden: false,
+      dataset: { padButton: attributes['data-pad-button'] },
+      hasAttribute: name => Object.hasOwn(attributes, name),
+      setAttribute: (name, value) => { attributes[name] = value; },
+      getAttribute: name => attributes[name],
+      getBoundingClientRect: () => { geometryReads++; return rect; },
+      setRect: values => Object.assign(rect, values),
+      style: { setProperty: (name, value) => style.set(name, value) },
+      classList: { toggle: (name, value) => value ? classes.add(name) : classes.delete(name) },
+      hasPointerCapture: id => captured.has(id),
+      setPointerCapture: id => captured.add(id),
+      releasePointerCapture: id => captured.delete(id),
+      contains(child) {
+        for (let current = child; current; current = current.parent) if (current === this) return true;
+        return false;
+      },
+      matches(selector) { return selector.split(',').some(part => this.hasAttribute(part.trim().slice(1, -1))); },
+      closest(selector) {
+        for (let current = this; current; current = current.parent) if (current.matches(selector)) return current;
+        return null;
+      },
+      querySelectorAll(selector) { return nodes.filter(child => child !== this && this.contains(child) && child.matches(selector)); },
+      querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
+    };
+    nodes.push(element);
+    return element;
+  }
+  const canvas = node({}, { left: 0, top: 0, width: 500, height: 400 });
+  const element = node({}, { left: 0, top: 0, width: 500, height: 400 });
+  const dpad = node({ 'data-pad-dpad': '' }, { left: 0, top: 0, width: 120, height: 120 }, element);
+  const up = node({ 'data-pad-button': 'up' }, { left: 40, top: 0, width: 40, height: 40 }, dpad);
+  const down = node({ 'data-pad-button': 'down' }, { left: 40, top: 80, width: 40, height: 40 }, dpad);
+  const stick = node({ 'data-pad-stick': '' }, { left: 200, top: 200, width: 100, height: 100 }, element);
+  const circle = node({ 'data-pad-button': 'circle' }, { left: 350, top: 0, width: 50, height: 50 }, element);
+  const cross = node({ 'data-pad-button': 'cross' }, { left: 350, top: 60, width: 50, height: 50 }, element);
+  document.elementFromPoint = (x, y) => [...nodes].reverse().find(candidate => {
+    const rect = candidate.getBoundingClientRect();
+    return x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height;
+  });
+  let interactions = 0;
+  const controller = mount({ element, canvas, state, onInteraction: () => { interactions++; } });
+  controller.setEnabled(true);
+  return {
+    clock, state, element, canvas, stick, dpad, up, down, circle, cross, document, window, controller,
+    resizeObservers,
+    notifyResize() { resizeObservers.filter(observer => observer.targets.size).forEach(observer => observer.callback()); },
+    get geometryReads() { return geometryReads; },
+    get interactions() { return interactions; },
+    pointer(type, target, id, x, y) {
+      element.fire(type, { target, pointerId: id, pointerType: 'touch', clientX: x, clientY: y });
+    },
+  };
+}
+
+test('mounted stick anchors at the landing point, ignores jitter, supports another button and recentres on lift', () => {
+  const f = mountedFixture();
+  f.pointer('pointerdown', f.stick, 1, 280, 245);
+  assertAxes(f.state, 0, 0);
+  f.pointer('pointermove', f.stick, 1, 282, 246);
+  assertAxes(f.state, 0, 0);
+  f.pointer('pointerdown', f.circle, 2, 375, 25);
+  f.pointer('pointermove', f.stick, 1, 296.8, 245);
+  assertAxes(f.state, 0.5, 0);
+  assertHeld(f.state, ['circle']);
+  f.pointer('pointerdown', f.stick, 3, 215, 215);
+  f.pointer('pointermove', f.stick, 3, 200, 215);
+  assertAxes(f.state, 0.5, 0);
+  assert.equal(f.stick.hasPointerCapture(3), false, 'a second finger must not take over the stick');
+  f.pointer('pointerup', f.stick, 1, 296.8, 245);
+  assertAxes(f.state, 0, 0);
+  assertHeld(f.state, ['circle']);
+  assert.equal(f.stick.hasPointerCapture(1), false);
+  f.pointer('pointerdown', f.stick, 3, 215, 215);
+  assertAxes(f.state, 0, 0);
+  f.controller.destroy();
+  assertHeld(f.state, []);
+  assertAxes(f.state, 0, 0);
+  assert.equal(f.clock.pending, 0);
+});
+
+test('mounted direction changes do not overlap opposite buttons and cancellation clears the gesture immediately', () => {
+  const f = mountedFixture();
+  f.pointer('pointerdown', f.up, 1, 60, 20);
+  assertHeld(f.state, ['up']);
+  f.clock.advance(8);
+  f.pointer('pointermove', f.up, 1, 60, 100);
+  assertHeld(f.state, ['down']);
+  f.pointer('pointermove', f.up, 1, 60, 60);
+  assertHeld(f.state, []);
+  f.pointer('pointermove', f.up, 1, 100, 20);
+  assertHeld(f.state, ['up', 'right']);
+  f.pointer('pointercancel', f.up, 1, 100, 20);
+  assertHeld(f.state, []);
+  assert.equal(f.clock.pending, 0);
+  assert.equal(f.dpad.hasPointerCapture(1), false);
+  f.controller.destroy();
+});
+
+test('mounted controls release all pointers on blur, visibility loss, resize and disable', () => {
+  for (const stop of [f => f.window.fire('blur'), f => { f.canvas.setRect({ width: 450 }); f.window.fire('resize'); },
+    f => { f.document.hidden = true; f.document.fire('visibilitychange'); },
+    f => f.controller.setEnabled(false)]) {
+    const f = mountedFixture();
+    f.pointer('pointerdown', f.stick, 1, 250, 250);
+    f.pointer('pointermove', f.stick, 1, 280, 250);
+    f.pointer('pointerdown', f.up, 2, 60, 20);
+    f.pointer('pointerdown', f.circle, 3, 375, 25);
+    stop(f);
+    assertHeld(f.state, []);
+    assertAxes(f.state, 0, 0);
+    for (const [target, id] of [[f.stick, 1], [f.dpad, 2], [f.circle, 3]]) assert.equal(target.hasPointerCapture(id), false);
+    assert.equal(f.clock.pending, 0);
+    f.controller.destroy();
+  }
+});
+
+test('sliding between face buttons replaces only this finger, including when another finger holds the old button', () => {
+  const f = mountedFixture();
+  f.pointer('pointerdown', f.circle, 1, 375, 25);
+  f.clock.advance(8);
+  f.pointer('pointermove', f.circle, 1, 375, 85);
+  assertHeld(f.state, ['cross']);
+  f.pointer('pointerdown', f.cross, 2, 375, 85);
+  f.pointer('pointermove', f.circle, 1, 375, 25);
+  assertHeld(f.state, ['circle', 'cross']);
+  f.pointer('pointercancel', f.cross, 2, 375, 85);
+  assertHeld(f.state, ['circle']);
+  f.pointer('pointermove', f.circle, 1, 425, 150);
+  assertHeld(f.state, []);
+  assert.equal(f.clock.pending, 0);
+  f.controller.destroy();
+});
+
+test('viewport panning, resizing, scrolling and explicit player layout changes cancel captured gestures', () => {
+  for (const invalidate of [
+    f => { f.stick.setRect({ width: 80 }); f.window.visualViewport.fire('resize'); },
+    f => { f.window.visualViewport.offsetLeft = 40; f.window.visualViewport.fire('scroll'); },
+    f => { f.element.setRect({ top: -80 }); f.document.fire('scroll'); },
+    f => { f.canvas.setRect({ top: 0, width: 640 }); f.document.fire('fullscreenchange'); },
+    f => { f.dpad.setRect({ left: 30 }); f.document.fire('ppsspp-player-layout'); },
+    f => { f.element.setRect({ width: 400, height: 500 }); f.window.fire('orientationchange'); },
+  ]) {
+    const f = mountedFixture();
+    f.pointer('pointerdown', f.stick, 1, 250, 250);
+    f.pointer('pointermove', f.stick, 1, 280, 250);
+    f.pointer('pointerdown', f.circle, 2, 375, 25);
+    invalidate(f);
+    assertHeld(f.state, []);
+    assertAxes(f.state, 0, 0);
+    assert.equal(f.stick.hasPointerCapture(1), false);
+    assert.equal(f.circle.hasPointerCapture(2), false);
+    f.pointer('pointermove', f.stick, 1, 150, 150);
+    assertAxes(f.state, 0, 0, 'an old pointer must not resume after layout invalidation');
+    f.controller.destroy();
+  }
+});
+
+test('DPR and visual viewport transformations cancel gestures even when the CSS boxes have not moved', () => {
+  for (const change of [
+    f => { f.window.devicePixelRatio = 2; f.window.fire('resize'); },
+    f => { f.window.visualViewport.scale = 2; f.window.visualViewport.fire('resize'); },
+    f => { f.window.visualViewport.offsetTop = 70; f.window.visualViewport.fire('scroll'); },
+  ]) {
+    const f = mountedFixture();
+    f.pointer('pointerdown', f.up, 1, 60, 20);
+    f.pointer('pointerdown', f.stick, 2, 250, 250);
+    f.pointer('pointermove', f.stick, 2, 280, 250);
+    change(f);
+    assertHeld(f.state, []);
+    assertAxes(f.state, 0, 0);
+    assert.equal(f.dpad.hasPointerCapture(1), false);
+    assert.equal(f.stick.hasPointerCapture(2), false);
+    f.controller.destroy();
+  }
+});
+
+test('delayed runtime resize notifications do not swallow new touches after the geometry has settled', () => {
+  const f = mountedFixture();
+  f.pointer('pointerdown', f.up, 1, 60, 20);
+  f.stick.setRect({ left: 100, top: 50, width: 80, height: 80 });
+  f.window.fire('resize');
+  assertHeld(f.state, []);
+  // Re-touch immediately while the runtime still has delayed resize probes.
+  f.pointer('pointerdown', f.up, 2, 60, 20);
+  f.pointer('pointerdown', f.stick, 3, 130, 90);
+  f.pointer('pointermove', f.stick, 3, 154, 90);
+  for (const delay of [0, 60, 140, 300, 650]) f.clock.setTimeout(() => {
+    f.window.fire('resize');
+    f.document.fire('ppsspp-player-layout');
+  }, delay);
+  for (const interval of [0, 60, 80, 160, 350]) {
+    f.clock.advance(interval);
+    assertHeld(f.state, ['up']);
+    assertAxes(f.state, 1, 0);
+    assert.equal(f.dpad.hasPointerCapture(2), true);
+    assert.equal(f.stick.hasPointerCapture(3), true);
+  }
+  f.controller.destroy();
+  assert.equal(f.clock.pending, 0);
+});
+
+test('box changes cancel old geometry, while initial and unchanged observer notifications preserve input', () => {
+  for (const target of ['element', 'canvas', 'dpad', 'stick', 'circle']) {
+    const f = mountedFixture();
+    f.pointer('pointerdown', f.up, 1, 60, 20);
+    f.notifyResize();
+    assertHeld(f.state, ['up'], 'the first observer callback must not cancel a fresh touch');
+    f.notifyResize();
+    assertHeld(f.state, ['up']);
+    f[target].setRect({ width: 80 });
+    f.notifyResize();
+    assertHeld(f.state, []);
+    assert.equal(f.dpad.hasPointerCapture(1), false);
+    f.controller.destroy();
+    assert.ok(f.resizeObservers.every(observer => observer.targets.size === 0));
+  }
+});
+
+test('a new touch uses fresh folded-layout coordinates without measuring on each analog move', () => {
+  const f = mountedFixture();
+  f.pointer('pointerdown', f.stick, 1, 250, 250);
+  f.pointer('pointermove', f.stick, 1, 280, 250);
+  f.stick.setRect({ left: 100, top: 50, width: 80, height: 80 });
+  f.notifyResize();
+  assertAxes(f.state, 0, 0);
+  f.pointer('pointerdown', f.stick, 2, 130, 90);
+  assertAxes(f.state, 0, 0);
+  const readsBeforeMoves = f.geometryReads;
+  f.pointer('pointermove', f.stick, 2, 143.44, 90);
+  assertAxes(f.state, 0.5, 0);
+  f.pointer('pointermove', f.stick, 2, 154, 90);
+  assertAxes(f.state, 1, 0);
+  assert.equal(f.geometryReads, readsBeforeMoves, 'pointermove and visual feedback should use cached geometry');
+  f.controller.destroy();
+});
+
+test('layout cancellation works without optional viewport/observer APIs and destroy removes its listeners', () => {
+  const f = mountedFixture({ withLayoutObservers: false });
+  f.pointer('pointerdown', f.up, 1, 60, 20);
+  f.dpad.setRect({ left: 20 });
+  f.document.fire('ppsspp-player-layout');
+  assertHeld(f.state, []);
+  f.controller.destroy();
+  f.state.setButtons('external', ['cross']);
+  f.document.fire('ppsspp-player-layout');
+  f.document.fire('scroll');
+  f.window.fire('resize');
+  assertHeld(f.state, ['cross'], 'destroyed listeners must not modify shared state');
+  f.state.reset();
 });

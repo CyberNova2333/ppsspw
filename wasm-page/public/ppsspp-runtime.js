@@ -168,7 +168,8 @@ function isTextEntryActive() {
   const el = document.activeElement;
   if (!el) return false;
   const tag = el.tagName;
-  return el.isContentEditable || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  return el.isContentEditable || tag === "TEXTAREA"
+    || (tag === "INPUT" && /^(text|search|url|tel|email|password|number)$/.test(el.type || "text"));
 }
 
 function configureEmulatorKeyboard(env) {
@@ -209,12 +210,14 @@ function syncViewportSize(options = {}) {
   const visualHeight = Math.round(vv?.height || window.innerHeight || document.documentElement.clientHeight || 0);
   const layoutWidth = Math.round(window.innerWidth || document.documentElement.clientWidth || visualWidth);
   const layoutHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || visualHeight);
-  const width = activeFullscreen ? Math.max(1, layoutWidth || visualWidth) : Math.max(1, visualWidth || layoutWidth);
+  // CSS layout and pointer client coordinates stay in layout-viewport pixels.
+  // Pinch zoom changes the visual viewport, not the width of the application.
+  const width = Math.max(1, layoutWidth || visualWidth);
   // The keyboard can make a portrait visual viewport wider than it is tall.
   const orientation = window.screen?.orientation?.type?.split("-")[0]
     || viewportOrientation(layoutWidth, stableViewportHeight || layoutHeight);
   const orientationChanged = stableViewportOrientation && stableViewportOrientation !== orientation;
-  let widthChanged = !stableViewportWidth || Math.abs(width - stableViewportWidth) > 80;
+  let widthChanged = !stableViewportWidth || Math.abs(width - stableViewportWidth) > 1;
   if (reset || orientationChanged) {
     stableViewportWidth = 0;
     stableViewportHeight = 0;
@@ -222,21 +225,22 @@ function syncViewportSize(options = {}) {
   }
   stableViewportOrientation = orientation;
   const safeVisualHeight = Math.max(1, visualHeight || layoutHeight || 320);
-  const safeLayoutHeight = Math.max(320, layoutHeight || safeVisualHeight);
+  const safeLayoutHeight = Math.max(1, layoutHeight || safeVisualHeight);
 
   if (widthChanged) {
     stableViewportWidth = width;
     stableViewportHeight = Math.max(safeVisualHeight, safeLayoutHeight);
   }
 
-  const keyboardOpen = isTextEntryActive() && stableViewportHeight && safeVisualHeight < stableViewportHeight * 0.82;
+  const unzoomedVisualHeight = safeVisualHeight * Math.max(1, vv?.scale || 1);
+  const keyboardOpen = isTextEntryActive() && stableViewportHeight && unzoomedVisualHeight < stableViewportHeight * 0.82;
   if (!keyboardOpen) {
     stableViewportHeight = Math.max(safeVisualHeight, safeLayoutHeight);
   }
 
   document.body?.classList.toggle("keyboard-open", keyboardOpen);
   document.body?.classList.toggle("browser-fullscreen", activeFullscreen);
-  const appHeight = activeFullscreen ? Math.max(1, safeLayoutHeight || safeVisualHeight) : Math.max(320, stableViewportHeight || visualHeight);
+  const appHeight = activeFullscreen ? Math.max(1, safeLayoutHeight || safeVisualHeight) : Math.max(1, stableViewportHeight || safeVisualHeight);
   document.documentElement.style.setProperty("--viewport-w", width + "px");
   document.documentElement.style.setProperty("--app-h", appHeight + "px");
   document.documentElement.style.setProperty("--visual-h", safeVisualHeight + "px");
@@ -265,6 +269,71 @@ function scheduleRuntimeResize(reset = false) {
   [0, 60, 140, 300, 650].forEach((delay, index) => {
     setTimeout(() => notifyRuntimeResize({ reset: reset && index === 0 }), delay);
   });
+}
+
+function canvasLayoutSnapshot(element) {
+  const rect = element?.getBoundingClientRect();
+  if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+  return [rect.left, rect.top, rect.width, rect.height, window.devicePixelRatio || 1];
+}
+
+function installCanvasResizeTracking(element) {
+  if (!element) return () => {};
+  let previous = canvasLayoutSnapshot(element);
+  let frame = null;
+  let disposed = false;
+  const measure = () => {
+    frame = null;
+    if (disposed) return;
+    const current = canvasLayoutSnapshot(element);
+    const old = previous;
+    previous = current;
+    if (!current) {
+      if (old) document.dispatchEvent(new Event("ppsspp-player-layout"));
+      return;
+    }
+    if (old && current.every((value, index) => value === old[index])) return;
+    // Cancel gestures tied to the old geometry before the next interaction.
+    document.dispatchEvent(new Event("ppsspp-player-layout"));
+    if (!old || current.slice(2).some((value, index) => value !== old[index + 2])) {
+      // SDL listens for window resize, but CSS-only drawer/viewport changes
+      // also resize its canvas. Notify only after layout has actually settled.
+      notifyRuntimeResize();
+    }
+  };
+  const schedule = () => {
+    if (!disposed && frame === null) frame = requestAnimationFrame(measure);
+  };
+  let resolutionQuery = null;
+  const watchResolution = () => {
+    resolutionQuery?.removeEventListener?.("change", resolutionChanged);
+    resolutionQuery = window.matchMedia?.(`(resolution: ${window.devicePixelRatio || 1}dppx)`) || null;
+    resolutionQuery?.addEventListener?.("change", resolutionChanged);
+  };
+  const resolutionChanged = () => { watchResolution(); schedule(); };
+  watchResolution();
+  const events = [
+    [window, "resize"], [window.visualViewport, "resize"], [window.visualViewport, "scroll"],
+    [document, "scroll"], [document, "fullscreenchange"], [document, "webkitfullscreenchange"],
+  ];
+  for (const [target, type] of events) target?.addEventListener(type, schedule, { capture: true, passive: true });
+  const observer = typeof window.ResizeObserver === "function" ? new window.ResizeObserver(schedule) : null;
+  observer?.observe(element);
+  if (element.parentElement) observer?.observe(element.parentElement);
+  // A drawer/class/style change can move the canvas without resizing either
+  // observed box. Watch only its owning elements, not the whole document tree.
+  const layoutObserver = typeof window.MutationObserver === "function" ? new window.MutationObserver(schedule) : null;
+  layoutObserver?.observe(element, { attributes: true, attributeFilter: ["class", "style"] });
+  if (element.parentElement) layoutObserver?.observe(element.parentElement, { attributes: true, attributeFilter: ["class", "style"] });
+  if (document.body) layoutObserver?.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  return () => {
+    disposed = true;
+    if (frame !== null) cancelAnimationFrame(frame);
+    observer?.disconnect();
+    layoutObserver?.disconnect();
+    resolutionQuery?.removeEventListener?.("change", resolutionChanged);
+    for (const [target, type] of events) target?.removeEventListener(type, schedule, true);
+  };
 }
 
 function emulatorLaunchArgs() {
@@ -370,6 +439,7 @@ function on(target, type, handler, options) {
 }
 
 const canvas          = byId("canvas");
+installCanvasResizeTracking(canvas);
 let touchControlState = null, touchControlMount = null;
 let touchControlsInitialized = false, touchControlsVisible = false, touchControlError = "";
 let gamepadBridgeInstalled = false, gamepadBridgeCurrent = null, gamepadBridgeMode = "";
@@ -402,7 +472,6 @@ const gamepadBadge    = byId("gamepadBadge");
 const gamepadSelect   = byId("gamepadSelect");
 const gpuSelectEl     = byId("gpuSelect");
 const panelToggleBtn  = byId("panelToggleBtn");
-const panelTabSelect  = byId("panelTabSelect");
 const googleClientIdInput = byId("googleClientIdInput");
 const driveAuthEl     = byId("iDriveAuth");
 const driveFolderEl   = byId("iDriveFolder");
@@ -4933,25 +5002,51 @@ async function preloadGame(FS) {
 }
 
 /* ── Panel navigation ───────────────────────────────────────────── */
-function activatePanelTab(tabName) {
+function activatePanelTab(tabName, focus = false) {
   const name = tabName || "library";
-  document.querySelectorAll(".tab").forEach(tab => {
-    tab.classList.toggle("active", tab.dataset.tab === name);
-  });
-  document.querySelectorAll(".tab-panel").forEach(panel => panel.classList.remove("active"));
   const id = "tab" + name.charAt(0).toUpperCase() + name.slice(1);
   const panel = document.getElementById(id);
-  if (panel) panel.classList.add("active");
-  if (panelTabSelect && panelTabSelect.value !== name) panelTabSelect.value = name;
+  if (!panel) return;
+  document.querySelectorAll("#panelTabList .tab").forEach(tab => {
+    const selected = tab.dataset.tab === name;
+    tab.classList.toggle("active", selected);
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    if (selected && focus) {
+      tab.focus({ preventScroll: true });
+      tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  });
+  document.querySelectorAll("#sidePanel .tab-panel").forEach(candidate => {
+    candidate.classList.toggle("active", candidate === panel);
+    candidate.hidden = candidate !== panel;
+  });
   if (name === "log") { flushLog(); renderLog(); }
   if (name === "library") refreshLibrary();
   if (name === "drive") initDriveConfigUI();
   if (name === "network") { updateNetworkConfigUI(); checkNetworkWhenVisible(); }
 }
 
-panelTabSelect?.addEventListener("change", e => activatePanelTab(e.currentTarget.value));
-document.querySelectorAll(".tab").forEach(tab => {
-  tab.addEventListener("click", () => activatePanelTab(tab.dataset.tab));
+function onPanelTabKeyDown(event) {
+  if (event.altKey || event.ctrlKey || event.metaKey) return;
+  const tabs = [...document.querySelectorAll("#panelTabList .tab")];
+  const current = tabs.indexOf(event.currentTarget);
+  if (current < 0) return;
+  let next;
+  switch (event.key) {
+    case "ArrowRight": next = (current + 1) % tabs.length; break;
+    case "ArrowLeft": next = (current + tabs.length - 1) % tabs.length; break;
+    case "Home": next = 0; break;
+    case "End": next = tabs.length - 1; break;
+    default: return;
+  }
+  event.preventDefault();
+  activatePanelTab(tabs[next].dataset.tab, true);
+}
+
+document.querySelectorAll("#panelTabList .tab").forEach(tab => {
+  tab.addEventListener("click", () => activatePanelTab(tab.dataset.tab, true));
+  tab.addEventListener("keydown", onPanelTabKeyDown);
 });
 
 /* ── FPS counter ────────────────────────────────────────────────── */

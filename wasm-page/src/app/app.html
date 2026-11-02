@@ -35,10 +35,10 @@
       <div class="touch-pad-left">
         <button type="button" class="touch-pad-shoulder" data-pad-button="l" aria-label="左肩键 L">L</button>
         <div class="touch-pad-dpad" data-pad-dpad role="group" aria-label="方向键，按住并拖动可斜向移动">
-          <button type="button" data-pad-button="up" aria-label="方向上"><span aria-hidden="true">▲</span></button>
-          <button type="button" data-pad-button="left" aria-label="方向左"><span aria-hidden="true">◀</span></button>
-          <button type="button" data-pad-button="right" aria-label="方向右"><span aria-hidden="true">▶</span></button>
-          <button type="button" data-pad-button="down" aria-label="方向下"><span aria-hidden="true">▼</span></button>
+          <button type="button" data-pad-button="up" aria-label="方向上"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 5 21 19H3Z"/></svg></button>
+          <button type="button" data-pad-button="left" aria-label="方向左"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 14-9v18Z"/></svg></button>
+          <button type="button" data-pad-button="right" aria-label="方向右"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m19 12-14 9V3Z"/></svg></button>
+          <button type="button" data-pad-button="down" aria-label="方向下"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 19 3 5h18Z"/></svg></button>
         </div>
         <div class="touch-pad-stick" data-pad-stick role="group" aria-label="模拟摇杆，按住并拖动移动">
           <span class="touch-pad-stick-cross" aria-hidden="true"></span>
@@ -48,10 +48,10 @@
       <div class="touch-pad-right">
         <button type="button" class="touch-pad-shoulder" data-pad-button="r" aria-label="右肩键 R">R</button>
         <div class="touch-pad-actions" role="group" aria-label="动作按键">
-          <button type="button" data-pad-button="triangle" aria-label="三角键"><span aria-hidden="true">△</span></button>
-          <button type="button" data-pad-button="square" aria-label="方块键"><span aria-hidden="true">□</span></button>
-          <button type="button" data-pad-button="circle" aria-label="圆圈键"><span aria-hidden="true">○</span></button>
-          <button type="button" data-pad-button="cross" aria-label="叉键"><span aria-hidden="true">×</span></button>
+          <button type="button" data-pad-button="triangle" aria-label="三角键"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3 22 21H2Z"/></svg></button>
+          <button type="button" data-pad-button="square" aria-label="方块键"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="4" width="16" height="16" rx=".5"/></svg></button>
+          <button type="button" data-pad-button="circle" aria-label="圆圈键"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/></svg></button>
+          <button type="button" data-pad-button="cross" aria-label="叉键"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 5 14 14M19 5 5 19"/></svg></button>
         </div>
       </div>
       <div class="touch-pad-system" role="group" aria-label="开始与选择按键">
@@ -108,17 +108,21 @@
   <button id="panelBackdrop" type="button" aria-label="关闭游戏库与设置" tabindex="-1"></button>
   <aside id="sidePanel" aria-label="游戏库、存档与设置">
     <div class="status-bar"><div class="status-dot" id="statusDot"></div><span id="statusText" role="status">已就绪。选择本地游戏，或从游戏库继续。</span><button id="panelCloseBtn" class="icon-btn" type="button" aria-label="关闭面板" title="关闭面板"><i data-lucide="x"></i></button></div>
-    <div class="panel-tab-select-wrap">
-      <label class="panel-section-caption" for="panelTabSelect">游玩面板</label>
-      <select id="panelTabSelect" class="panel-tab-select" aria-label="选择面板栏目">
-        <option value="library">游戏库</option><option value="online">在线下载</option><option value="settings">画质与操作</option><option value="saves">我的存档</option><option value="storage">本机存储</option><option value="info">系统诊断</option><option value="log">运行日志</option><option value="about">关于与许可</option>
-      </select>
-    </div>
-    <div class="tabs" aria-hidden="true">
-      <div class="tab active" data-tab="library">游戏库</div><div class="tab" data-tab="online">在线下载</div><div class="tab" data-tab="settings">画质与操作</div><div class="tab" data-tab="saves">我的存档</div><div class="tab" data-tab="storage">本机存储</div><div class="tab" data-tab="info">系统诊断</div><div class="tab" data-tab="log">运行日志</div><div class="tab" data-tab="about">关于与许可</div>
+    <div class="panel-navigation">
+      <p class="panel-section-caption" id="panelNavigationLabel">游玩面板</p>
+      <div id="panelTabList" class="tabs" role="tablist" aria-labelledby="panelNavigationLabel" aria-orientation="horizontal">
+        <button type="button" class="tab active" id="panelTabLibrary" data-tab="library" role="tab" aria-selected="true" aria-controls="tabLibrary" tabindex="0"><i data-lucide="folder-open" aria-hidden="true"></i><span>游戏库</span></button>
+        <button type="button" class="tab" id="panelTabOnline" data-tab="online" role="tab" aria-selected="false" aria-controls="tabOnline" tabindex="-1"><i data-lucide="download" aria-hidden="true"></i><span>在线下载</span></button>
+        <button type="button" class="tab" id="panelTabSettings" data-tab="settings" role="tab" aria-selected="false" aria-controls="tabSettings" tabindex="-1"><i data-lucide="settings" aria-hidden="true"></i><span>画质与操作</span></button>
+        <button type="button" class="tab" id="panelTabSaves" data-tab="saves" role="tab" aria-selected="false" aria-controls="tabSaves" tabindex="-1"><i data-lucide="save" aria-hidden="true"></i><span>我的存档</span></button>
+        <button type="button" class="tab" id="panelTabStorage" data-tab="storage" role="tab" aria-selected="false" aria-controls="tabStorage" tabindex="-1"><i data-lucide="hard-drive" aria-hidden="true"></i><span>本机存储</span></button>
+        <button type="button" class="tab" id="panelTabInfo" data-tab="info" role="tab" aria-selected="false" aria-controls="tabInfo" tabindex="-1"><i data-lucide="activity" aria-hidden="true"></i><span>系统诊断</span></button>
+        <button type="button" class="tab" id="panelTabLog" data-tab="log" role="tab" aria-selected="false" aria-controls="tabLog" tabindex="-1"><i data-lucide="terminal" aria-hidden="true"></i><span>运行日志</span></button>
+        <button type="button" class="tab" id="panelTabAbout" data-tab="about" role="tab" aria-selected="false" aria-controls="tabAbout" tabindex="-1"><i data-lucide="info" aria-hidden="true"></i><span>关于与许可</span></button>
+      </div>
     </div>
 
-    <div class="tab-panel active" id="tabLibrary">
+    <div class="tab-panel active" id="tabLibrary" role="tabpanel" aria-labelledby="panelTabLibrary" tabindex="0">
       <div id="libraryPanel">
         <div class="panel-intro"><h2>你的游戏库</h2><p>保存在当前浏览器中的游戏。换设备前请另行保留原始文件。</p></div>
         <div class="library-toolbar">
@@ -132,7 +136,7 @@
       </div>
     </div>
 
-    <div class="tab-panel" id="tabOnline">
+    <div class="tab-panel" id="tabOnline" role="tabpanel" aria-labelledby="panelTabOnline" tabindex="0" hidden>
       <div class="online-games-panel">
         <div class="panel-intro"><h2>在线下载</h2><p>载入下载清单后，选择线路下载。重新载入同一份清单可以继续进度。</p></div>
         <div class="online-manifest-import">
@@ -145,7 +149,7 @@
       </div>
     </div>
 
-    <div class="tab-panel" id="tabSettings">
+    <div class="tab-panel" id="tabSettings" role="tabpanel" aria-labelledby="panelTabSettings" tabindex="0" hidden>
       <div id="settingsPanel" class="settings-panel">
         <div class="panel-intro"><h2>画质与操作</h2><p>让画面与操作适合你的设备。</p></div>
         <section class="settings-section">
@@ -174,7 +178,7 @@
       </div>
     </div>
 
-    <div class="tab-panel" id="tabSaves">
+    <div class="tab-panel" id="tabSaves" role="tabpanel" aria-labelledby="panelTabSaves" tabindex="0" hidden>
       <div id="savesPanel">
         <div class="panel-intro inset-intro"><h2>我的存档</h2><p>先在游戏内保存，再同步到本机。重要进度建议导出一份备份。</p></div>
         <div class="saves-toolbar">
@@ -298,7 +302,7 @@
 
     </div>
 
-    <div class="tab-panel" id="tabStorage">
+    <div class="tab-panel" id="tabStorage" role="tabpanel" aria-labelledby="panelTabStorage" tabindex="0" hidden>
       <div id="storagePanel">
         <div class="panel-intro"><h2>本机存储</h2><p>游戏、存档和设置保存在当前网站的浏览器存储中。清除网站数据会一并移除它们。</p></div>
         <div class="info-group"><h3>存储状态</h3><div class="info-row"><span class="info-key">已保存文件</span><span class="info-val" id="iStorageFiles">—</span></div><div class="info-row"><span class="info-key">占用空间</span><span class="info-val" id="iStorageSize">—</span></div><div class="info-row"><span class="info-key">上次同步</span><span class="info-val" id="iLastSync">尚未同步</span></div><div class="info-row"><span class="info-key">自动同步</span><span class="info-val good">每 30 秒</span></div><div class="info-row"><span class="info-key">存储目录</span><span class="info-val path-val" id="iMemstickPath">—</span></div></div>
@@ -307,7 +311,7 @@
       <div class="panel-section-label">已保存的文件</div><div id="opfsFileList"><span class="empty-row">正在读取…</span></div>
     </div>
 
-    <div class="tab-panel" id="tabInfo">
+    <div class="tab-panel" id="tabInfo" role="tabpanel" aria-labelledby="panelTabInfo" tabindex="0" hidden>
       <div id="infoPanel">
         <div class="panel-intro"><h2>系统诊断</h2><p>遇到黑屏、无声或运行中断时，可以在这里查看信息。</p></div>
         <div class="info-group performance-panel">
@@ -329,7 +333,7 @@
       </div>
     </div>
 
-    <div class="tab-panel" id="tabAbout">
+    <div class="tab-panel" id="tabAbout" role="tabpanel" aria-labelledby="panelTabAbout" tabindex="0" hidden>
       <div id="aboutPanel">
         <div class="about-hero"><img class="about-mark" src="icons/ppsspw-symbol.svg" alt="PPSSPW 标识" width="40" height="40"><div><div class="about-title">PPSSPW</div><div class="about-subtitle">PSP 网页模拟器 · 基于 PPSSPP</div></div></div>
         <div class="info-group"><h3>关于 PPSSPW</h3><p class="about-text" lang="en">PlayStation Portable Simulator Suitable for Playing on the Web</p><p class="about-text">PPSSPW 是基于 PPSSPP 的非官方网页版本，在浏览器中运行 PSP 游戏，提供中文操作面板、屏幕手柄、画质设置、下载续传和本机存档管理。本站不包含游戏镜像与游戏素材。</p></div>
@@ -339,7 +343,7 @@
       </div>
     </div>
 
-    <div class="tab-panel" id="tabLog"><div class="panel-intro inset-intro"><h2>运行日志</h2><p>供排查问题使用，普通游玩时可以关闭此面板。</p></div><div id="logPanel"><pre id="log" aria-label="模拟器运行日志"></pre></div><div class="log-toolbar"><input id="logFilter" placeholder="筛选日志…" aria-label="筛选运行日志" type="search" autocomplete="off" spellcheck="false"><button id="clearLogBtn" title="清空日志" aria-label="清空日志"><i data-lucide="trash-2"></i></button></div></div>
+    <div class="tab-panel" id="tabLog" role="tabpanel" aria-labelledby="panelTabLog" tabindex="0" hidden><div class="panel-intro inset-intro"><h2>运行日志</h2><p>供排查问题使用，普通游玩时可以关闭此面板。</p></div><div id="logPanel"><pre id="log" aria-label="模拟器运行日志"></pre></div><div class="log-toolbar"><input id="logFilter" placeholder="筛选日志…" aria-label="筛选运行日志" type="search" autocomplete="off" spellcheck="false"><button id="clearLogBtn" title="清空日志" aria-label="清空日志"><i data-lucide="trash-2"></i></button></div></div>
   </aside>
   <div id="toast" role="status" aria-live="polite"></div>
 </div>
