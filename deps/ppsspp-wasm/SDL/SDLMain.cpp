@@ -351,8 +351,11 @@ static void StopSDLAudioDevice() {
 }
 
 static void UpdateScreenDPI(SDL_Window *window) {
-	int drawable_width, window_width, window_height;
+	int drawable_width = 0, window_width, window_height;
 	SDL_GetWindowSize(window, &window_width, &window_height);
+	if (window_width <= 0 || window_height <= 0) {
+		return;
+	}
 
 	if (g_Config.iGPUBackend == (int)GPUBackend::OPENGL)
 		SDL_GL_GetDrawableSize(window, &drawable_width, NULL);
@@ -363,6 +366,9 @@ static void UpdateScreenDPI(SDL_Window *window) {
 	else {
 		// If we add SDL support for more platforms, we'll end up here.
 		g_DesktopDPI = 1.0f;
+		return;
+	}
+	if (drawable_width <= 0) {
 		return;
 	}
 	// Round up a little otherwise there would be a gap sometimes
@@ -1186,6 +1192,13 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 		{
 			int new_width = event.window.data1;
 			int new_height = event.window.data2;
+			if (new_width <= 0 || new_height <= 0) {
+				break;
+			}
+
+			// The browser can change its backing scale with this resize. Refresh
+			// it before updating display bounds so rendering and input use one DPI.
+			UpdateScreenDPI(window);
 
 			// The size given by SDL is in point-units, convert these to
 			// pixels before passing to Native_UpdateScreenScale()
@@ -1203,10 +1216,6 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 			// Set variable here in case fullscreen was toggled by hotkey
 			if (g_Config.bFullScreen != fullscreen) {
 				g_Config.bFullScreen = fullscreen;
-			} else {
-				// It is possible for the monitor to change DPI, so recalculate
-				// DPI on each resize event.
-				UpdateScreenDPI(window);
 			}
 
 			if (!g_Config.bFullScreen) {

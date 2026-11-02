@@ -14,6 +14,7 @@ npm --prefix wasm-page ci
 npm --prefix wasm-page test
 python3 -m unittest discover -s server/player-tests -v
 node --test scripts/ci/prepare-deploy.test.mjs
+python3 scripts/test-sdl-viewport.py
 make wasm-release WASM_JOBS=-j8 WASM_FFMPEG_JOBS=8 WASM_ENABLE_LTO=OFF
 npm --prefix wasm-page run build:pages
 python3 scripts/package-player.py
