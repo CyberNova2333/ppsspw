@@ -17,6 +17,9 @@
 | 用户启动前核对浏览器能力 | [源码定位](../../wasm-page/public/ppsspp-runtime.js)：`start、probeWebGLFeaturesWithPref、reloadForCrossOriginIsolation` | Confirmed | 源码静态确认；本轮未运行业务路径 | [主流程](../walkthroughs/one-real-run.md)、[代码地图](../code-map.md) |
 | 锁定存储并选择配套核心 | [源码定位](../../wasm-page/public/ppsspp-runtime.js)：`PpssppGameStorage.acquireShared、selectBuildDir、startupWatchdog` | Confirmed | 源码静态确认；本轮未运行业务路径 | [主流程](../walkthroughs/one-real-run.md)、[代码地图](../code-map.md) |
 | 恢复存档并按需挂载镜像 | [源码定位](../../wasm-page/public/browser-files.js)：`CACHE_BYTES；在运行时搜索 mountBrowserGame / loadPersistedFiles` | Confirmed | 源码静态确认；本轮未运行业务路径 | [主流程](../walkthroughs/one-real-run.md)、[代码地图](../code-map.md) |
+| 核心文件写入与浏览器持久化是先后两个阶段 | [运行时](../../wasm-page/public/ppsspp-runtime.js)：`OPFS_ROOT_DIR / OPFS_PERSIST_DIR / opfsParent / persistFilesNow / startAutoPersist / PERSIST_SYNC_MS` | Confirmed | 自动同步间隔为 30 秒；核心目录和站点 OPFS 需分别核对；仅空目录无法确定某次游戏提示的根因 | [主流程](../walkthroughs/one-real-run.md) |
+| 确认／取消语义不能从网页按钮位置推定 | [工具对话框](../../deps/ppsspp-wasm/Core/Dialog/PSPDialog.cpp)：`UpdateCommon / IsButtonPressed`；[存档确认分支](../../deps/ppsspp-wasm/Core/Dialog/PSPSaveDialog.cpp)：`DS_SAVE_CONFIRM / yesnoChoice / ExecuteIOAction` | Confirmed | `buttonSwap` 只说明 PSP 工具对话框规则；游戏自己的提示仍需观察；淡入、取消与选择“否”不能当作文件写入失败 | [主流程](../walkthroughs/one-real-run.md) |
+| 三层 JavaScript 输入抵达属于中间证据 | [屏幕手柄](../../wasm-page/public/touch-controls.js)：`BUTTONS / mount`；[输入桥](../../wasm-page/public/ppsspp-runtime.js)：`getSDLGamepads` | Confirmed | 需再核对游戏画面或原生状态与文件变化，不能凭输入采样断言保存成功 | [主流程](../walkthroughs/one-real-run.md) |
 | 通过受限预览入口提供运行条件 | [源码定位](../../server/serve-player.py)：`PlayerHandler、root；打包脚本 scripts/package-player.py` | Confirmed | 源码静态确认；本轮未运行业务路径 | [主流程](../walkthroughs/one-real-run.md)、[代码地图](../code-map.md) |
 
 ## 反证与后续问题
