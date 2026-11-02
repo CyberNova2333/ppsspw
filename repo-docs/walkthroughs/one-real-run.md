@@ -17,7 +17,11 @@
 
 打开页面后，Angular 服务只启动一次运行时加载，并按顺序装入性能、存储、文件、联机、触控和核心入口脚本。页面外观与模拟器运行由不同层负责；只构建网页不足以产生配套的模拟器核心。
 
+打开「游戏库与设置」后，直接点击带图标和文字的栏目切换内容；选中状态会同时更新标签与对应面板。窄横屏下栏目排列为可横向滑动的一行，为内容保留高度。键盘可用左右方向键及 Home／End 切换栏目，Tab 从当前栏目进入面板；动态设备等设置仍使用原生选择框。
+
 [对应实现](../../wasm-page/src/app/ppsspp-runtime.ts)，定位 `PpssppRuntime.bootstrap / start / loadScript`。
+
+[栏目结构](../../wasm-page/src/app/app.html)与[切换逻辑](../../wasm-page/public/ppsspp-runtime.js)，定位 `panelTabList / activatePanelTab / onPanelTabKeyDown`。
 
 ## Step 2: 用户启动前核对浏览器能力
 
@@ -49,6 +53,16 @@
 
 [输入桥与存档同步实现](../../wasm-page/public/ppsspp-runtime.js)，定位 `getSDLGamepads / opfsRoot / opfsParent / persistFilesNow / startAutoPersist`；[工具对话框确认规则](../../deps/ppsspp-wasm/Core/Dialog/PSPDialog.cpp)，定位 `UpdateCommon / IsButtonPressed`。只读排查应从 OPFS 根逐级以 `create: false` 获取目录，检查文件名和长度，不读取存档正文或主动创建目录。
 
+屏幕手柄支持多指同时操作。按住方向键后可连续拖到相邻方向或斜向；跨区换向会立即释放这根手指原先的方向，不会清掉其他手指仍按住的键。模拟摇杆以每次按下的落点为零点，小幅抖动留在死区，继续拖动才逐渐增加输入，抬手回中。例如一根手指保持摇杆向右，另一根短按圆圈键，圆圈抬起不会中断摇杆。普通短按仍保留最短脉冲，避免核心漏读；页面失焦、隐藏或旋转时会清空输入，防止卡键。
+
+手柄的按压视觉只改变键帽，触摸命中区域保持原位。操作状态由[触控控制器](../../wasm-page/public/touch-controls.js)的 `createState / mount / dpadButtons / stickAxes` 维护，外观由[游玩控件样式](../../wasm-page/src/player-controls.css)负责；样式反馈不代表游戏已经接受输入。
+
+折叠屏切换尺寸、旋转屏幕、打开侧栏或缩放页面时，手柄要使用变化后的坐标。应用按浏览器的布局尺寸排布，不把捏合缩放后的可视宽度当作新的应用宽度；低高度横屏会重新排列肩键和摇杆，竖屏按当前按键与摇杆尺寸预留控制区。布局改变会取消旧手势，重新落指后测量当前控件位置。例如一直向右拖动摇杆时折叠屏幕，输入先回中，重新触摸后才按新位置计算，避免沿用折叠前的落点。
+
+[画布尺寸跟踪](../../wasm-page/public/ppsspp-runtime.js)的 `syncViewportSize / installCanvasResizeTracking` 在画布大小或设备像素比变化后通知运行时重算尺寸，仅位置变化时通知触控控制器释放旧手势。这是网页与核心之间的尺寸通知边界，不能代替原生游戏触点和不同折叠设备的验收。
+
+原生窗口尺寸分支收到变化后，先刷新当前 DPI，再把窗口尺寸换算成像素并更新显示边界；全屏状态切换同样执行这一顺序。否则显示边界可能使用旧比例，后续输入却使用新比例。尺寸事件携带无效宽高时不更新显示边界，DPI 读取遇到零尺寸时保留此前有效值。[窗口尺寸实现](../../deps/ppsspp-wasm/SDL/SDLMain.cpp)，定位 `SDL_WINDOWEVENT_SIZE_CHANGED / UpdateScreenDPI / Native_UpdateScreenScale`。这项原生修改需要重新构建配套核心才会进入播放器，仅重建网页不会替换它。
+
 ## Step 5: 通过受限预览入口提供运行条件
 
 打包脚本检查必需核心产物，再复制到网页产物目录；本地服务器仅提供该打包目录，并设置线程所需的 COOP/COEP 等响应头。移动设备需要受信任 HTTPS；桌面能启动不能推出手机的帧率或兼容性。
@@ -60,9 +74,13 @@
 ```sh
 npm --prefix wasm-page test
 python -m unittest discover -s server/player-tests -v
+# 已激活 Emscripten SDK 且 PATH 有 Node.js 时，单独验证原生窗口尺寸分支
+python scripts/test-sdl-viewport.py
 ```
 
-运行时测试会提取真实 public 脚本函数并用替身验证边界；这与真实核心和真实游戏验收不同。本轮不运行核心构建、网页构建或业务测试，也不替换现有 wasm-page/dist。完整核心构建仍按根 README 的 Emscripten/Linux 或 WSL 要求执行。
+运行时与触控测试会执行真实 public 脚本函数并用替身验证边界；浏览器布局检查可复核栏目切换、焦点和触摸命中区域。窗口尺寸脚本抽取真实 C++ 函数与分支编译为小型 Wasm，SDL 窗口数据由测试替身提供，且不属于 `npm test`。这些检查不替代新核心完整链接、手机触摸手感和游戏性能验收。具体执行结果见[指南变更记录](../change-log.md)；完整核心构建仍按根 README 的 Emscripten/Linux 或 WSL 要求执行。
+
+[构建入口](../../scripts/ci/build.sh)在完整核心构建之前执行同一窗口尺寸回归；脚本中加入检查不表示云构建已经运行。
 
 理解这条交接后，用[代码地图定位下一次修改](../code-map.md)；需要反查依据时查看[源码调查与边界证据](../references/source-evidence.md)。
 
