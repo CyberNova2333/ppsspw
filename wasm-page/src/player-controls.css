@@ -7,11 +7,11 @@
   --pad-key: linear-gradient(165deg, rgba(73, 83, 96, .8), rgba(23, 30, 40, .8));
   --pad-depth: inset 0 1px 0 rgba(255, 255, 255, .14), inset 0 -2px 0 rgba(0, 0, 0, .22), 0 3px 8px rgba(0, 0, 0, .2);
 }
+.touch-gamepad button { position: relative; }
 .touch-gamepad button,
 .touch-gamepad button:hover,
 .touch-gamepad button:active,
 .touch-gamepad button.is-pressed {
-  position: relative;
   isolation: isolate;
   padding: 0;
   border: 0;
@@ -209,6 +209,67 @@ body.touch-gamepad-visible #fpsBadge { display: none !important; }
   .touch-pad-stick { left: max(184px, calc(env(safe-area-inset-left) + 174px)); }
   .touch-pad-system { top: max(58px, calc(env(safe-area-inset-top) + 50px)); bottom: auto; }
   .touch-gamepad .touch-pad-system button { width: 52px; }
+}
+@media (max-width: 319px) {
+  body { min-width: 0; }
+  body.touch-gamepad-visible .touch-pad-left { left: max(8px, env(safe-area-inset-left)); }
+  body.touch-gamepad-visible .touch-pad-right { right: max(8px, env(safe-area-inset-right)); }
+  body.touch-gamepad-visible .touch-pad-system { right: max(8px, env(safe-area-inset-right)); }
+}
+@media (max-width: 400px) and (min-height: 300px) and (max-height: 480px) {
+  /* Short folded/split windows need an overlay: a separate deck can consume the whole game view. */
+  body.touch-gamepad-visible .stage { padding: 0 !important; }
+  body.touch-gamepad-visible #canvas {
+    width: min(100%, calc((var(--app-h) - var(--h)) * 16 / 9)) !important;
+    height: auto !important;
+    max-height: calc(var(--app-h) - var(--h)) !important;
+  }
+  body.touch-gamepad-visible.browser-fullscreen #canvas {
+    width: min(100%, calc(var(--app-h) * 16 / 9)) !important;
+    max-height: var(--app-h) !important;
+  }
+  body.touch-gamepad-visible .touch-gamepad {
+    --pad-button-size: 44px;
+    --pad-stick-size: 60px;
+    inset: 0;
+    height: auto;
+    border: 0;
+    background: transparent;
+  }
+  body.touch-gamepad-visible .touch-pad-left,
+  body.touch-gamepad-visible .touch-pad-right { display: contents; }
+  body.touch-gamepad-visible .touch-pad-dpad {
+    left: max(8px, env(safe-area-inset-left));
+    bottom: max(68px, calc(env(safe-area-inset-bottom) + 64px));
+  }
+  body.touch-gamepad-visible .touch-pad-actions {
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(68px, calc(env(safe-area-inset-bottom) + 64px));
+  }
+  body.touch-gamepad-visible .touch-pad-left .touch-pad-shoulder {
+    left: max(74px, calc(env(safe-area-inset-left) + 66px));
+    top: max(4px, env(safe-area-inset-top));
+  }
+  body.touch-gamepad-visible .touch-pad-right .touch-pad-shoulder {
+    left: auto;
+    right: max(38px, calc(env(safe-area-inset-right) + 30px));
+    top: max(4px, env(safe-area-inset-top));
+    transform: none;
+  }
+  body.touch-gamepad-visible .touch-pad-shoulder { width: 72px; height: 44px; }
+  body.touch-gamepad-visible .touch-pad-stick {
+    left: max(46px, calc(env(safe-area-inset-left) + 38px));
+    bottom: max(4px, env(safe-area-inset-bottom));
+  }
+  body.touch-gamepad-visible .touch-pad-system {
+    left: auto;
+    right: max(8px, env(safe-area-inset-right));
+    top: auto;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    transform: none;
+    gap: 8px;
+  }
+  body.touch-gamepad-visible .touch-pad-system button { width: 62px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .touch-gamepad button::before { transition: none; }
