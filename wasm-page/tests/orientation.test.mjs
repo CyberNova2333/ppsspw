@@ -21,6 +21,194 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+function viewportFixture() {
+  const styles = new Map(), classes = new Map();
+  const window = {
+    innerWidth: 390, innerHeight: 844,
+    visualViewport: { width: 390, height: 844, scale: 1, offsetTop: 0, offsetLeft: 0 },
+    screen: { orientation: { type: 'portrait-primary' } },
+  };
+  const document = {
+    activeElement: null,
+    documentElement: { style: { setProperty: (key, value) => styles.set(key, value) } },
+    body: { classList: { toggle: (key, value) => classes.set(key, !!value) } },
+  };
+  const context = load(['syncViewportSize', 'fullscreenElement', 'viewportOrientation', 'isTextEntryActive', 'revealPanelInput'],
+    { window, document }, 'let stableViewportWidth = 0, stableViewportHeight = 0, stableViewportOrientation = "";');
+  context.syncViewportSize({ reset: true });
+  return { context, window, document, styles, classes };
+}
+
+test('pinch zoom preserves layout width and is not mistaken for a keyboard', () => {
+  const f = viewportFixture();
+  f.document.activeElement = { tagName: 'INPUT', type: 'text' };
+  Object.assign(f.window.visualViewport, { width: 195, height: 422, scale: 2, offsetLeft: 70, offsetTop: 90 });
+  f.context.syncViewportSize();
+  assert.equal(f.styles.get('--viewport-w'), '390px');
+  assert.equal(f.styles.get('--app-h'), '844px');
+  assert.equal(f.styles.get('--visual-h'), '422px');
+  assert.equal(f.styles.get('--visual-left'), '70px');
+  assert.equal(f.classes.get('keyboard-open'), false);
+  f.window.visualViewport.height = 200;
+  f.context.syncViewportSize();
+  assert.equal(f.classes.get('keyboard-open'), true, 'a keyboard can still open while zoomed');
+});
+
+test('a fold or split-window width change resets the height baseline even below the old 80px threshold', () => {
+  const f = viewportFixture();
+  f.document.activeElement = { tagName: 'INPUT', type: 'text' };
+  f.window.innerWidth = f.window.visualViewport.width = 450;
+  f.window.innerHeight = f.window.visualViewport.height = 600;
+  f.context.syncViewportSize();
+  assert.equal(f.styles.get('--viewport-w'), '450px');
+  assert.equal(f.styles.get('--app-h'), '600px');
+  assert.equal(f.classes.get('keyboard-open'), false);
+  f.window.innerWidth = f.window.visualViewport.width = 390;
+  f.window.innerHeight = f.window.visualViewport.height = 844;
+  f.context.syncViewportSize();
+  assert.equal(f.styles.get('--app-h'), '844px');
+  assert.equal(f.classes.get('keyboard-open'), false);
+});
+
+test('non-text controls do not preserve an obsolete height as a supposed software keyboard', () => {
+  for (const activeElement of [{ tagName: 'INPUT', type: 'checkbox' }, { tagName: 'INPUT', type: 'range' }, { tagName: 'SELECT' }]) {
+    const f = viewportFixture();
+    f.document.activeElement = activeElement;
+    f.window.innerHeight = f.window.visualViewport.height = 500;
+    f.context.syncViewportSize();
+    assert.equal(f.styles.get('--app-h'), '500px');
+    assert.equal(f.classes.get('keyboard-open'), false);
+  }
+});
+
+test('short landscape windows use their real height instead of overflowing a 320px minimum', () => {
+  for (const fullscreen of [false, true]) {
+    const f = viewportFixture();
+    f.window.innerWidth = f.window.visualViewport.width = 512;
+    f.window.innerHeight = f.window.visualViewport.height = 256;
+    f.window.screen.orientation.type = 'landscape-primary';
+    f.document.fullscreenElement = fullscreen ? {} : null;
+    f.context.syncViewportSize({ reset: true });
+    assert.equal(f.styles.get('--app-h'), '256px');
+    assert.equal(f.styles.get('--visual-h'), '256px');
+  }
+});
+
+function canvasResizeFixture({ hidden = false } = {}) {
+  const window = new EventTarget(), document = new EventTarget();
+  window.visualViewport = new EventTarget();
+  window.devicePixelRatio = 1;
+  let resizeObserver, mutationObserver, disconnected = false, resizes = 0, layoutChanges = 0, frameSequence = 0;
+  const observed = [], mutationsObserved = [], frames = new Map(), resolutionQueries = [];
+  window.matchMedia = query => {
+    const result = new EventTarget();
+    result.media = query;
+    resolutionQueries.push(result);
+    return result;
+  };
+  const rect = { left: 12, top: 76, width: hidden ? 0 : 960, height: hidden ? 0 : 544 };
+  const canvas = { getBoundingClientRect: () => ({ ...rect }), parentElement: {} };
+  window.ResizeObserver = class {
+    constructor(callback) { resizeObserver = callback; }
+    observe(element) { observed.push(element); }
+    disconnect() { disconnected = true; }
+  };
+  window.MutationObserver = class {
+    constructor(callback) { mutationObserver = callback; }
+    observe(element, options) { mutationsObserved.push({ element, options }); }
+    disconnect() { mutationsObserved.length = 0; }
+  };
+  document.addEventListener('ppsspp-player-layout', () => layoutChanges++);
+  const context = load(['canvasLayoutSnapshot', 'installCanvasResizeTracking'], {
+    window, document, Event,
+    requestAnimationFrame(callback) { const id = ++frameSequence; frames.set(id, callback); return id; },
+    cancelAnimationFrame: id => frames.delete(id),
+    notifyRuntimeResize() { resizes++; window.dispatchEvent(new Event('resize')); },
+  });
+  const dispose = context.installCanvasResizeTracking(canvas);
+  const frame = () => { const pending = [...frames.values()]; frames.clear(); for (const callback of pending) callback(); };
+  return { window, document, rect, canvas, observed, mutationsObserved, frames, resolutionQueries, dispose, frame,
+    observer: () => resizeObserver(), mutation: () => mutationObserver(),
+    result: () => ({ resizes, layoutChanges, disconnected }) };
+}
+
+test('CSS-only canvas resize notifies SDL once after layout and coalesces duplicate browser events', () => {
+  const f = canvasResizeFixture();
+  assert.deepEqual(f.observed, [f.canvas, f.canvas.parentElement]);
+  f.rect.width = 720; f.rect.height = 408;
+  f.observer(); f.window.visualViewport.dispatchEvent(new Event('resize')); f.observer();
+  assert.equal(f.frames.size, 1);
+  assert.equal(f.result().resizes, 0);
+  f.frame();
+  assert.equal(f.result().resizes, 1);
+  assert.equal(f.result().layoutChanges, 1);
+  f.frame(); // The synthetic resize must not recurse indefinitely.
+  assert.equal(f.frames.size, 0);
+  assert.equal(f.result().resizes, 1);
+  f.window.devicePixelRatio = 2;
+  f.window.dispatchEvent(new Event('resize')); f.frame(); f.frame();
+  assert.equal(f.result().resizes, 2, 'DPR changes need notification even at unchanged CSS dimensions');
+});
+
+test('canvas movement invalidates gestures without resizing SDL and disposal removes pending work', () => {
+  const f = canvasResizeFixture();
+  f.rect.left = 24;
+  f.document.dispatchEvent(new Event('scroll')); f.frame();
+  assert.equal(f.result().layoutChanges, 1);
+  assert.equal(f.result().resizes, 0);
+  f.rect.top = 120;
+  f.window.visualViewport.dispatchEvent(new Event('scroll'));
+  assert.equal(f.frames.size, 1);
+  f.dispose(); f.frame();
+  assert.equal(f.result().disconnected, true);
+  f.window.dispatchEvent(new Event('resize')); f.observer();
+  assert.equal(f.frames.size, 0);
+  assert.equal(f.result().layoutChanges, 1);
+});
+
+test('DPR media-query changes synchronize a stable-size canvas and rearm at the new density', () => {
+  const f = canvasResizeFixture();
+  assert.equal(f.resolutionQueries[0].media, '(resolution: 1dppx)');
+  f.window.devicePixelRatio = 2;
+  f.resolutionQueries[0].dispatchEvent(new Event('change'));
+  f.frame(); f.frame();
+  assert.equal(f.result().resizes, 1);
+  assert.equal(f.resolutionQueries[1].media, '(resolution: 2dppx)');
+  f.dispose();
+  f.resolutionQueries[1].dispatchEvent(new Event('change'));
+  assert.equal(f.resolutionQueries.length, 2);
+  assert.equal(f.frames.size, 0);
+});
+
+test('canvas first reveal and hide/reveal each synchronize visible dimensions without resizing zero-sized canvases', () => {
+  const f = canvasResizeFixture({ hidden: true });
+  f.observer(); f.frame();
+  assert.equal(f.result().resizes, 0);
+  f.rect.width = 960; f.rect.height = 544;
+  f.observer(); f.frame(); f.frame();
+  assert.equal(f.result().resizes, 1);
+  f.rect.width = 0; f.rect.height = 0;
+  f.observer(); f.frame();
+  assert.equal(f.result().resizes, 1);
+  assert.equal(f.result().layoutChanges, 2, 'hiding cancels gestures without delivering an invalid size to SDL');
+  f.rect.width = 960; f.rect.height = 544;
+  f.observer(); f.frame(); f.frame();
+  assert.equal(f.result().resizes, 2, 'even revealing at the previous size must synchronize again');
+});
+
+test('targeted style/class mutations catch position-only layout changes without a resize-observer entry', () => {
+  const f = canvasResizeFixture();
+  assert.deepEqual(f.mutationsObserved.map(item => item.element), [f.canvas, f.canvas.parentElement]);
+  f.rect.left += 100;
+  f.mutation(); f.frame();
+  assert.equal(f.result().layoutChanges, 1);
+  assert.equal(f.result().resizes, 0);
+  f.mutation(); f.frame();
+  assert.equal(f.result().layoutChanges, 1, 'unrelated class churn must not cancel a new gesture');
+  f.dispose();
+  assert.equal(f.mutationsObserved.length, 0);
+});
+
 function fixture({ mobile = true, lock = () => Promise.resolve(), hasApi = true } = {}) {
   const canvas = {};
   const target = { contains: element => element === canvas };
