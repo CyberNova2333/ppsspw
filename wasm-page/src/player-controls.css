@@ -106,6 +106,9 @@
   letter-spacing: .08em;
 }
 .touch-gamepad .touch-pad-system button::before { inset: 8px 2px; }
+/* Keep badges clear of the pad, including the FPS loop's inline visibility. */
+body.touch-gamepad-visible #stageMini,
+body.touch-gamepad-visible #fpsBadge { display: none !important; }
 
 /* Every section has a visible icon and label. Short landscape screens use a rail. */
 #sidePanel {
