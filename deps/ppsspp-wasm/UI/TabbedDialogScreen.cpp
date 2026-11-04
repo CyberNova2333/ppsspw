@@ -47,10 +47,31 @@ void UITabbedBaseDialogScreen::AddTab(const char *tag, std::string_view title, I
 	});
 }
 
+bool UITabbedBaseDialogScreen::UseHorizontalTabs() const {
+#if defined(__EMSCRIPTEN__)
+	// A browser canvas can be landscape-shaped even inside a narrow window.
+	// Leave enough room for settings beside the 300-unit navigation column.
+	if (g_display.dp_xres > 0 && g_display.dp_xres < 720) {
+		return true;
+	}
+#endif
+	return GetDeviceOrientation() == DeviceOrientation::Portrait || ForceHorizontalTabs();
+}
+
+void UITabbedBaseDialogScreen::resized() {
+#if defined(__EMSCRIPTEN__)
+	if (root_ && horizontalTabs_ != UseHorizontalTabs()) {
+		// UIScreen recreates with persisted tab, content scroll and focus state.
+		RecreateViews();
+	}
+#endif
+}
+
 void UITabbedBaseDialogScreen::CreateViews() {
 	PreCreateViews();
-
-	bool portrait = GetDeviceOrientation() == DeviceOrientation::Portrait || ForceHorizontalTabs();
+	clearSearchChoice_ = nullptr;
+	noSearchResults_ = nullptr;
+	horizontalTabs_ = UseHorizontalTabs();
 
 	// Information in the top left.
 	// Back button to the bottom left.
@@ -61,13 +82,16 @@ void UITabbedBaseDialogScreen::CreateViews() {
 	filterNotice_ = new TextView("(filter notice, you shouldn't see this text", new LinearLayoutParams(Margins(20, 5)));
 	filterNotice_->SetVisibility(V_GONE);
 
-	if (portrait) {
+	if (horizontalTabs_) {
 		auto di = GetI18NCategory(I18NCat::DIALOG);
 		LinearLayout *verticalLayout = new LinearLayout(ORIENT_VERTICAL, new LayoutParams(FILL_PARENT, FILL_PARENT));
 
 		TabHolderFlags tabHolderFlags = TabHolderFlags::BackButton;
 		if (flags_ & TabDialogFlags::HorizontalOnlyIcons) {
 			tabHolderFlags |= TabHolderFlags::HorizontalOnlyIcons;
+		}
+		if (flags_ & TabDialogFlags::HorizontalShowIcons) {
+			tabHolderFlags |= TabHolderFlags::HorizontalShowIcons;
 		}
 		std::function<void()> contextMenu;
 		if (flags_ & TabDialogFlags::ContextMenuInPortrait) {
@@ -97,29 +121,13 @@ void UITabbedBaseDialogScreen::CreateViews() {
 	tabHolder_->SetTag(tag());  // take the tag from the screen.
 	root_->SetDefaultFocusView(tabHolder_);
 
-	float leftSide = 40.0f;
-	if (!portrait) {
-		leftSide += 200.0f;
-	}
-
 	// Let the subclass create its tabs.
 	CreateTabs();
-	if (currentTabSetting_) {
-		tabHolder_->SetInitialTab(*currentTabSetting_);
-	} else {
-		tabHolder_->EnsureTab(tabHolder_->GetCurrentTab());
-	}
-
-	tabHolder_->OnChangeTab.Add([this](UI::EventParams &e) {
-		if (currentTabSetting_) {
-			*currentTabSetting_ = e.a;
-		}
-	});
 
 	if (System_GetPropertyBool(SYSPROP_HAS_KEYBOARD) || System_GetPropertyBool(SYSPROP_HAS_TEXT_INPUT_DIALOG)) {
 		// Hide search if screen is too small.
 		int deviceType = System_GetPropertyInt(SYSPROP_DEVICE_TYPE);
-		if ((g_display.dp_xres < g_display.dp_yres || g_display.dp_yres >= 500) && (deviceType != DEVICE_TYPE_VR) && ShowSearchControls()) {
+		if ((g_display.dp_xres < g_display.dp_yres || g_display.dp_yres >= 500 || !searchFilter_.empty()) && (deviceType != DEVICE_TYPE_VR) && ShowSearchControls()) {
 			// Search
 			auto ms = GetI18NCategory(I18NCat::MAINSETTINGS);
 			AddTab("GameSettingsSearch", ms->T("Search"), ImageID("I_SEARCH"), [this](UI::LinearLayout *searchSettings) {
@@ -140,6 +148,22 @@ void UITabbedBaseDialogScreen::CreateViews() {
 			});
 		}
 	}
+
+	// Search is optional, so select only after the complete tab list exists.
+	// If a resize removed that page, fall back to the first settings page.
+	int initialTab = currentTabSetting_ ? *currentTabSetting_ : 0;
+	if (initialTab < 0 || initialTab >= tabHolder_->GetNumTabs()) {
+		initialTab = 0;
+	}
+	if (currentTabSetting_) {
+		*currentTabSetting_ = initialTab;
+	}
+	tabHolder_->SetInitialTab(initialTab);
+	tabHolder_->OnChangeTab.Add([this](UI::EventParams &e) {
+		if (currentTabSetting_) {
+			*currentTabSetting_ = e.a;
+		}
+	});
 
 	// Need to handle recreates, both important and accidental ones.
 	if (!searchFilter_.empty()) {
@@ -228,7 +252,11 @@ void UITabbedBaseDialogScreen::ApplySearchFilter() {
 		matches = matches || tabMatches;
 	}
 
-	noSearchResults_->SetText(ApplySafeSubstitutions(se->T("No settings matched '%1'"), searchFilter_));
-	noSearchResults_->SetVisibility(matches ? UI::V_GONE : UI::V_VISIBLE);
-	clearSearchChoice_->SetVisibility(searchFilter_.empty() ? UI::V_GONE : UI::V_VISIBLE);
+	if (noSearchResults_) {
+		noSearchResults_->SetText(ApplySafeSubstitutions(se->T("No settings matched '%1'"), searchFilter_));
+		noSearchResults_->SetVisibility(matches ? UI::V_GONE : UI::V_VISIBLE);
+	}
+	if (clearSearchChoice_) {
+		clearSearchChoice_->SetVisibility(searchFilter_.empty() ? UI::V_GONE : UI::V_VISIBLE);
+	}
 }

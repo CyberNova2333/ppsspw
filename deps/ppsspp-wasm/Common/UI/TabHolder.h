@@ -17,6 +17,7 @@ enum class TabHolderFlags {
 	BackButton = 1,
 	HorizontalOnlyIcons = 2,
 	VerticalShowIcons = 4,
+	HorizontalShowIcons = 8,
 };
 ENUM_CLASS_BITOPS(TabHolderFlags);
 
@@ -39,6 +40,8 @@ public:
 	void SetInitialTab(int tab);
 
 	int GetCurrentTab() const { return currentTab_; }
+	int GetNumTabs() const { return (int)tabs_.size(); }
+	void Layout() override;
 	std::string DescribeLog() const override { return "TabHolder: " + View::DescribeLog(); }
 
 	void PersistData(PersistStatus status, std::string anonId, PersistMap &storage) override;
@@ -67,6 +70,8 @@ private:
 
 	TabHolderFlags flags_ = TabHolderFlags::Default;
 	int currentTab_ = 0;
+	bool revealSelectedTab_ = true;
+	float lastTabScrollWidth_ = 0.0f;
 	std::vector<ViewGroup *> tabs_;
 	std::vector<AnchorTranslateTween *> tabTweens_;  // NOTE: The tweens are actually owned by the tabs.
 	std::vector<std::function<ViewGroup *()>> createFuncs_;
@@ -76,7 +81,7 @@ class ChoiceStrip : public LinearLayout {
 public:
 	ChoiceStrip(Orientation orientation, LayoutParams *layoutParams = 0);
 
-	void AddChoice(std::string_view title, ImageID imageId = ImageID::invalid());
+	void AddChoice(std::string_view title, ImageID imageId = ImageID::invalid(), bool sizeForIconAndText = false);
 	void AddChoice(ImageID buttonImage);
 
 	int GetSelection() const { return selected_; }
