@@ -1,12 +1,29 @@
+#include <algorithm>
+
 #include "Common/Math/curves.h"
 #include "Common/Data/Text/I18n.h"
 #include "Common/UI/TabHolder.h"
+#include "Common/UI/Context.h"
 #include "Common/UI/Root.h"
 #include "Common/UI/ScrollView.h"
 #include "Common/UI/ViewGroup.h"
 #include "Common/UI/UIScreen.h"
 
 namespace UI {
+
+class IconLabelTabChoice : public StickyChoice {
+public:
+	IconLabelTabChoice(std::string_view title, ImageID imageId) : StickyChoice(title, imageId) {}
+
+	void GetContentDimensionsBySpec(const UIContext &dc, MeasureSpec horiz, MeasureSpec vert, float &w, float &h) const override {
+		// Horizontal tabs scroll rather than wrapping labels into a tall strip.
+		float textWidth, textHeight;
+		dc.MeasureText(dc.GetTheme().uiFont, 1.0f, 1.0f, text_, &textWidth, &textHeight, 0);
+		h = std::max(ITEM_HEIGHT, textHeight + 16.0f);
+		// Choice::Draw reserves one item-height column for the icon.
+		w = textWidth + h + 16.0f;
+	}
+};
 
 TabHolder::TabHolder(Orientation orientation, float stripSize, TabHolderFlags flags, View *bannerView, std::function<void()> contextMenuCallback, LayoutParams *layoutParams)
 	: LinearLayout(Opposite(orientation), layoutParams), tabOrientation_(orientation), flags_(flags) {
@@ -72,9 +89,30 @@ void TabHolder::AddBack(UIScreen *parent) {
 	}
 }
 
+void TabHolder::Layout() {
+	LinearLayout::Layout();
+	if (tabOrientation_ != ORIENT_HORIZONTAL || !(flags_ & TabHolderFlags::HorizontalShowIcons)) {
+		return;
+	}
+	float availableWidth = tabScroll_->GetBounds().w;
+	if (availableWidth <= 0.0f) {
+		return;
+	}
+	if (revealSelectedTab_ || availableWidth != lastTabScrollWidth_) {
+		revealSelectedTab_ = false;
+		lastTabScrollWidth_ = availableWidth;
+		if (currentTab_ >= 0 && currentTab_ < tabStrip_->GetNumSubviews()) {
+			// Run once after selection/resize; later manual scrolling stays free.
+			tabScroll_->SubviewFocused(tabStrip_->GetViewByIndex(currentTab_));
+		}
+	}
+}
+
 void TabHolder::AddTabContents(std::string_view title, ImageID imageId, ViewGroup *tabContents) {
 	tabs_.push_back(tabContents);
-	if (tabOrientation_ == ORIENT_HORIZONTAL && (flags_ & TabHolderFlags::HorizontalOnlyIcons) && imageId.isValid()) {
+	if (tabOrientation_ == ORIENT_HORIZONTAL && (flags_ & TabHolderFlags::HorizontalShowIcons) && imageId.isValid()) {
+		tabStrip_->AddChoice(title, imageId, true);
+	} else if (tabOrientation_ == ORIENT_HORIZONTAL && (flags_ & TabHolderFlags::HorizontalOnlyIcons) && imageId.isValid()) {
 		tabStrip_->AddChoice(imageId);
 	} else if (tabOrientation_ == ORIENT_VERTICAL && (flags_ & TabHolderFlags::VerticalShowIcons) && imageId.isValid()) {
 		tabStrip_->AddChoice(title, imageId);
@@ -94,7 +132,9 @@ void TabHolder::AddTabContents(std::string_view title, ImageID imageId, ViewGrou
 
 void TabHolder::AddTabDeferred(std::string_view title, ImageID imageId, std::function<ViewGroup *()> createCb) {
 	tabs_.push_back(nullptr);  // marker
-	if (tabOrientation_ == ORIENT_HORIZONTAL && (flags_ & TabHolderFlags::HorizontalOnlyIcons) && imageId.isValid()) {
+	if (tabOrientation_ == ORIENT_HORIZONTAL && (flags_ & TabHolderFlags::HorizontalShowIcons) && imageId.isValid()) {
+		tabStrip_->AddChoice(title, imageId, true);
+	} else if (tabOrientation_ == ORIENT_HORIZONTAL && (flags_ & TabHolderFlags::HorizontalOnlyIcons) && imageId.isValid()) {
 		tabStrip_->AddChoice(imageId);
 	} else if (tabOrientation_ == ORIENT_VERTICAL && (flags_ & TabHolderFlags::VerticalShowIcons) && imageId.isValid()) {
 		tabStrip_->AddChoice(title, imageId);
@@ -142,6 +182,7 @@ void TabHolder::SetInitialTab(int tab) {
 	}
 	EnsureTab(tab);
 	currentTab_ = tab;
+	revealSelectedTab_ = true;
 	tabStrip_->SetSelection(tab, false);
 }
 
@@ -149,6 +190,9 @@ bool TabHolder::SetCurrentTab(int tab, bool skipTween) {
 	if (tab < 0 || tab >= (int)tabs_.size()) {
 		// Ignore
 		return false;
+	}
+	if (tab != currentTab_) {
+		revealSelectedTab_ = true;
 	}
 
 	if (currentTab_ < 0 || currentTab_ >= (int)tabs_.size()) {
@@ -270,11 +314,16 @@ ChoiceStrip::ChoiceStrip(Orientation orientation, LayoutParams *layoutParams)
 	SetSpacing(0.0f);
 }
 
-void ChoiceStrip::AddChoice(std::string_view title, ImageID imageId) {
-	StickyChoice *c = new StickyChoice(title, imageId,
-		orientation_ == ORIENT_HORIZONTAL ?
-		nullptr :
-		new LinearLayoutParams(FILL_PARENT, ITEM_HEIGHT));
+void ChoiceStrip::AddChoice(std::string_view title, ImageID imageId, bool sizeForIconAndText) {
+	StickyChoice *c;
+	if (orientation_ == ORIENT_HORIZONTAL && sizeForIconAndText && imageId.isValid()) {
+		c = new IconLabelTabChoice(title, imageId);
+	} else {
+		c = new StickyChoice(title, imageId,
+			orientation_ == ORIENT_HORIZONTAL ?
+			nullptr :
+			new LinearLayoutParams(FILL_PARENT, ITEM_HEIGHT));
+	}
 	c->OnClick.Handle(this, &ChoiceStrip::OnChoiceClick);
 	Add(c);
 	choices_.push_back(c);

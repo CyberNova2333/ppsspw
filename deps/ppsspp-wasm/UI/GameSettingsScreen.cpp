@@ -114,7 +114,13 @@ void SetMemStickDirDarwin(int requesterToken) {
 #endif
 
 GameSettingsScreen::GameSettingsScreen(const Path &gamePath, std::string gameID, bool editThenRestore)
-	: UITabbedBaseDialogScreen(gamePath, &g_Config.iSettingsCurrentTab, TabDialogFlags::HorizontalOnlyIcons | TabDialogFlags::VerticalShowIcons), gameID_(gameID), editGameSpecificThenRestore_(editThenRestore) {
+	: UITabbedBaseDialogScreen(gamePath, &g_Config.iSettingsCurrentTab,
+#if defined(__EMSCRIPTEN__)
+		TabDialogFlags::HorizontalShowIcons | TabDialogFlags::VerticalShowIcons),
+#else
+		TabDialogFlags::HorizontalOnlyIcons | TabDialogFlags::VerticalShowIcons),
+#endif
+	  gameID_(gameID), editGameSpecificThenRestore_(editThenRestore) {
 	prevInflightFrames_ = g_Config.iInflightFrames;
 	analogSpeedMapped_ = KeyMap::InputMappingsFromPspButton(VIRTKEY_SPEED_ANALOG, nullptr, true);
 
