@@ -25,6 +25,7 @@
 | 布局变化重算尺寸并取消旧手势 | [运行时](../../wasm-page/public/ppsspp-runtime.js)：`syncViewportSize / installCanvasResizeTracking`；[触控控制器](../../wasm-page/public/touch-controls.js)：`refreshGeometry / ppsspp-player-layout`；[控件样式](../../wasm-page/src/player-controls.css) | Confirmed | 捏合缩放不改变应用布局宽度；新落指重新测量；网页通知不替代核心触点或真实折叠设备验收 | [主流程](../walkthroughs/one-real-run.md)、[代码地图](../code-map.md) |
 | 控件反馈保持位置，狭窄、矮窗口重排并保留画布面积 | [控件样式](../../wasm-page/src/player-controls.css)：`.touch-gamepad button / .touch-pad-shoulder / .touch-pad-system` 与宽高媒体查询 | Confirmed | 紧凑模式覆盖部分游戏画面；已测尺寸与命中边界见[变更记录](../change-log.md)，不推定所有设备均已验收 | [主流程](../walkthroughs/one-real-run.md) |
 | 原生尺寸变化先刷新 DPI，再更新显示边界 | [窗口事件](../../deps/ppsspp-wasm/SDL/SDLMain.cpp)：`UpdateScreenDPI / SDL_WINDOWEVENT_SIZE_CHANGED`；[独立回归](../../scripts/test-sdl-viewport.py)与[测试夹具](../../wasm-page/tests/sdl-viewport.cpp) | Confirmed | 独立回归的 SDL 数据为替身；完整重建后的浏览器菜单点击结果另记于[变更记录](../change-log.md)，不替代游戏或真实设备验收 | [主流程](../walkthroughs/one-real-run.md)、[代码地图](../code-map.md) |
+| 原生设置页按核心有效宽度切换栏目并交接状态 | [栏目布局](../../deps/ppsspp-wasm/UI/TabbedDialogScreen.cpp)：`UseHorizontalTabs / resized / CreateViews / ApplySearchFilter`；[栏目容器](../../deps/ppsspp-wasm/Common/UI/TabHolder.cpp)：`Layout / PersistData`；[视图重建](../../deps/ppsspp-wasm/Common/UI/UIScreen.cpp)：`DoRecreateViews` | Confirmed | 720 阈值为核心 UI 单位；布局策略编译回归与完整核心浏览器检查分别记于[变更记录](../change-log.md)，不替代真实手机或游戏性能验收 | [主流程](../walkthroughs/one-real-run.md)、[代码地图](../code-map.md) |
 | 通过受限预览入口提供运行条件 | [源码定位](../../server/serve-player.py)：`PlayerHandler、root；打包脚本 scripts/package-player.py` | Confirmed | 源码静态确认；本轮未运行业务路径 | [主流程](../walkthroughs/one-real-run.md)、[代码地图](../code-map.md) |
 
 ## 反证与后续问题
@@ -35,7 +36,7 @@
 
 ## 范围与未验证事项
 
-覆盖 Angular 到浏览器运行时的接线、栏目与触控交互、启动能力检查、本地文件挂载、打包与预览；只追踪这些入口。模拟器 CPU/GPU、FFmpeg、完整在线下载、联机、云同步和移动设备性能未覆盖；deps 仅追踪对话框确认与窗口尺寸相关入口，其余第三方实现不作逐层架构讲解。
+覆盖 Angular 到浏览器运行时的接线、栏目与触控交互、启动能力检查、本地文件挂载、打包与预览；只追踪这些入口。模拟器 CPU/GPU、FFmpeg、完整在线下载、联机、云同步和移动设备性能未覆盖；deps 仅追踪对话框确认、窗口尺寸与设置栏目相关入口，其余第三方实现不作逐层架构讲解。
 
 运行时与触控测试执行真实 public 脚本函数并用替身验证边界，与真实核心和真实游戏验收分别记录。完整核心构建按根 README 的 Emscripten/Linux 或 WSL 要求执行；每次调查实际运行的验证见下方同步记录。
 

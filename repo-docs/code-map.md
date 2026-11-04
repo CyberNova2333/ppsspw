@@ -11,6 +11,8 @@
 | `scripts/` | 把配套核心交给静态网页产物 | `scripts/package-player.py` | make pages 或显式打包命令 |
 | `server/` | 只暴露打包目录并设置线程所需响应头 | `server/serve-player.py` | 打包后的人工预览 |
 | `deps/ppsspp-wasm/SDL/` | 窗口变化时同步显示尺寸与输入比例 | `SDLMain.cpp` | 网页尺寸通知抵达原生 SDL 后处理 |
+| `deps/ppsspp-wasm/UI/` | 原生设置栏目按可用宽度切换布局 | `TabbedDialogScreen.cpp / GameSettingsScreen.cpp` | 接收核心尺寸变化并重建栏目 |
+| `deps/ppsspp-wasm/Common/UI/` | 栏目导航、选中可见与视图状态恢复 | `TabHolder.cpp / UIScreen.cpp` | 原生设置页共用的视图机制 |
 
 ## `wasm-page/src/`
 
@@ -57,6 +59,7 @@
 | [职责入口](../wasm-page/tests/runtime.test.mjs) | 约束启动能力和存储失败行为 | `partial core / storage maintenance 用例` | wasm-page 的 test 命令 |
 | [触控回归](../wasm-page/tests/touch-controls.test.mjs) | 多指并按、短按、方向换向、摇杆落点与失焦释放 | `mounted controls / mounted stick 用例` | wasm-page 的 test 命令 |
 | [原生窗口尺寸夹具](../wasm-page/tests/sdl-viewport.cpp) | 为真实生产分支提供窗口数据与断言 | `production-resize.inc / main` | 独立 Python 编译脚本，不属于 npm test |
+| [栏目模式夹具](../wasm-page/tests/tabbed-layout.cpp) | 检查宽度边界、平台分支与跨模式重建请求 | `production-tabbed-layout.inc / main` | 独立 Python 编译脚本；视图重建为替身 |
 
 相关验证入口：`wasm-page/package.json`。DOM 替身中的输入断言不替代浏览器命中测试或游戏内响应。
 
@@ -68,7 +71,8 @@
 | --- | --- | --- | --- |
 | [职责入口](../scripts/package-player.py) | 把配套核心交给静态网页产物 | `main / diagnostic_metadata` | make pages 或显式打包命令 |
 | [窗口尺寸回归入口](../scripts/test-sdl-viewport.py) | 从当前生产源码提取函数和 resize 分支，编译并执行小型 Wasm 测试 | `body / main` | 显式运行；需要 Emscripten SDK 与 Node.js |
-| [构建验证顺序](../scripts/ci/build.sh) | 完整核心构建前先执行窗口尺寸回归 | `test-sdl-viewport.py / make wasm-release` | 构建任务入口；改动脚本不代表任务已执行 |
+| [栏目模式回归入口](../scripts/test-tabbed-layout.py) | 提取真实布局决策和尺寸回调，分别验证网页与非网页分支 | `main / UseHorizontalTabs / resized` | 显式运行；需要 Emscripten SDK 与 Node.js |
+| [构建验证顺序](../scripts/ci/build.sh) | 完整核心构建前先执行窗口尺寸和栏目模式回归 | `test-sdl-viewport.py / test-tabbed-layout.py / make wasm-release` | 构建任务入口；改动脚本不代表任务已执行 |
 
 打包边界的验证入口为 `server/player-tests/`；窗口尺寸分支由独立编译脚本执行，结果分别记录，不能互相替代。
 
@@ -92,9 +96,31 @@
 
 相关验证：`python scripts/test-sdl-viewport.py` 检查真实分支，但 SDL 调用为替身；还需完整重建并加载新核心，才能验证浏览器原生触点。
 
+## `deps/ppsspp-wasm/UI/`
+
+这里只追踪设置栏目在窗口收窄、展开时的布局与状态交接，不展开全部原生界面组件。
+
+| 重要代码 | 功能 | 关键符号 | 调用方 / 使用方 |
+| --- | --- | --- | --- |
+| [栏目布局决策](../deps/ppsspp-wasm/UI/TabbedDialogScreen.cpp) | 网页核心按有效宽度切换栏目方向，安全重建搜索与初始选中项 | `UseHorizontalTabs / resized / CreateViews / ApplySearchFilter` | 核心窗口尺寸回调、各设置页 |
+| [游戏设置栏目](../deps/ppsspp-wasm/UI/GameSettingsScreen.cpp) | 网页核心使用横向图标文字标签 | `GameSettingsScreen / HorizontalShowIcons` | 设置入口 |
+
+相关验证：`python scripts/test-tabbed-layout.py` 执行真实模式决策与尺寸回调，视图重建使用替身；栏目点击和搜索生命周期仍需加载完整核心后验证。
+
+## `deps/ppsspp-wasm/Common/UI/`
+
+栏目切换与界面重建共用下列视图机制；这里仅追踪设置页直接依赖的入口。
+
+| 重要代码 | 功能 | 关键符号 | 调用方 / 使用方 |
+| --- | --- | --- | --- |
+| [栏目容器](../deps/ppsspp-wasm/Common/UI/TabHolder.cpp) | 测量图标文字标签、恢复选中栏目，并在布局变化后将选中标签滚入视野 | `IconLabelTabChoice / Layout / SetInitialTab / PersistData` | 分栏设置页 |
+| [视图状态交接](../deps/ppsspp-wasm/Common/UI/UIScreen.cpp) | 重建前后保存、恢复栏目内容滚动与焦点 | `DoRecreateViews / PersistData` | 原生视图重建 |
+
+验证需在完整核心中检查栏目选中、手动导航、滚动与焦点恢复；实际已执行的项目及设备边界见[指南变更记录](change-log.md)。
+
 ## 覆盖范围
 
-覆盖 Angular 到浏览器运行时的接线、栏目与触控交互、启动能力检查、本地文件挂载、打包与预览；只追踪这些入口。模拟器 CPU/GPU、FFmpeg、完整在线下载、联机、云同步和移动设备性能未覆盖；deps 仅追踪对话框确认与窗口尺寸相关入口，其余第三方实现不作逐层架构讲解。
+覆盖 Angular 到浏览器运行时的接线、栏目与触控交互、启动能力检查、本地文件挂载、打包与预览；只追踪这些入口。模拟器 CPU/GPU、FFmpeg、完整在线下载、联机、云同步和移动设备性能未覆盖；deps 仅追踪对话框确认、窗口尺寸与设置栏目相关入口，其余第三方实现不作逐层架构讲解。
 
 生成物、依赖安装目录、临时日志及第三方供应商源码不作为本次第一方模块地图。修改范围外机制前应重新调查，不能从本页推断兼容性。
 
