@@ -19,6 +19,7 @@ enum class TabDialogFlags {
 	VerticalShowIcons = 2,
 	AddAutoTitles = 4,
 	ContextMenuInPortrait = 8,
+	HorizontalShowIcons = 16,
 };
 ENUM_CLASS_BITOPS(TabDialogFlags);
 
@@ -37,6 +38,7 @@ public:
 		AddTab(tag, title, ImageID::invalid(), createCallback, flags);
 	}
 	void CreateViews() override;
+	void resized() override;
 
 protected:
 	// Load data and define your tabs here.
@@ -54,7 +56,9 @@ protected:
 	void sendMessage(UIMessage message, const char *value) override;
 
 private:
+	bool UseHorizontalTabs() const;
 	void ApplySearchFilter();
+	bool horizontalTabs_ = false;
 
 	UI::TabHolder *tabHolder_ = nullptr;
 	UI::TextView *filterNotice_ = nullptr;
