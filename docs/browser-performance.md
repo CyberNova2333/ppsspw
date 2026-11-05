@@ -56,6 +56,31 @@ node scripts/profile-browser.mjs --port 9222 --seconds 20 --out .local/cpu
 
 CPU 采样会扰动运行；各线程采样窗口也可能不同，不能把百分比直接相加成总 CPU 占用。原始 `.cpuprofile` 可能包含源码 URL，默认截图会包含游戏画面，分享前检查内容。脚本不下载游戏，不修改游戏设置。桌面 CPU 限速、移动视口和软件渲染均不能替代手机真机结果。
 
+## 按模拟时间重放场景输入
+
+同一存档在较慢设备上推进得更慢。若按宿主秒数发送按键，相同输入会落在不同游戏时刻，影响场景对照。[场景输入调度器](../scripts/scene-input-scheduler.mjs)用核心快照中的模拟时间决定按下、松开时刻；它只计算本次新增的输入边沿，不读取存档、不启动浏览器，也不直接发送按键。
+
+动作计划以 `startEmulatedUs` 为起点，每项包含偏移 `atUs`、持续时间 `durationUs` 和 `buttons`。时间单位为微秒，动作须有序且不重叠；一项可以同时按多个按钮。下面用合成快照展示接口：场景推进一秒后产生一次圆圈按下，宿主耗时两秒也不改变目标游戏时刻。
+
+```js
+import { createSceneInputScheduler } from './scripts/scene-input-scheduler.mjs';
+
+const schedule = createSceneInputScheduler({
+  startEmulatedUs: 1_000_000,
+  actions: [{ atUs: 1_000_000, durationUs: 150_000, buttons: ['circle'] }],
+});
+const sample = (emulatedUs, sequence) => ({
+  initialized: true, emulating: true, sampleAgeMs: 0, emulatedUs, sequence,
+});
+schedule.step(sample(1_000_000, 2), 0, { visible: true });
+const due = schedule.step(sample(2_000_000, 4), 2000, { visible: true });
+// due.edges: 一次 down；scheduledEmulatedUs 为 2000000，latenessUs 为 0。
+```
+
+实际采集须传入真实核心快照、单调宿主计时和页面可见性。调用方自行驱动计时循环，按顺序派发 `step()` 返回的新 `edges`，并在 `needsRelease`、异常或退出时释放自己持有的输入来源。`snapshot()` 保留累计边沿用于审计，不能将其重新派发；调度器的取消和超时标记本身不会释放外部按键。
+
+核心暂停、页面隐藏、快照过期、计数回退、停滞或超时会使计划失效；起点或动作超过迟到容差也会停止。若一次观察已跨过整个按压窗口，调度器拒绝把按下、松开一起补发，避免用压缩输入掩盖丢失的动作。返回的 `scheduledEmulatedUs`、`observedEmulatedUs`、`latenessUs` 和宿主 `wallMs` 记录调度观察；调用方还应保留实际派发结果。它们不能证明 PSP 已采到按键，也不构成逐帧确定性重放、真机或性能提升证据。默认迟到容差为 100 毫秒，应在实验开始前固定，失败后不得放宽门槛替代原结果。
+
 ## 用符号表分析工作线程
 
 发行版 WASM 可以不带函数名，此时浏览器只记录 `wasm-function[编号]`。需要符号时，在原有 Release 链接参数上额外追加 `--emit-symbol-map`，保留源码、SDK、FFmpeg、优化级别和资源配置。以下示例假设现有 `CMAKE_EXE_LINKER_FLAGS` 为空；已有其他链接参数时应保留原值再追加：
@@ -586,11 +611,31 @@ FPS 按两轮原始区间的总帧数除以有效总时长重算，相对差异�
 
 原始八轮、单列短测、CPU 端点、私有场景、构建库存和恢复记录保存在 `.local/timer-comparison/`，独立核验汇总为 `audit-on.json`、`audit-restored.json`，继续不入库。本轮未重建前端或文档站，未进行真机、功耗或游戏联网验收，未推送测试资源或触发构建部署。
 
+### 模拟时间输入与当前普通包回归（2026-11-05）
+
+本轮为固定场景加入按模拟时间调度的输入计划，源码锚点为 `6e38caac2253c57d2f30714c2863e9ad3724cd0a`。调度器只产生增量边沿，实际采集通过屏幕手柄的独立输入来源发送，结束时释放该来源。地图使用 56 次动作、112 个边沿，战斗使用 13 次动作、26 个边沿；两者均沿用预先固定的 100 毫秒迟到门槛。
+
+独立构建已提交前端 `07a365e3`，配套核心沿用上一轮菜单修复后已核对源码与产物摘要的普通包，本轮没有重新编译核心。核心 revision 为 `262d9746e29ed769b646ff21bc83b85ae53c24d06f45a49b3e421d3775ba5288`，WASM 为 `1ed90661432fc56ddc0f5896f1738e94d06b34b701bfe0b750fe80c771b279a9`。每场景使用全新无头 Edge `157.0.4341.36` 上下文、844×390 视口、DPR 1、1×内部渲染、默认 512 MiB 与两个计算线程，关闭 Service Worker，读档一次；游戏和存档未随网页提供。
+
+两场景各完成一轮约 60 秒普通包采样。由原始区间独立重算，均有 61 个有效间隔、100% 有效覆盖；正式窗口新增音频欠载、扩容请求均为零，容量保持 512 MiB，没有页面异常。
+
+| 场景 | 有效时长毫秒 | 区间加权 FPS | 仿真速度 | 最大调度迟到毫秒 |
+| --- | --- | --- | --- | --- |
+| 地图移动 | 60050.205 | 29.941613 | 99.905159% | 33.157 |
+| 战斗 | 60050.165 | 29.958286 | 99.960789% | 32.572 |
+
+战斗前后画面均显示敌人，并可见伤害文本及生命值变化；地图采样结束画面位于迷宫。地图读档后立即取得的首张截图仍保留此前画面，因此另做一次约 6 秒短核验：接近采样起点的预热阶段已显示迷宫，三次方向动作后朝向改变，末尾检查输入已释放。短核验不计入上表，也没有连续录像或逐边沿 PSP 接收证明。
+
+首次地图尝试因本地采集清单的路径分隔符不一致，在录制前的摘要核对阶段失败；该记录保留且不生成性能结果，修复工具后才进行正式采样。本轮仅为每场景单轮功能与基线回归，没有候选对照或多轮统计，不能宣称提速、逐帧确定性重放或手机表现。Android 模拟环境本轮未运行，旧的场景未核验结果保持原状。
+
+调度器 13 组测试、构建脚本语法检查、独立前端构建、两轮正式采集及原始区间复算均通过；未重跑全量网页测试或原生编译。报告、截图、首轮失败与短核验保存在 `.local/scene-validation-20261105/`，独立汇总为 `audit.json`，均不入库。未部署或触发云构建。
+
 ## 验证命令
 
 ```sh
 npm --prefix wasm-page test
 node --test scripts/profile-browser.test.mjs
+node --test scripts/scene-input-scheduler.test.mjs
 node --test scripts/trace-browser-cpu.test.mjs
 node --test scripts/extract-trace-profiles.test.mjs
 node --test scripts/summarize-cpu-profile.test.mjs
