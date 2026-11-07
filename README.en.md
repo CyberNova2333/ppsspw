@@ -43,7 +43,7 @@ These are existing verification entrypoints, not results from this documentation
 
 ## Deployment and scope
 
-Formal release uses the existing CNB full-source build and a manual deployment button. Keep deployment credentials in project-specific private configuration; do not put them into manifests or documentation. See [deployment](docs/deployment.md), [downloads](docs/game-download.md) and [performance measurements](docs/browser-performance.md). The client does not include games or grant rights to game content.
+Formal release uses a full-source build on CNB or GitHub Actions and a manual deployment entry point. CNB continues to read the two private configuration files; GitHub reads the project name, deployment credential, and public verification origin from repository Actions secrets, exposing each only to its deployment or verification step. Keep credentials in project-specific private configuration; do not put them into manifests or documentation. See [deployment](docs/deployment.md), [downloads](docs/game-download.md) and [performance measurements](docs/browser-performance.md). The client does not include games or grant rights to game content.
 
 ## Read the implementation
 

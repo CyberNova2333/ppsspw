@@ -34,9 +34,9 @@
 
 ## 正式构建与部署
 
-正式发布走 **CNB 完整源码构建 → 任务级注入保密配置 → EdgeOne Makers 直传**。推送 `main` 只运行测试和完整构建；在 CNB 分支页点击「构建并部署网页客户端」才执行发布，并检查线上构建版本、COOP/COEP/CSP 和 Wasm 响应类型。
+正式发布可走 **CNB 或 GitHub Actions 完整源码构建 → 任务级注入保密配置 → EdgeOne Makers 直传**。推送 `main` 只运行测试和完整构建；在 CNB 分支页点击「构建并部署网页客户端」，或在 GitHub 手动运行同名工作流，才执行发布，并检查线上构建版本、COOP/COEP/CSP 和 Wasm 响应类型。
 
-部署按钮要求填写 `BUILD_CONFIG_URL` 和 `DEPLOY_CONFIG_URL`，分别使用保密配置仓中已有 `build.yml`、`deploy.yml` 的完整文件地址，无默认地址。沿用现有私库和项目凭据，Token 仍通过任务级 `imports` 注入，不填入按钮输入框。配置仅提供目标项目、部署凭据和线上验证地址；构建无需游戏下载来源或清单。真实配置地址和凭据不写入源码。配置格式与权限范围见 [部署说明](docs/deployment.md)，游戏下载协议见 [下载说明](docs/game-download.md)。
+CNB 部署按钮要求填写 `BUILD_CONFIG_URL` 和 `DEPLOY_CONFIG_URL`，分别使用保密配置仓中已有 `build.yml`、`deploy.yml` 的完整文件地址，无默认地址。GitHub 则在仓库 Actions secrets 中配置 `EDGEONE_PROJECT_NAME`、`EDGEONE_PAGES_API_TOKEN` 和 `PLAYER_PUBLIC_ORIGIN`，只在部署或线上验证步骤注入。两端配置仅提供目标项目、部署凭据和线上验证地址；构建无需游戏下载来源或清单。真实配置地址和凭据不写入源码。配置格式与权限范围见 [部署说明](docs/deployment.md)，游戏下载协议见 [下载说明](docs/game-download.md)。
 
 ## 本地开发与验证
 

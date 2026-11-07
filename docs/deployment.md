@@ -1,17 +1,18 @@
-# CNB 构建与 EdgeOne Makers 部署
+# CNB / GitHub Actions 构建与 EdgeOne Makers 部署
 
-正式产物从本仓库的完整源码在 CNB 构建，再直传 EdgeOne Makers。站点使用 Makers 的直传项目类型，不让静态宿主重新拉取源码或编译模拟器。本地构建、预览服务器和本地 Docker 仅用于开发与验证。
+正式产物从本仓库的完整源码在 CNB 或 GitHub Actions 构建，再直传 EdgeOne Makers。站点使用 Makers 的直传项目类型，不让静态宿主重新拉取源码或编译模拟器。本地构建、预览服务器和本地 Docker 仅用于开发与验证。
 
 ## 流水线
 
-`.cnb.yml` 定义两个入口：
+`.cnb.yml` 与 `.github/workflows/` 提供对应入口：
 
 | 入口 | 工作范围 |
 | --- | --- |
-| `main` 的 `push` | 安装锁定依赖、行为测试、FFmpeg 与模拟器完整构建、网页构建、静态产物检查；不读取部署凭据，不部署 |
-| `main` 的「构建并部署网页客户端」按钮 | 完成同样的测试与构建后，读取对应部署凭据上传静态产物，并验证线上版本与实际响应头 |
+| 两端 `main` 的 `push` | 安装锁定依赖、行为测试、FFmpeg 与模拟器完整构建、网页构建、静态产物检查；不读取部署凭据，不部署 |
+| CNB 的「构建并部署网页客户端」按钮或 GitHub 同名手动工作流 | 完成同样的测试与构建后，读取对应部署凭据上传静态产物，并验证线上版本与实际响应头 |
+| GitHub「源码测试与完整构建」手动工作流 | 只执行检查与完整构建，不读取部署凭据，不部署 |
 
-工具链由 `.cnb/Dockerfile` 固定为 Emscripten 6.0.12、Node.js 24.21.0、npm 11.19.0；CNB 以 `docker.build.versionBy` 缓存工具链镜像。FFmpeg 启用，LTO 关闭。核心、网页和递归依赖均来自本仓库，不在流水线中拉取上游源码或应用补丁。`.dockerignore` 排除游戏资源及其他工作区文件，不将其发送到工具链镜像构建上下文。
+工具链由 `.cnb/Dockerfile` 固定为 Emscripten 6.0.12、Node.js 24.21.0、npm 11.19.0；CNB 以 `docker.build.versionBy` 缓存工具链镜像，GitHub 每次运行先执行同一 Dockerfile 的 `toolchain` 目标，再在容器内运行 `scripts/ci/build.sh`。FFmpeg 启用，LTO 关闭。核心、网页和递归依赖均来自本仓库，不在流水线中拉取上游源码或应用补丁。`.dockerignore` 排除游戏资源及其他工作区文件，不将其发送到工具链镜像构建上下文。
 
 上传目录仅为 `wasm-page/dist/ppsspp-web/`，发布前检查核心产物和配置，并拒绝混入游戏镜像、压缩包、资源目录、依赖安装目录和符号链接。构建不下载远端游戏清单或游戏文件，也不注入固定下载地址。
 
@@ -20,6 +21,8 @@
 沿用保密配置仓中本项目现有的 `build.yml` 和 `deploy.yml`。点击部署按钮时，必须填写 `BUILD_CONFIG_URL`（`build.yml` 的完整文件地址）和 `DEPLOY_CONFIG_URL`（`deploy.yml` 的完整文件地址）；两个输入均无默认值。地址从已有配置文件的 CNB 页面复制，不需要迁移私库、修改文件路径或重新创建凭据，也不要在输入框中填写 Token 内容。
 
 `.cnb.yml` 分别通过 `${BUILD_CONFIG_URL}` 和 `${DEPLOY_CONFIG_URL}` 引用这两份文件，只在对应的线上验证任务和部署任务声明 `imports`。凭据仍由任务级导入注入；完整构建与打包阶段不导入这些文件。变量输入与文件路径替换语法分别见 [CNB 手动触发流水线](https://docs.cnb.cool/zh/build/web-trigger.html) 和 [文件引用](https://docs.cnb.cool/zh/build/file-reference.html)。公开仓库不保存配置地址或预设私库路径。
+
+GitHub 不使用上述密钥文件 URL。请在仓库的 Actions secrets 中分别配置 `EDGEONE_PROJECT_NAME`、`EDGEONE_PAGES_API_TOKEN` 和 `PLAYER_PUBLIC_ORIGIN`；前两项只在直传步骤可见，验证 origin 只在线上验证步骤可见。GitHub 部署使用与 CNB 插件一致的 `edgeone makers deploy` 命令。无需把本机 CLI 凭据复制到 GitHub。
 
 | 文件 | 字段 | 作用 |
 | --- | --- | --- |
@@ -49,8 +52,8 @@ Makers 的直传模式支持在上传目录根放置 `edgeone.json`，其 `heade
 
 ## 发布前后检查
 
-1. 确认保密配置仓中现有本项目凭据与正式站点 origin 可供对应任务读取，准备好两份配置文件的完整地址；无需新增游戏下载配置。
-2. 在 CNB 的 `main` 分支点击正式部署按钮，填写 `BUILD_CONFIG_URL` 和 `DEPLOY_CONFIG_URL` 后启动。完整构建、上传和线上检查均需成功。
+1. CNB 发布前确认保密配置仓中现有本项目凭据与正式站点 origin 可供对应任务读取，准备好两份配置文件的完整地址；GitHub 发布前改为核对上述三个 Actions secrets。无需新增游戏下载配置。
+2. 在 CNB 的 `main` 分支点击正式部署按钮，填写 `BUILD_CONFIG_URL` 和 `DEPLOY_CONFIG_URL` 后启动；或在 GitHub 手动运行「构建并部署网页客户端」。完整构建、上传和线上检查均需成功。
 3. 通过正式 HTTPS 站点导入自备清单，检查下载暂停与恢复、游戏启动、存档读写，以及目标手机的长期游玩表现。
 
-本地可运行 `node --test scripts/ci/prepare-deploy.test.mjs` 验证离线构建准备、遗留目录清理、产物边界和线上响应头判据。首次实际 CNB 构建及线上验证的结果应独立记录，不用本地测试通过代替。
+本地可运行 `node --test scripts/ci/prepare-deploy.test.mjs` 验证离线构建准备、遗留目录清理、产物边界和线上响应头判据。首次实际 CNB 或 GitHub 构建及线上验证的结果应独立记录，不用本地测试通过代替。
