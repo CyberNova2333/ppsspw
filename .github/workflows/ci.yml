@@ -1,0 +1,26 @@
+name: 源码测试与完整构建
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: 构建固定工具链镜像
+        run: docker build --target toolchain -t ppsspw-ci -f scripts/ci/Dockerfile .
+      - name: 测试并完整构建
+        run: docker run --rm -v "$GITHUB_WORKSPACE:/workspace" -w /workspace ppsspw-ci bash scripts/ci/build.sh
