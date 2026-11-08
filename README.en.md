@@ -43,7 +43,7 @@ These are existing verification entrypoints, not results from this documentation
 
 ## Deployment and scope
 
-Formal release uses a full-source build and the GitHub Actions manual deployment entry point defined by the latest main branch. Keep deployment credentials in project-specific private configuration and expose them only to the deployment or verification step; do not put them into manifests or documentation. See [deployment](docs/deployment.md), [downloads](docs/game-download.md) and [performance measurements](docs/browser-performance.md). The client does not include games or grant rights to game content.
+Formal release uses a full-source build on GitHub Actions and a manual deployment entry point. GitHub reads the project name, deployment credential, and public verification origin from repository Actions secrets, exposing each only to its deployment or verification step. Keep credentials in project-specific private configuration; do not put them into manifests or documentation. See [deployment](docs/deployment.md), [downloads](docs/game-download.md) and [performance measurements](docs/browser-performance.md). The client does not include games or grant rights to game content.
 
 ## Read the implementation
 
