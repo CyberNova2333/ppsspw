@@ -633,7 +633,7 @@ FPS 按两轮原始区间的总帧数除以有效总时长重算，相对差异�
 ## 验证命令
 
 ```sh
-npm --prefix wasm-page test
+pnpm --dir wasm-page test
 node --test scripts/profile-browser.test.mjs
 node --test scripts/scene-input-scheduler.test.mjs
 node --test scripts/trace-browser-cpu.test.mjs

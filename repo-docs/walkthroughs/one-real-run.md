@@ -78,7 +78,7 @@
 ## 检查这条解释
 
 ```sh
-npm --prefix wasm-page test
+pnpm --dir wasm-page test
 python -m unittest discover -s server/player-tests -v
 # 已激活 Emscripten SDK 且 PATH 有 Node.js 时，单独验证原生窗口尺寸分支
 python scripts/test-sdl-viewport.py
@@ -86,7 +86,7 @@ python scripts/test-sdl-viewport.py
 python scripts/test-tabbed-layout.py
 ```
 
-运行时与触控测试会执行真实 public 脚本函数并用替身验证边界；浏览器布局检查可复核栏目切换、焦点和触摸命中区域。窗口尺寸脚本抽取真实 C++ 函数与分支编译为小型 Wasm，SDL 窗口数据由测试替身提供，且不属于 `npm test`。栏目模式脚本同样提取真实布局决策和尺寸回调，分别将网页与非网页策略分支编译为小型 Wasm；它不构建桌面原生程序、不绘制界面，也不验证栏目滚动或搜索状态。上述检查不替代新核心完整链接、手机触摸手感和游戏性能验收。具体执行结果见[指南变更记录](../change-log.md)；完整核心构建仍按根 README 的 Emscripten/Linux 或 WSL 要求执行。
+运行时与触控测试会执行真实 public 脚本函数并用替身验证边界；浏览器布局检查可复核栏目切换、焦点和触摸命中区域。窗口尺寸脚本抽取真实 C++ 函数与分支编译为小型 Wasm，SDL 窗口数据由测试替身提供，且不属于 `pnpm test`。栏目模式脚本同样提取真实布局决策和尺寸回调，分别将网页与非网页策略分支编译为小型 Wasm；它不构建桌面原生程序、不绘制界面，也不验证栏目滚动或搜索状态。上述检查不替代新核心完整链接、手机触摸手感和游戏性能验收。具体执行结果见[指南变更记录](../change-log.md)；完整核心构建仍按根 README 的 Emscripten/Linux 或 WSL 要求执行。
 
 GitHub Actions 调用[构建入口](../../scripts/ci/build.sh)，在完整核心构建之前执行窗口尺寸和栏目模式回归；手动部署也复用同一产物。脚本中加入检查不表示云构建或真实部署已经运行。
 

@@ -70,7 +70,7 @@ def main():
     source = args.build_dir.resolve()
     output = repo / 'wasm-page/dist/ppsspp-web'
     if not (output / 'index.html').is_file():
-        parser.error('Build the web app first: npm --prefix wasm-page run build:pages')
+        parser.error('Build the web app first: pnpm --dir wasm-page run build:pages')
     names = ['PPSSPPSDL.js', 'PPSSPPSDL.wasm', 'PPSSPPSDL.data']
     if (source / 'PPSSPPSDL.worker.js').is_file():
         names.append('PPSSPPSDL.worker.js')

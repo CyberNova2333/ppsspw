@@ -23,12 +23,12 @@
 以下命令在仓库根运行；启动命令会占用开发端口，构建命令可能写业务产物，请先阅读根规则。
 
 ```sh
-npm --prefix wasm-page ci
+pnpm --dir wasm-page install --frozen-lockfile
 # 维护者验证命令，实际执行结果见指南变更记录
-npm --prefix wasm-page test
+pnpm --dir wasm-page test
 python -m unittest discover -s server/player-tests -v
 # 已有配套核心时的网页重建与预览，会替换业务输出
-npm --prefix wasm-page run build:pages
+pnpm --dir wasm-page run build:pages
 python scripts/package-player.py
 python server/serve-player.py
 ```

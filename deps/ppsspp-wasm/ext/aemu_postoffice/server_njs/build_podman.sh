@@ -9,6 +9,6 @@ podman run \
 	--entrypoint '/bin/bash' \
 	$IMAGE \
 	-c '
-		npm install
-		npm run build
+		pnpm install
+		pnpm run build
 	'

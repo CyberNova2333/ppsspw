@@ -121,8 +121,8 @@ WSS runs over TCP: loss can delay later datagrams on a single PDP socket, and mu
 
 ```sh
 make test-multiplayer
-npm --prefix wasm-page test
-npm --prefix wasm-page run build:pages
+pnpm --dir wasm-page test
+pnpm --dir wasm-page run build:pages
 node scripts/test-network-invites-browser.mjs
 ```
 

@@ -41,21 +41,21 @@
 
 ## 本地开发与验证
 
-需要 Node.js 24.21 或满足 `wasm-page/package.json` 的版本、npm 11.19、Python 3.9+、GNU Make、CMake、Ninja，以及已激活的 Emscripten **6.0.12**。核心构建使用 Linux；Windows 使用 WSL。工具链和 npm 包通过锁定版本安装，不把它们的安装目录入库。
+需要 Node.js 24.21 或满足 `wasm-page/package.json` 的版本、pnpm 12、Python 3.9+、GNU Make、CMake、Ninja，以及已激活的 Emscripten **6.0.12**。核心构建使用 Linux；Windows 使用 WSL。工具链和 pnpm 包通过锁定版本安装，不把它们的安装目录入库。
 
 在已激活 Emscripten 的 shell 中运行：
 
 ```sh
-npm --prefix wasm-page ci
+pnpm --dir wasm-page install --frozen-lockfile
 make wasm-release WASM_JOBS=-j8 WASM_FFMPEG_JOBS=8
-npm --prefix wasm-page run build:pages
+pnpm --dir wasm-page run build:pages
 python3 scripts/package-player.py
 python3 server/serve-player.py
 ```
 
 访问 <http://127.0.0.1:17881/>。也可用 `make pages` 执行核心、网页和打包步骤。核心启用 FFmpeg，以支持游戏中的视频和音频；默认关闭 LTO。完整构建可能耗时较长。
 
-只修改网页时，重新执行网页构建和打包两条命令。Angular 构建会清空输出目录，因此每次都需要重新打包核心。`npm --prefix wasm-page start` 可开发网页，但启动真实游戏仍需配套核心产物。
+只修改网页时，重新执行网页构建和打包两条命令。Angular 构建会清空输出目录，因此每次都需要重新打包核心。`pnpm --dir wasm-page start` 可开发网页，但启动真实游戏仍需配套核心产物。
 
 本地构建仅用于开发和验证。预览服务器只暴露 `wasm-page/dist/ppsspp-web/`，不会提供 `resources/` 或仓库源码，并设置 WebAssembly 线程所需的 COOP/COEP 响应头。手机通过局域网访问需要受信任的 HTTPS，可使用 `--bind`、`--cert` 和 `--key` 参数。`docker compose up` 仅预览已打包目录。
 
@@ -76,7 +76,7 @@ python3 server/serve-player.py
 ## 检查
 
 ```sh
-npm --prefix wasm-page test
+pnpm --dir wasm-page test
 python3 -m unittest discover -s server/player-tests -v
 node --test scripts/ci/prepare-deploy.test.mjs
 node --test scripts/profile-browser.test.mjs
@@ -95,9 +95,9 @@ node --test scripts/profile-browser.test.mjs
 文档站采用 VitePress 默认主题，依赖与业务项目分开安装。默认输出 `docs-site/.vitepress/dist/`；独立核验可在构建命令后加 `-- --outDir <仓库外绝对目录>`。指南正文只维护 `repo-docs/`，站点通过 include 读取；网页中的仓库源码链接显示为精确文件路径，不复制源码或本机资源。
 
 ```sh
-npm --prefix docs-site ci
-npm --prefix docs-site run docs:dev -- --host 127.0.0.1
-npm --prefix docs-site run docs:build
+pnpm --dir docs-site install --frozen-lockfile
+pnpm --dir docs-site run docs:dev -- --host 127.0.0.1
+pnpm --dir docs-site run docs:build
 ```
 
 文档站采用 VitePress 默认主题；默认输出 `docs-site/.vitepress/dist/`，独立验证使用 `-- --outDir <仓库外绝对目录>`。指南正文由 repo-docs include 引入，源码链接在网页中显示为精确路径。
