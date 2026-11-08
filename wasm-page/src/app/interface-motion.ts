@@ -1,9 +1,15 @@
 import { animate, createScope, stagger, utils } from 'animejs';
+import { mountIdleMotion } from './idle-motion';
 
 /** 只装饰待机面板。启动模拟器后停止并释放观察器，不触碰 canvas 或其祖先。 */
 export function mountInterfaceMotion(): () => void {
   const idle = document.getElementById('idleOverlay');
-  if (!idle || idle.hidden || idle.style.display === 'none') return () => {};
+  if (!idle || idle.hidden || idle.style.display === 'none') {
+    return () => {};
+  }
+
+  const stopIdleMotion = mountIdleMotion();
+
   const motion = createScope({ root: idle, mediaQueries: { reduced: '(prefers-reduced-motion: reduce)' } }).add((self) => {
     if (!self || self.matches['reduced']) return;
     const targets = idle.querySelectorAll('.idle-kicker,.idle-title,.idle-subtitle,.idle-actions,.idle-guide');
@@ -12,9 +18,15 @@ export function mountInterfaceMotion(): () => void {
       ease: 'outQuart', onComplete: utils.cleanInlineStyles,
     });
   });
-  const stop = () => { observer.disconnect(); motion.revert(); };
+  const stop = () => {
+    stopIdleMotion();
+    observer.disconnect();
+    motion.revert();
+  };
   const observer = new MutationObserver(() => {
-    if (idle.hidden || idle.style.display === 'none') stop();
+    if (idle.hidden || idle.style.display === 'none') {
+      stop();
+    }
   });
   observer.observe(idle, { attributes: true, attributeFilter: ['style', 'hidden'] });
   return stop;

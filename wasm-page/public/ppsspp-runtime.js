@@ -4759,6 +4759,45 @@ updateGamepadSelector();
 startSmartGamepadPolling();
 
 /* ── GPU probe ──────────────────────────────────────────────────── */
+function renderGpuBadge(text, className, title) {
+  if (!gpuBadge) return;
+  if (className) gpuBadge.className = className;
+  if (title) gpuBadge.title = title;
+  gpuBadge.innerHTML = '<span class="badge-icon" aria-hidden="true"><i data-lucide="monitor"></i></span><span class="badge-marquee-viewport"><span class="badge-marquee-track"><span class="badge-marquee-text">' + text + '</span></span></span>';
+  if (window.lucide && window.lucide.createIcons) {
+    try { window.lucide.createIcons({ root: gpuBadge }); } catch (e) {}
+  }
+  const checkMarquee = () => {
+    if (!gpuBadge) return;
+    const vp = gpuBadge.querySelector('.badge-marquee-viewport');
+    const tr = gpuBadge.querySelector('.badge-marquee-track');
+    const txt = gpuBadge.querySelector('.badge-marquee-text');
+    if (!vp || !tr || !txt) return;
+    if (txt.scrollWidth > vp.clientWidth + 2) {
+      gpuBadge.classList.add('is-overflowing');
+      if (!tr.querySelector('.badge-marquee-dup')) {
+        const sep = document.createElement('span');
+        sep.className = 'badge-marquee-sep';
+        sep.textContent = '　·　';
+        const dup = document.createElement('span');
+        dup.className = 'badge-marquee-dup';
+        dup.textContent = text;
+        dup.setAttribute('aria-hidden', 'true');
+        tr.appendChild(sep);
+        tr.appendChild(dup);
+      }
+    } else {
+      gpuBadge.classList.remove('is-overflowing');
+      const dup = tr.querySelector('.badge-marquee-dup');
+      const sep = tr.querySelector('.badge-marquee-sep');
+      if (dup) dup.remove();
+      if (sep) sep.remove();
+    }
+  };
+  requestAnimationFrame(checkMarquee);
+  window.addEventListener('resize', checkMarquee, { passive: true });
+}
+
 function probeWebGLFeaturesWithPref(powerPreference) {
   const pc = document.createElement("canvas");
   let gl = null;
@@ -4776,8 +4815,7 @@ function probeWebGLFeaturesWithPref(powerPreference) {
   if (!gl) {
     log("WebGL2 unavailable — GLES3/WebGL2 rendering cannot start.", "err");
     if (gpuBadge) {
-      gpuBadge.textContent = "不支持 WebGL2";
-      gpuBadge.className = "badge error";
+      renderGpuBadge("不支持 WebGL2", "badge error", "当前浏览器环境不支持 WebGL2");
     }
     return capabilities;
   }
@@ -4807,11 +4845,10 @@ function probeWebGLFeaturesWithPref(powerPreference) {
   setInfoVal("iAniso",    String(maxAniso));
   setInfoVal("iStencil",  hasStencil   ? "yes" : "no", hasStencil   ? "good" : "warn");
   setInfoVal("iMultiDraw",hasMultiDraw ? "yes" : "no", hasMultiDraw ? "good" : "");
-  const short = renderer.replace(/\(.*?\)/g,"").trim().slice(0,32);
+  const cleanRenderer = renderer.replace(/\(.*?\)/g, "").replace(/\s+/g, " ").trim();
   if (gpuBadge) {
-    gpuBadge.textContent = "\uD83D\uDDA5 " + short;
-    gpuBadge.className   = "badge active";
-    gpuBadge.title       = "[" + powerPreference + "]\n" + renderer + "\n" + vendor + "\n" + version + "\nGLSL: " + glslVer + "\nMaxTex: " + maxTex + "  MaxAniso: " + maxAniso + "\nstencil_texturing: " + hasStencil + "  multi_draw: " + hasMultiDraw;
+    const gpuTitle = "[" + powerPreference + "]\n" + renderer + "\n" + vendor + "\n" + version + "\nGLSL: " + glslVer + "\nMaxTex: " + maxTex + "  MaxAniso: " + maxAniso + "\nstencil_texturing: " + hasStencil + "  multi_draw: " + hasMultiDraw;
+    renderGpuBadge(cleanRenderer, "badge active", gpuTitle);
   }
   // The probe is disposable; release its GPU resources before starting SDL.
   gl.getExtension("WEBGL_lose_context")?.loseContext();
