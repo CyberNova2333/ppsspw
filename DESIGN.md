@@ -1,71 +1,80 @@
-# 设计系统灵感与指南：PPSSPW (PSP 网页模拟器)
+# 设计系统指南：PPSSPW 掌机硬件触感设计系统
 
-## 1. 视觉主题与设计原则
+## 1. 视觉主题与设计哲学
 
-PPSSPW 是基于 PPSSPP (WebAssembly) 构建的非官方 PSP 网页模拟器，面向桌面与移动浏览器，提供中文操作界面、屏幕虚拟手柄、下载续传与基于 OPFS 的本机存档管理。
+PPSSPW 是基于 WebAssembly 构建的非官方 PSP 网页模拟器与存档管理工作台。其设计语言立足于 **GitHub Primer 功能主义架构**，深度汲取经典掌上游戏机硬件工业美学，打造 **复古掌机硬件工业与磨砂触感设计系统（Retro Console Hardware & Matte Tactile Aesthetics）**。
 
-其设计语言遵循 **GitHub Primer 功能主义设计体系**，深度结合复古主机硬件工业设计美学与现代 Web 交互体验：
-- **Primer 全功能画布阶梯**：支持系统级的深色/浅色模式自适应切换。以深色画布（`#010409` / `#0d1117`）还原掌机专注沉浸感；以标准浅色画布（`#f6f8fa` / `#ffffff`）提供清晰舒缓的文档阅读与设置面板体验。
-- **触感反馈按键（Tactile Primer Buttons）**：按钮具备清晰的分层底色、细边框描边与微妙的内阴影下沉反馈（`active` 时 `inset 0 1px 2px`），消除廉价塑料感。
-- **自适应掌机视口（Responsive Console Stage）**：中央舞台严格按 `16:9` 比例居中呈现 PSP 画面（1280×720 Canvas），移动端自动下沉并呼出半透明虚拟触摸手柄。
-- **克制严谨的侧抽屉面板（Side Drawer）**：游戏库、画质与操作、存档管理、系统诊断通过右侧抽屉式面板统一组织，支持标签页切换与即时设置持久化。
+整体设计拒绝廉价光滑的扁平塑料感，强调：
+- **磨砂工程塑料微质感底衬（Matte Industrial Plastic Texture）**：以深色画布（`#010409` / `#0d1117`）还原掌机实体外壳的专注沉浸感；在浅色模式下提供舒缓温润的控制台与归档阅读体验。
+- **实体导电胶微拟物按键（Tactile Mechanical Click Buttons）**：桌面端控制按钮与移动端虚拟按键具备真实的物理键帽分层、倒角微高光描边与按压下沉反馈（`:active` 时 `scale(0.985)` 与内凹阴影 `inset 0 2px 4px`），带来类似真实掌机按键触碰的物理回弹体验。
+- **倒角边缘高光（Chamfered Bezel Highlight）**：模拟器外框、设置抽屉与按键边缘具备细微的定向物理光泽（`inset 0 1px 0 rgba(255, 255, 255, 0.08)`），还原精密模具冲压倒角。
+- **掌机视口黄金舞台（16:9 Console Stage）**：中央舞台严格按 `16:9` 黄金比例呈现 PSP 真实画质视口，未载入时呈现清晰的引导说明，载入时周围自动下沉为暗部沉浸防反光暗场。
+- **动态呼吸光效与昼夜流体联动（Luminous Aura & DayNightSwitch）**：集成物理弹簧阻尼开关，支持深浅模式自适应与丝滑光影过渡。
 
 ---
 
-## 2. 调色板与设计变量
+## 2. 调色板与语义令牌
 
-PPSSPW 采用 GitHub Primer 规范变量体系，并由 `day-night-switch` 驱动动态主题切换：
+PPSSPW 采用 GitHub Primer 规范变量体系，并由动态主题系统驱动：
 
 ### 2.1 画布层级（Canvas Hierarchy）
-| 变量名 | 深色模式 (Dark) | 浅色模式 (Light) | 典型用途 |
+| 变量名 | 深色模式（掌机沉浸） | 浅色模式（控制台白） | 物理质感与典型用途 |
 | :--- | :--- | :--- | :--- |
-| `--bg` | `#010409` (canvas.inset) | `#f6f8fa` | 页面全局底层背景、模拟器舞台周围边框 |
-| `--surface` | `#0d1117` (canvas.default) | `#ffffff` | 顶部导航栏、引导卡片、侧面板主背景 |
-| `--surface2` | `#161b22` (canvas.subtle) | `#f6f8fa` | 面板导航表头、悬停状态、辅助底色 |
-| `--surface3` | `#21262d` (canvas.muted) | `#eaeef2` | 默认按钮背景、标签胶囊、输入框底色 |
+| `canvas.inset` / `--bg` | `#010409` | `#f6f8fa` | 页面底层暗场、模拟器舞台防反光边框 |
+| `canvas.default` / `--surface` | `#0d1117` | `#ffffff` | 顶部导航栏、功能主卡片、侧面板主背景 |
+| `canvas.subtle` / `--surface2` | `#161b22` | `#f6f8fa` | 设置卡片表头、功能悬停底色、辅助面板 |
+| `canvas.muted` / `--surface3` | `#21262d` | `#eaeef2` | 默认按键底色、输入框与标签底槽 |
 
 ### 2.2 前景与文本（Foreground & Text）
-| 变量名 | 深色模式 (Dark) | 浅色模式 (Light) | 典型用途 |
+| 变量名 | 深色模式 | 浅色模式 | 典型用途 |
 | :--- | :--- | :--- | :--- |
-| `--text` | `#f0f6fc` | `#1f2328` | 主标题、引导正文、按钮文字 |
-| `--muted` | `#8b949e` | `#656d76` | 副标题、步骤说明、手柄状态提示 |
-| `--accent` | `#2f81f7` | `#0969da` | 焦点环、高亮标签、当前激活面板项 |
-| `--accent2` | `#1f6feb` | `#0550ae` | 主按键（开始游玩/选择文件）强调填充 |
+| `--text` / `fg.default` | `#f0f6fc` | `#1f2328` | 主标题、引导正文、按钮文字 |
+| `--muted` / `fg.muted` | `#8b949e` | `#656d76` | 副标题、手柄状态提示、帧率统计元数据 |
+| `--accent` / `accent.fg` | `#2f81f7` | `#0969da` | 焦点环、高亮选项、手柄键帽激活高光 |
+| `--accent2` / `accent.emphasis` | `#1f6feb` | `#0550ae` | 开始游戏实心主操作按键 |
 
-### 2.3 边框与阴影（Borders & Shadows）
-- **结构边框**：`--border: #21262d`（浅色 `#d0d7de`），`--border2: #30363d`（浅色 `#d0d7de`）
-- **圆角规范**：外层容器与卡片 `--radius: 6px`；按钮与微控件 `--radius-sm: 6px`
-- **悬浮投影**：`--shadow: 0 8px 24px rgba(1, 4, 9, 0.65)`（浅色 `rgba(140, 149, 159, 0.2)`）
+### 2.3 物理边框与双层光影（Tactile Shadows & Borders）
+- **结构边框**：深色 `#21262d` / `#30363d` · 浅色 `#d0d7de`（`1px solid`）
+- **按键倒角微高光**：
+  - 深色：`inset 0 1px 0 rgba(255, 255, 255, 0.08)`
+  - 浅色：`inset 0 1px 0 rgba(255, 255, 255, 0.6)`
+- **按压下凹阴影（Pressed State）**：`inset 0 2px 4px rgba(0, 0, 0, 0.32)`
+- **悬浮投影（Floating Elevation）**：
+  - 深色：`0 8px 24px rgba(1, 4, 9, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.04)`
+  - 浅色：`0 8px 24px rgba(140, 149, 159, 0.2)`
 
 ---
 
-## 3. 核心界面布局与状态流转
+## 3. 核心触感组件规范
 
-### 3.1 顶部工具栏（Player Header）
-- **品牌区域**：PSP 风格 Logo 图标与等宽字体标题 `PPSSPW`，副标注明 `PSP 网页模拟器`。
-- **快捷操作**：
-  - `选择游戏`：点击呼出系统原生文件选择器（支持 `.iso`、`.cso`、`.chd`、`.pbp`、`.elf`、`.prx`）。
-  - `开始游玩`：主强调色（Primer Blue）按钮。
-  - `进入全屏`：一键锁定全屏并请求移动设备横屏。
-  - `白天/黑夜动效开关`：集成 `DayNightSwitch`，支持平滑物理动效与系统偏好联动。
-  - `游戏库与设置`：触发右侧悬浮抽屉。
+### 3.1 实体触感按键（Tactile Hardware Buttons）
+- **常规控制按键（`button` / `.btn`）**：
+  - 背景：`linear-gradient(180deg, var(--surface3) 0%, var(--surface2) 100%)`
+  - 边框：`1px solid var(--btn-border)`，外加微倒角高光。
+  - 悬停：`transform: translateY(-0.5px)`，高光稍微加强。
+  - 按下反馈：`transform: translateY(0.5px) scale(0.985); box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.25);`
+- **主要执行按键（`button.primary`）**：
+  - 掌机绿实心渐变：`linear-gradient(180deg, #2ea043 0%, #238636 100%)`
+  - 按下时下沉并呈现物理弹性。
 
-### 3.2 中央舞台（Stage & Idle Overlay）
-- **闲置与欢迎状态（Idle Overlay）**：
-  - 未载入游戏时，展示欢迎引导与步骤卡片（01 选择本地镜像 → 02 开始或继续游戏 → 03 保存游戏进度）。
-  - 支持直接将 ROM 镜像拖拽至窗口载入。
-  - 不得在主界面上覆盖任何遮挡引导文字的无意义 Canvas 背景层。
-- **运行状态（Emulator Running）**：
-  - 点击开始或选择文件后，闲置遮罩平滑淡出（`opacity: 0; pointer-events: none;`），中央 WebGL Canvas 接收画面渲染与按键映射。
-  - 屏幕触摸手柄按需在移动端或触摸设备上浮现。
+### 3.2 屏幕触摸虚拟按键（Touch Gamepad Keycaps）
+- **键帽（Keycap Layer）**：半透明微磨砂双层结构（`--pad-key: linear-gradient(180deg, rgba(33, 38, 45, 0.85), rgba(13, 17, 23, 0.88))`）。
+- **十字键与摇杆圆盘**：中间带有圆形微凹陷物理光影指示，边缘带微弱发光光晕。
+- **按下动效（`is-pressed`）**：`transform: scale(0.94);` 触发蓝色发光边缘与下凹内阴影。
 
-### 3.3 侧边抽屉面板（Side Panel）
-- 包含 8 大核心功能分区：
-  1. **游戏库**：管理通过浏览器持久化导入的本地游戏镜像与下载项。
-  2. **在线下载**：支持合规的免版权自制软件（Homebrew）镜像下载。
-  3. **画质与操作**：内部渲染分辨率（1x~5x PSP）、跳帧、触控灵敏度调节。
-  4. **我的存档**：管理与备份 OPFS 目录下的 PSP 游戏存档与即时存档。
-  5. **本机存储**：缓存大小统计与空间回收。
-  6. **系统诊断**：帧率统计、WebGL / WebGPU 适配状态与导出诊断报告。
-  7. **运行日志**：查看模拟器实时内核日志与异常回溯。
-  8. **关于与许可**：PPSSPP GPL 许可证声明与版权告知。
+### 3.3 侧边抽屉面板（Side Drawer）
+- **外框与阴影**：右侧平滑滑出，带 `0 8px 32px rgba(1, 4, 9, 0.85)` 深度阴影。
+- **卡片槽位**：游戏列表项采用条目化分层，包含 ROM 格式、文件大小与存档时间戳。
+
+---
+
+## 4. 排版与等宽数据对齐
+
+- **主字体栈**：`"IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
+- **等宽数据栈**：`ui-monospace, SFMono-Regular, "SF Mono", monospace`，应用于 FPS 帧率计数、内存占用率与 OPFS 存储容量显示，启用 `font-variant-numeric: tabular-nums`。
+
+---
+
+## 5. 微动效与性能保障
+
+- **零掉帧原则**：所有主交互动效（抽屉滑入、虚拟按键响应、全屏缩放）严格约束在 GPU 合成层（`transform` 与 `opacity`），不得触发主线程重排（reflow），确保 60FPS 游戏画面渲染零卡顿。
