@@ -14,7 +14,8 @@
   </div>
   <div class="hbar-end">
     <span id="gamepadBadge" class="badge" title="手柄连接状态"><i data-lucide="gamepad-2"></i>未连接手柄</span>
-    <span id="gpuBadge" class="badge" title="图形设备"><i data-lucide="monitor"></i>检测中…</span>
+    <span id="gpuBadge" class="badge" title="图形设备"><span class="badge-icon"><i data-lucide="monitor"></i></span><span class="badge-marquee-viewport"><span class="badge-marquee-track"><span class="badge-marquee-text">检测中…</span></span></span></span>
+    <div id="ppsspw-theme-switch" class="day-night-control" title="切换白天/黑夜模式"></div>
     <button id="panelToggleBtn" class="panel-btn" title="打开游戏库与设置" aria-label="打开游戏库与设置" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="panel-right"></i><span class="btn-lbl">游戏库与设置</span></button>
   </div>
 </header>
@@ -111,14 +112,14 @@
     <div class="panel-navigation">
       <p class="panel-section-caption" id="panelNavigationLabel">游玩面板</p>
       <div id="panelTabList" class="tabs" role="tablist" aria-labelledby="panelNavigationLabel" aria-orientation="horizontal">
-        <button type="button" class="tab active" id="panelTabLibrary" data-tab="library" role="tab" aria-selected="true" aria-controls="tabLibrary" tabindex="0"><i data-lucide="folder-open" aria-hidden="true"></i><span>游戏库</span></button>
-        <button type="button" class="tab" id="panelTabOnline" data-tab="online" role="tab" aria-selected="false" aria-controls="tabOnline" tabindex="-1"><i data-lucide="download" aria-hidden="true"></i><span>在线下载</span></button>
-        <button type="button" class="tab" id="panelTabSettings" data-tab="settings" role="tab" aria-selected="false" aria-controls="tabSettings" tabindex="-1"><i data-lucide="settings" aria-hidden="true"></i><span>画质与操作</span></button>
-        <button type="button" class="tab" id="panelTabSaves" data-tab="saves" role="tab" aria-selected="false" aria-controls="tabSaves" tabindex="-1"><i data-lucide="save" aria-hidden="true"></i><span>我的存档</span></button>
-        <button type="button" class="tab" id="panelTabStorage" data-tab="storage" role="tab" aria-selected="false" aria-controls="tabStorage" tabindex="-1"><i data-lucide="hard-drive" aria-hidden="true"></i><span>本机存储</span></button>
-        <button type="button" class="tab" id="panelTabInfo" data-tab="info" role="tab" aria-selected="false" aria-controls="tabInfo" tabindex="-1"><i data-lucide="activity" aria-hidden="true"></i><span>系统诊断</span></button>
-        <button type="button" class="tab" id="panelTabLog" data-tab="log" role="tab" aria-selected="false" aria-controls="tabLog" tabindex="-1"><i data-lucide="terminal" aria-hidden="true"></i><span>运行日志</span></button>
-        <button type="button" class="tab" id="panelTabAbout" data-tab="about" role="tab" aria-selected="false" aria-controls="tabAbout" tabindex="-1"><i data-lucide="info" aria-hidden="true"></i><span>关于与许可</span></button>
+        <button type="button" class="tab active" id="panelTabLibrary" data-tab="library" role="tab" aria-selected="true" aria-controls="tabLibrary" tabindex="0" title="游戏库"><i data-lucide="folder-open" aria-hidden="true"></i><span>游戏库</span></button>
+        <button type="button" class="tab" id="panelTabOnline" data-tab="online" role="tab" aria-selected="false" aria-controls="tabOnline" tabindex="-1" title="在线下载"><i data-lucide="download" aria-hidden="true"></i><span>在线下载</span></button>
+        <button type="button" class="tab" id="panelTabSettings" data-tab="settings" role="tab" aria-selected="false" aria-controls="tabSettings" tabindex="-1" title="画质与操作"><i data-lucide="settings" aria-hidden="true"></i><span>画质与操作</span></button>
+        <button type="button" class="tab" id="panelTabSaves" data-tab="saves" role="tab" aria-selected="false" aria-controls="tabSaves" tabindex="-1" title="我的存档"><i data-lucide="save" aria-hidden="true"></i><span>我的存档</span></button>
+        <button type="button" class="tab" id="panelTabStorage" data-tab="storage" role="tab" aria-selected="false" aria-controls="tabStorage" tabindex="-1" title="本机存储"><i data-lucide="hard-drive" aria-hidden="true"></i><span>本机存储</span></button>
+        <button type="button" class="tab" id="panelTabInfo" data-tab="info" role="tab" aria-selected="false" aria-controls="tabInfo" tabindex="-1" title="系统诊断"><i data-lucide="activity" aria-hidden="true"></i><span>系统诊断</span></button>
+        <button type="button" class="tab" id="panelTabLog" data-tab="log" role="tab" aria-selected="false" aria-controls="tabLog" tabindex="-1" title="运行日志"><i data-lucide="terminal" aria-hidden="true"></i><span>运行日志</span></button>
+        <button type="button" class="tab" id="panelTabAbout" data-tab="about" role="tab" aria-selected="false" aria-controls="tabAbout" tabindex="-1" title="关于与许可"><i data-lucide="info" aria-hidden="true"></i><span>关于与许可</span></button>
       </div>
     </div>
 

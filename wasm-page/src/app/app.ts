@@ -15,6 +15,21 @@ export class AppComponent {
   constructor() {
     afterNextRender(() => {
       this.destroyRef.onDestroy(mountInterfaceMotion());
+
+      const container = document.getElementById('ppsspw-theme-switch');
+      if (container) {
+        const dns = (window as unknown as { DayNightSwitch?: { mount: (el: HTMLElement, opts: unknown) => () => void } }).DayNightSwitch;
+        if (dns) {
+          const unmount = dns.mount(container, {
+            isDark: () => document.documentElement.dataset['theme'] === 'dark',
+            onToggle: (dark: boolean) => {
+              document.documentElement.dataset['theme'] = dark ? 'dark' : 'light';
+            }
+          });
+          if (unmount) this.destroyRef.onDestroy(unmount);
+        }
+      }
+
       void this.runtime.bootstrap().catch((error: unknown) => {
         console.error(error);
         const recovery = document.getElementById('runtimeRecovery');
