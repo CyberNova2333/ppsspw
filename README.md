@@ -17,8 +17,6 @@
 「系统诊断」支持按需记录核心实际帧率、仿真速度、启动阶段、ISO 读取延迟和音频欠载，并导出不含游戏名、网址或日志的性能 JSON。手机采样方法、桌面对照结果及指标边界见 [性能测量](docs/browser-performance.md)。
 
 
-> 📐 **交互式架构图表**：支持动态探查、缩放平移与主题切换的高保真架构图：[模拟器前端与 WASM 调度架构图](https://cybernova2333.github.io/ppsspw/diagrams/ppsspw-architecture.html)。
-
 ## 源码布局
 
 | 路径 | 内容 |
