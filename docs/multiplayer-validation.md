@@ -5,7 +5,7 @@ This historical validation used core base `0dbfaca62a8a924abc2c5dd5dd0733b668e5e
 ## Automated checks
 
 - Python relay: `python3 -m unittest discover -s server/tests -v` — 15 wire-level tests, including receive-only busy-socket heartbeat regression.
-- Runtime and transport: `cd wasm-page && npm test` — 24 runtime tests and 7 transport tests after the pacing change.
+- Runtime and transport: `cd wasm-page && pnpm test` — 24 runtime tests and 7 transport tests after the pacing change.
 - Emscripten 6.0.12: `cmake --build deps/ppsspp-wasm/build-wasm-multiplayer -j6` — successful instrumented build with WASM_ADHOC_TESTS=ON. Existing linker warnings concern SDL2 incoming API, pthread/memory growth and deprecated WASM_BIGINT.
 - Docker Compose rebuilt the Angular application and relay successfully. The validation override mounts `build-wasm-multiplayer` as the served release directory; a normal deployment must rebuild its own release core.
 - Real-WASM browser protocol integration passed again after the pacing changes, using visible hardware-accelerated Chrome (headless=false): C++ socket probes over actual WSS, PDP boundaries/order/broadcast, PTP accept/bidirectional traffic/close and native WLAN/nickname/relay-mode configuration. The homebrew cube booted with PSP_IsInited true. See `artifacts/multiplayer/browser-protocol.json`.

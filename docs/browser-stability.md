@@ -16,8 +16,8 @@ These reports are observations from users, not verified compatibility results.
 
 ## Checks
 
-- `npm --prefix wasm-page test`: allocation boundaries, malformed ISO metadata, explicit startup mounts, settings preservation, serial persistence, failed deletion retry, settings recovery, blocked storage/cache, failed startup dependency handling and native save paths.
-- `npm --prefix wasm-page run build`: production UI compilation.
+- `pnpm --dir wasm-page test`: allocation boundaries, malformed ISO metadata, explicit startup mounts, settings preservation, serial persistence, failed deletion retry, settings recovery, blocked storage/cache, failed startup dependency handling and native save paths.
+- `pnpm --dir wasm-page run build`: production UI compilation.
 - `make wasm-release`: builds FFmpeg and the release emulator. The first codec build is slower; subsequent builds reuse its configuration and incremental objects.
 - `make app-build-pages`: refuses a CMake build configured with FFmpeg disabled and writes one content-derived cache revision for JS/WASM/data. Publish all artifacts together.
 
@@ -43,7 +43,7 @@ For a decoder smoke test, generate a three-frame blue 480x272 H.264 video with a
 ## Toolchain upgrade validation (2026-10-18)
 
 - Angular/CLI/build/compiler 22.2.3, Lucide 1.59.0 and TypeScript 6.0.3; the official Angular migration ran and unused `baseUrl` was removed for TypeScript 6. Strict checks remain enabled.
-- Node 24.22.0 LTS and npm 12.2.0 passed the 21 runtime tests and production UI build. Dependency installation/audit reported zero known vulnerabilities after compatible transitive patch updates.
+- Node 24.22.0 LTS and pnpm 12.2.0 passed the 21 runtime tests and production UI build. Dependency installation/audit reported zero known vulnerabilities after compatible transitive patch updates.
 - Emscripten 6.0.12 rebuilt FFmpeg and the complete Release core with LTO, SIMD and pthreads. The H.264 decoder smoke test passed with the new SDK.
 - The updated Angular UI passed the browser import/reset/diagnostic checks. The new LTO core booted and rendered `cube.pbp` in Chrome/SwiftShader; AudioContext reached running state.
 - The static Pages artifact was packaged with the matched new JS/WASM/data revision. CI and the Docker UI stage now pin the documented toolchain versions. The CI deployment and Docker image build were not run locally.

@@ -58,7 +58,7 @@
 | --- | --- | --- | --- |
 | [职责入口](../wasm-page/tests/runtime.test.mjs) | 约束启动能力和存储失败行为 | `partial core / storage maintenance 用例` | wasm-page 的 test 命令 |
 | [触控回归](../wasm-page/tests/touch-controls.test.mjs) | 多指并按、短按、方向换向、摇杆落点与失焦释放 | `mounted controls / mounted stick 用例` | wasm-page 的 test 命令 |
-| [原生窗口尺寸夹具](../wasm-page/tests/sdl-viewport.cpp) | 为真实生产分支提供窗口数据与断言 | `production-resize.inc / main` | 独立 Python 编译脚本，不属于 npm test |
+| [原生窗口尺寸夹具](../wasm-page/tests/sdl-viewport.cpp) | 为真实生产分支提供窗口数据与断言 | `production-resize.inc / main` | 独立 Python 编译脚本，不属于 pnpm test |
 | [栏目模式夹具](../wasm-page/tests/tabbed-layout.cpp) | 检查宽度边界、平台分支与跨模式重建请求 | `production-tabbed-layout.inc / main` | 独立 Python 编译脚本；视图重建为替身 |
 
 相关验证入口：`wasm-page/package.json`。DOM 替身中的输入断言不替代浏览器命中测试或游戏内响应。

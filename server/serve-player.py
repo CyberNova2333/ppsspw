@@ -87,7 +87,7 @@ def main():
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1] / 'wasm-page/dist/ppsspp-web'
     if not (root / 'index.html').is_file():
-        parser.error('请先执行 npm --prefix wasm-page run build:pages')
+        parser.error('请先执行 pnpm --dir wasm-page run build:pages')
     if bool(args.cert) != bool(args.key):
         parser.error('--cert 与 --key 必须同时提供')
     server = ThreadingHTTPServer((args.bind, args.port), functools.partial(

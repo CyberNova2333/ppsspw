@@ -33,7 +33,7 @@
 
 ## 实际命令与维护边界
 
-常用验证：`npm --prefix wasm-page test`、`python -m unittest discover -s server/player-tests -v`。先核对 package/脚本定义，再选择与改动相关的验证；完整构建会写业务产物，执行前核对已有预览与未提交输出。文档构建与业务、原生编译、双端契约和真机验收分开记账。
+常用验证：`pnpm --dir wasm-page test`、`python -m unittest discover -s server/player-tests -v`。先核对 package/脚本定义，再选择与改动相关的验证；完整构建会写业务产物，执行前核对已有预览与未提交输出。文档构建与业务、原生编译、双端契约和真机验收分开记账。
 
 提交统一 Conventional Commits `type(scope): 描述`；项目原有中文正文、人类作者、SSH 签名及完整 Agent co-author 约束继续适用。禁止夹带他人未提交改动。
 
