@@ -25,7 +25,7 @@
 | `scripts/build-ffmpeg-wasm.sh` | 浏览器电影与音频解码依赖构建 |
 | `scripts/package-player.py` | 配套核心产物与网页打包 |
 | `server/serve-player.py` | 只提供打包目录的本地预览服务器 |
-| `scripts/ci/` | 固定工具链、源码构建与发布验证脚本 |
+| `.github/workflows/` | 自动化测试构建与正式部署工作流 |
 | `scripts/ci/` | 完整构建、静态产物准备与线上响应头验证 |
 | `upstream/source-lock.json` | 所有上游提交、导入规则和排除清单 |
 | `upstream/web/` | 上游原始工程元数据和构建入口备份 |
@@ -34,9 +34,9 @@
 
 ## 正式构建与部署
 
-正式发布走 **完整源码构建 → 任务级注入保密配置 → EdgeOne Makers 直传**。构建与正式发布分开执行；发布入口以最新主线的 GitHub Actions 手动工作流为准，并检查线上构建版本、COOP/COEP/CSP 和 Wasm 响应类型。
+正式发布走 **GitHub Actions 完整源码构建 → 任务级注入保密配置 → EdgeOne Makers 直传**。推送 `main` 只运行测试和完整构建；在 GitHub 手动运行同名工作流，才执行发布，并检查线上构建版本、COOP/COEP/CSP 和 Wasm 响应类型。
 
-部署和线上验证分别只读取本项目所需的保密配置，完整构建阶段不读取部署凭据。配置仅提供目标项目、部署凭据和线上验证地址；构建无需游戏下载来源或清单。真实配置地址和凭据不写入源码。配置格式与权限范围见 [部署说明](docs/deployment.md)，游戏下载协议见 [下载说明](docs/game-download.md)。
+在仓库 Actions secrets 中配置 `EDGEONE_PROJECT_NAME`、`EDGEONE_PAGES_API_TOKEN` 和 `PLAYER_PUBLIC_ORIGIN`，只在部署或线上验证步骤注入。配置仅提供目标项目、部署凭据和线上验证地址；构建无需游戏下载来源或清单。真实配置地址和凭据不写入源码。配置格式与权限范围见 [部署说明](docs/deployment.md)，游戏下载协议见 [下载说明](docs/game-download.md)。
 
 ## 本地开发与验证
 
