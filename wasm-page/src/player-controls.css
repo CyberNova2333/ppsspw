@@ -2,10 +2,10 @@
 .touch-gamepad {
   --pad-button-size: clamp(48px, 6vw, 56px);
   --pad-stick-size: clamp(80px, 14vh, 96px);
-  --pad-ink: #e8edf3;
-  --pad-rim: rgba(220, 232, 245, .3);
-  --pad-key: linear-gradient(165deg, rgba(73, 83, 96, .8), rgba(23, 30, 40, .8));
-  --pad-depth: inset 0 1px 0 rgba(255, 255, 255, .14), inset 0 -2px 0 rgba(0, 0, 0, .22), 0 3px 8px rgba(0, 0, 0, .2);
+  --pad-ink: #f0f6fc;
+  --pad-rim: rgba(48, 54, 61, 0.9);
+  --pad-key: linear-gradient(180deg, rgba(33, 38, 45, 0.85), rgba(13, 17, 23, 0.88));
+  --pad-depth: inset 0 1px 0 rgba(240, 246, 252, 0.08), 0 2px 6px rgba(1, 4, 9, 0.45);
 }
 .touch-gamepad button { position: relative; }
 .touch-gamepad button,
@@ -34,9 +34,9 @@
 }
 .touch-gamepad button.is-pressed::before {
   transform: scale(.94);
-  border-color: rgba(142, 205, 255, .85);
-  background: linear-gradient(165deg, rgba(38, 118, 185, .9), rgba(15, 68, 119, .9));
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, .3), 0 0 0 2px rgba(124, 197, 255, .12);
+  border-color: rgba(56, 139, 253, 0.85);
+  background: linear-gradient(180deg, rgba(56, 139, 253, 0.9), rgba(31, 111, 235, 0.92));
+  box-shadow: inset 0 2px 4px rgba(1, 4, 9, 0.35), 0 0 0 2px rgba(56, 139, 253, 0.2);
 }
 .touch-gamepad button.is-pressed { color: #fff; }
 .touch-gamepad button > svg {
@@ -51,10 +51,10 @@
 }
 .touch-gamepad button.is-pressed > svg { transform: translateY(1px); }
 .touch-gamepad button:focus-visible,
-.touch-pad-stick:focus-visible { outline-color: #9bd4ff; }
+.touch-pad-stick:focus-visible { outline-color: #2f81f7; }
 .touch-pad-dpad {
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(22, 30, 40, .5) 0 28%, rgba(22, 30, 40, .12) 53%, transparent 70%);
+  background: radial-gradient(circle, rgba(22, 27, 34, .55) 0 28%, rgba(22, 27, 34, .16) 53%, transparent 70%);
 }
 .touch-pad-dpad::after {
   content: "";
@@ -63,9 +63,9 @@
   top: 44%;
   width: 12%;
   height: 12%;
-  border: 1px solid rgba(220, 232, 245, .2);
+  border: 1px solid rgba(48, 54, 61, 0.8);
   border-radius: 50%;
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, .25);
+  box-shadow: inset 0 1px 3px rgba(1, 4, 9, .35);
   pointer-events: none;
 }
 .touch-pad-dpad button > svg { width: 35%; height: 35%; fill: currentColor; stroke: none; }
@@ -84,20 +84,20 @@
   letter-spacing: .06em;
 }
 .touch-pad-stick {
-  border: 1px solid rgba(220, 232, 245, .22);
-  background: radial-gradient(circle, rgba(17, 24, 34, .4) 44%, rgba(60, 71, 86, .45) 45%, rgba(17, 24, 34, .48) 69%);
-  box-shadow: inset 0 2px 8px rgba(0, 0, 0, .24), 0 1px 0 rgba(255, 255, 255, .12);
+  border: 1px solid rgba(48, 54, 61, 0.85);
+  background: radial-gradient(circle, rgba(13, 17, 23, .5) 44%, rgba(33, 38, 45, .55) 45%, rgba(13, 17, 23, .6) 69%);
+  box-shadow: inset 0 2px 8px rgba(1, 4, 9, .35), 0 1px 0 rgba(240, 246, 252, .08);
 }
-.touch-pad-stick-cross::before, .touch-pad-stick-cross::after { background: rgba(216, 229, 245, .13); }
+.touch-pad-stick-cross::before, .touch-pad-stick-cross::after { background: rgba(139, 148, 158, .2); }
 .touch-pad-thumb {
-  border: 1px solid rgba(220, 232, 245, .45);
-  background: repeating-radial-gradient(circle at center, transparent 0 3px, rgba(255, 255, 255, .045) 3px 4px), linear-gradient(160deg, #626e7c, #303b49);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .22), 0 3px 6px rgba(0, 0, 0, .35);
+  border: 1px solid rgba(139, 148, 158, .45);
+  background: repeating-radial-gradient(circle at center, transparent 0 3px, rgba(240, 246, 252, .04) 3px 4px), linear-gradient(160deg, #30363d, #161b22);
+  box-shadow: inset 0 1px 1px rgba(240, 246, 252, .16), 0 3px 6px rgba(1, 4, 9, .45);
 }
-.touch-pad-stick.is-pressed { border-color: rgba(142, 205, 255, .6); }
+.touch-pad-stick.is-pressed { border-color: rgba(56, 139, 253, .7); }
 .touch-pad-stick.is-pressed .touch-pad-thumb {
-  border-color: #9bd4ff;
-  background: repeating-radial-gradient(circle at center, transparent 0 3px, rgba(255, 255, 255, .07) 3px 4px), linear-gradient(160deg, #317cae, #1d4f76);
+  border-color: #2f81f7;
+  background: repeating-radial-gradient(circle at center, transparent 0 3px, rgba(240, 246, 252, .07) 3px 4px), linear-gradient(160deg, #2f81f7, #1f6feb);
 }
 .touch-gamepad .touch-pad-system button {
   width: 72px;
@@ -116,51 +116,179 @@ body.touch-gamepad-visible #fpsBadge { display: none !important; }
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 .panel-navigation {
-  padding: 14px 16px 16px;
-  border-bottom: 1px solid var(--border);
+  padding: 12px 16px 14px;
+  border-bottom: 1px solid var(--border2);
+  background: var(--surface2);
 }
-.panel-navigation .panel-section-caption { margin-bottom: 10px; font-size: 11px; letter-spacing: .12em; }
+.panel-navigation .panel-section-caption { margin-bottom: 8px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 #sidePanel .tabs {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+  align-items: center;
   border: 0;
+  padding: 2px 0;
 }
 #sidePanel .tab {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
-  min-width: 0;
-  min-height: 44px;
-  height: 44px;
-  padding: 0 12px;
+  justify-content: center;
+  gap: 0;
+  flex: 0 0 auto;
+  min-width: 36px;
+  height: 34px;
+  padding: 0;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--muted);
   font-size: 13px;
   font-weight: 500;
-  text-align: left;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  white-space: nowrap;
+  isolation: isolate;
+  transition: width 0.24s cubic-bezier(0.2, 0.9, 0.3, 1),
+              padding 0.24s cubic-bezier(0.2, 0.9, 0.3, 1),
+              color 0.15s ease;
   transform: none;
 }
-#sidePanel .tab .lucide { width: 18px; height: 18px; stroke-width: 1.8; }
-#sidePanel .tab:hover { background: var(--surface2); color: var(--text); }
-#sidePanel .tab.active {
-  border-color: color-mix(in srgb, var(--accent) 48%, transparent);
-  background: color-mix(in srgb, var(--accent) 15%, var(--surface));
-  color: #bbdcff;
+#sidePanel .tab .lucide {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.8;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
 }
-#sidePanel .tab.active .lucide { color: #7fbbff; }
-#sidePanel .tab:focus-visible { outline: 2px solid #7fbbff; outline-offset: -2px; box-shadow: none; }
-#sidePanel .panel-intro h2 { font-size: 20px; line-height: 1.4; }
-#sidePanel .settings-section h3, #sidePanel .info-group h3 { font-size: 15px; }
-#sidePanel .setting-field, #sidePanel .setting-check { font-size: 14px; }
+#sidePanel .tab span {
+  position: relative;
+  z-index: 2;
+  font-size: 12.5px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+#sidePanel .tab::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 1;
+  border: 1px solid transparent;
+  background: transparent;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+/* 未选中状态：固定 36px 纯图标，文字折叠 */
+#sidePanel .tab:not(.active) {
+  flex: 0 0 36px;
+  width: 36px;
+  padding: 0;
+  justify-content: center;
+}
+#sidePanel .tab:not(.active) span {
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transform: scaleX(0);
+  margin-left: 0;
+  transition: max-width 0.18s cubic-bezier(0.2, 0.9, 0.3, 1),
+              opacity 0.14s ease,
+              transform 0.18s ease;
+}
+#sidePanel .tab:not(.active):hover {
+  color: var(--text);
+}
+#sidePanel .tab:not(.active):hover::before {
+  background: var(--surface3);
+  border-color: var(--border2);
+}
+
+/* 选中状态：由图标（中间）向两侧展开边框、柔光底色与文字 */
+#sidePanel .tab.active {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 0 12px;
+  justify-content: flex-start;
+  gap: 7px;
+  color: var(--accent);
+  font-weight: 600;
+  border-color: transparent;
+  background: transparent;
+}
+#sidePanel .tab.active .lucide {
+  color: var(--accent);
+  animation: tab-icon-glide-left 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+#sidePanel .tab.active span {
+  max-width: 90px;
+  opacity: 1;
+  transform: scaleX(1);
+  animation: tab-text-unfold-right 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: left center;
+}
+#sidePanel .tab.active::before {
+  border: 1px solid var(--accent);
+  background: var(--accent-soft, rgba(56, 139, 253, 0.14));
+  box-shadow: 0 1px 2px rgba(1, 4, 9, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  animation: tab-pill-expand-both-sides 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes tab-pill-expand-both-sides {
+  0% {
+    clip-path: inset(0 calc(50% - 18px) 0 calc(50% - 18px) round 6px);
+    opacity: 0.5;
+  }
+  100% {
+    clip-path: inset(0 0% 0 0% round 6px);
+    opacity: 1;
+  }
+}
+@keyframes tab-icon-glide-left {
+  0% {
+    transform: translateX(17px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+@keyframes tab-text-unfold-right {
+  0% {
+    opacity: 0;
+    transform: translateX(-12px) scale(0.9);
+  }
+  45% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #sidePanel .tab,
+  #sidePanel .tab span,
+  #sidePanel .tab::before,
+  #sidePanel .tab.active::before,
+  #sidePanel .tab.active .lucide,
+  #sidePanel .tab.active span {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+#sidePanel .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; box-shadow: none; }
+#sidePanel .panel-intro h2 { font-size: 18px; line-height: 1.4; }
+#sidePanel .settings-section h3, #sidePanel .info-group h3 { font-size: 14px; }
+#sidePanel .setting-field, #sidePanel .setting-check { font-size: 13px; }
 #sidePanel .panel-intro p, #sidePanel .setting-hint { font-size: 13px; }
-#sidePanel .settings-section { border: 1px solid var(--border); border-radius: 12px; }
-#sidePanel .status-bar { align-items: center; }
+#sidePanel .settings-section { border: 1px solid var(--border2); border-radius: 6px; }
+#sidePanel .status-bar { align-items: center; background: var(--surface2); border-bottom-color: var(--border2); }
 #sidePanel .status-dot { margin-top: 0; }
-#sidePanel #panelCloseBtn { min-width: 44px; width: 44px; height: 44px; }
+#sidePanel #panelCloseBtn { min-width: 32px; width: 32px; height: 32px; }
 
 @media (orientation: portrait) {
   body.touch-gamepad-visible {
