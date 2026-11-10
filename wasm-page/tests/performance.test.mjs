@@ -39,6 +39,69 @@ test('sampling is opt-in, start is idempotent and stop cancels all work', () => 
   assert.equal(f.perf.snapshot().totalSamples, 3);
 });
 
+test('session ownership remains identifiable after stop and duplicate starts do not claim it', () => {
+  const f = fixture();
+  assert.equal(f.perf.sessionToken(), 0);
+  assert.equal(f.perf.start(), 1);
+  assert.equal(f.perf.start(), 0);
+  f.perf.stop();
+  assert.equal(f.perf.token(), 0);
+  assert.equal(f.perf.sessionToken(), 1);
+  assert.equal(f.perf.start(), 2);
+  f.perf.stop();
+  assert.equal(f.perf.sessionToken(), 2);
+});
+
+test('stopping from the initial sample cancels work without recursive stop or leaked timers', () => {
+  const f = fixture();
+  f.perf.subscribe(state => { if (state.active) f.perf.stop(); });
+  assert.equal(f.perf.start(), 1);
+  assert.equal(f.perf.token(), 0);
+  assert.equal(f.perf.sessionToken(), 1);
+  assert.equal(f.timers.size + f.frames.size, 0);
+  assert.equal(f.perf.snapshot().totalSamples, 2);
+});
+
+test('a synchronous subscriber can replace and stop a recording without losing its identity', () => {
+  const f = fixture();
+  let replaced = false;
+  f.perf.subscribe(state => {
+    if (!state.active && f.perf.sessionToken() === 1 && !replaced) {
+      replaced = true;
+      assert.equal(f.perf.start(), 2);
+      f.perf.stop();
+    }
+  });
+  assert.equal(f.perf.start(), 1);
+  f.perf.stop();
+  assert.equal(replaced, true);
+  assert.equal(f.perf.sessionToken(), 2);
+  assert.equal(f.perf.token(), 0);
+  assert.equal(f.timers.size + f.frames.size, 0);
+});
+
+test('nested stop and restart discard superseded notifications for remaining subscribers', () => {
+  const f = fixture();
+  const delivered = [];
+  let replaced = false;
+  f.perf.subscribe(state => {
+    if (state.active && !replaced) {
+      replaced = true;
+      f.perf.stop();
+      f.core.sequence = 6;
+      f.perf.start();
+    }
+  });
+  f.perf.subscribe(state => {
+    if (state.active) delivered.push({sequence:state.core.sequence, actual:f.perf.summary().core.sequence});
+  });
+  assert.equal(f.perf.start(), 1);
+  assert.deepEqual(delivered, [{sequence:2, actual:2}, {sequence:6, actual:6}]);
+  assert.equal(f.perf.token(), 2);
+  f.perf.stop();
+  assert.equal(f.timers.size + f.frames.size, 0);
+});
+
 test('core FPS and emulation speed use counter deltas, independent of page refresh', () => {
   const f = fixture(); f.perf.start();
   for (let i = 0; i < 120; i++) f.frame(1000 / 120);

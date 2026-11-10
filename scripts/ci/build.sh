@@ -15,6 +15,7 @@ pnpm --dir wasm-page test
 python3 -m unittest discover -s server/player-tests -v
 node --test scripts/ci/prepare-deploy.test.mjs
 node --test scripts/scene-input-scheduler.test.mjs
+node --test scripts/browser-scene-session.test.mjs
 python3 scripts/test-sdl-viewport.py
 python3 scripts/test-tabbed-layout.py
 make wasm-release WASM_JOBS=-j8 WASM_FFMPEG_JOBS=8 WASM_ENABLE_LTO=OFF
