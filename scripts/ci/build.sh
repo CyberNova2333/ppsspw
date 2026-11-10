@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 test "$(node --version)" = "v24.21.0"
-test "$(pnpm --version)" = "11.19.0"
+test "$(pnpm --version)" = "$(node -p "require('./wasm-page/package.json').packageManager.split('@').pop()")"
 emcc --version | head -n 1 | grep -q '6.0.12'
 if [ -n "$(git ls-files resources)" ]; then
   printf '%s\n' 'Game resources must not be tracked or included in builds.' >&2
