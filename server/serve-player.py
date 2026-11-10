@@ -4,8 +4,10 @@ import argparse
 import functools
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import ipaddress
+import os
 from pathlib import Path
 import re
+import socket
 import ssl
 from urllib.parse import unquote, urlsplit
 
@@ -75,6 +77,19 @@ class PlayerHandler(SimpleHTTPRequestHandler):
         super().end_headers()
 
 
+class PlayerServer(ThreadingHTTPServer):
+    """Allow prompt restarts without sharing a live listener's address."""
+
+    allow_reuse_address = os.name != 'nt'
+    allow_reuse_port = False
+
+    def server_bind(self):
+        if os.name == 'nt':
+            # Windows SO_REUSEADDR permits a second server to steal requests.
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def main():
     parser = argparse.ArgumentParser(description='本地预览中文游戏入口，不提供仓库目录访问。')
     parser.add_argument('--bind', default='127.0.0.1')
@@ -90,7 +105,7 @@ def main():
         parser.error('请先执行 pnpm --dir wasm-page run build:pages')
     if bool(args.cert) != bool(args.key):
         parser.error('--cert 与 --key 必须同时提供')
-    server = ThreadingHTTPServer((args.bind, args.port), functools.partial(
+    server = PlayerServer((args.bind, args.port), functools.partial(
         PlayerHandler, directory=str(root), cdn_origins=args.connect_origins))
     if args.cert:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

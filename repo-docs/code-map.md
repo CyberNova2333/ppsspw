@@ -82,7 +82,7 @@
 
 | 重要代码 | 功能 | 关键符号 | 调用方 / 使用方 |
 | --- | --- | --- | --- |
-| [职责入口](../server/serve-player.py) | 只暴露打包目录并设置线程所需响应头 | `PlayerHandler / main` | 打包后的人工预览 |
+| [职责入口](../server/serve-player.py) | 只暴露打包目录并设置线程所需响应头 | `PlayerServer / PlayerHandler / main` | 打包后的人工预览 |
 
 相关验证：`server/player-tests/`。本轮只检查可读证据，业务测试没有执行。
 

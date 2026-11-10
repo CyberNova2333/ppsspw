@@ -73,7 +73,9 @@
 
 打包脚本检查必需核心产物，再复制到网页产物目录；本地服务器仅提供该打包目录，并设置线程所需的 COOP/COEP 等响应头。移动设备需要受信任 HTTPS；桌面能启动不能推出手机的帧率或兼容性。
 
-[对应实现](../../server/serve-player.py)，定位 `PlayerHandler、root；打包脚本 scripts/package-player.py`。
+同一地址和端口已有预览实例时，新实例会拒绝启动。更新服务代码后，先结束旧进程再重启，避免请求仍由旧接口处理。Windows 使用独占绑定；其他系统保留快速重启，但不允许多个实例共享监听端口。
+
+[对应实现](../../server/serve-player.py)，定位 `PlayerServer / PlayerHandler / root；打包脚本 scripts/package-player.py`。
 
 ## 检查这条解释
 
