@@ -14,7 +14,7 @@ export function createBrowserSceneSession({ sceneId, fixtureSha256, startEmulate
   if (typeof sceneId !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(sceneId) || !digest(fixtureSha256) || !digest(expectedRevision)
     || !integer(durationMs) || durationMs === 0 || !integer(maxWaitMs) || maxWaitMs === 0
     || !integer(durationMs + maxWaitMs + 3000)) throw new TypeError('Invalid scene identity or duration.');
-  if (![readCore, clock, isVisible, setButtons, releaseButtons, ...['token', 'start', 'stop', 'summary', 'snapshot'].map(key => perf?.[key])]
+  if (![readCore, clock, isVisible, setButtons, releaseButtons, ...['token', 'sessionToken', 'start', 'stop', 'summary', 'snapshot'].map(key => perf?.[key])]
     .every(fn => typeof fn === 'function')) throw new TypeError('Synchronous scene and performance adapters are required.');
   const scheduler = createSceneInputScheduler({ startEmulatedUs, actions, maxLatenessUs, maxWallMs: durationMs + maxWaitMs + 3000 });
   let phase = 'waiting', reason = null, ownedToken = null, finishing = false, pumping = false;
@@ -24,6 +24,9 @@ export function createBrowserSceneSession({ sceneId, fixtureSha256, startEmulate
   const cleanup = { inputReleased: false, recordingStopped: false };
   const dispatches = [];
   const terminal = () => phase === 'completed' || phase === 'invalid';
+  // The animation-frame pump must not clone the growing sample report. Only an
+  // explicit snapshot exports it; status is sufficient to detect completion.
+  const status = () => ({ phase, reason });
   function snapshot() {
     return copy({ schemaVersion: 1, phase, reason, scene, requestedDurationMs: durationMs, startedAtMs, endedAtMs,
       elapsedMs: startedAtMs === null ? null : Math.max(0, (endedAtMs ?? lastWallMs) - startedAtMs),
@@ -44,16 +47,17 @@ export function createBrowserSceneSession({ sceneId, fixtureSha256, startEmulate
     if (current.visibilityChanges !== 0) return 'page_hidden';
     return null;
   }
-  function readOwnedReport() {
-    if (perf.token() !== ownedToken) return 'recording_lost';
+  function readOwnedReport(stopped = false) {
+    const activeToken = stopped ? 0 : ownedToken;
+    if (perf.sessionToken() !== ownedToken || perf.token() !== activeToken) return 'recording_lost';
     const current = perf.snapshot();
-    if (perf.token() !== ownedToken) return 'recording_lost';
+    if (perf.sessionToken() !== ownedToken || perf.token() !== activeToken) return 'recording_lost';
     report = copy(current);
     lastSampleCount = current.totalSamples;
     return reportProblem(current);
   }
   function finish(value = null) {
-    if (terminal() || finishing) return snapshot();
+    if (terminal() || finishing) return status();
     finishing = true;
     if (value) { phase = 'invalid'; reason = value; }
     else phase = 'completed';
@@ -62,24 +66,22 @@ export function createBrowserSceneSession({ sceneId, fixtureSha256, startEmulate
     if (!cleanup.inputReleased) fail('input_release_failed');
     if (ownedToken !== null) {
       try {
-        if (perf.token() === ownedToken) {
+        if (perf.sessionToken() === ownedToken && perf.token() === ownedToken) {
           // Capture only our session. stop() publishes synchronously and a
           // listener may start another recording before it returns.
-          const reportError = readOwnedReport();
-          if (reportError) fail(reportError);
-          if (perf.token() === ownedToken) {
-            try { perf.stop(); cleanup.recordingStopped = true; }
+          // Report failures cannot prevent release of our active recorder.
+          try { const reportError = readOwnedReport(); if (reportError) fail(reportError); }
+          catch { fail('performance_read_failed'); }
+          if (perf.sessionToken() === ownedToken && perf.token() === ownedToken) {
+            try { perf.stop(); }
             catch { fail('recording_stop_failed'); }
-            if (perf.token() === 0) {
+            const activeToken = perf.token();
+            if (activeToken !== ownedToken) cleanup.recordingStopped = true;
+            if (perf.sessionToken() === ownedToken && activeToken === 0) {
               cleanup.recordingStopped = true;
-              const current = perf.snapshot();
-              if (perf.token() === 0) {
-                report = copy(current);
-                const reportError = reportProblem(current);
-                if (reportError) fail(reportError);
-              }
-              else fail('recording_lost');
-            } else fail('recording_lost');
+              const reportError = readOwnedReport(true);
+              if (reportError) fail(reportError);
+            } else fail(activeToken === ownedToken ? 'recording_stop_failed' : 'recording_lost');
           } else fail('recording_lost');
         } else fail('recording_lost');
       } catch { fail('performance_read_failed'); }
@@ -87,7 +89,7 @@ export function createBrowserSceneSession({ sceneId, fixtureSha256, startEmulate
     if (phase === 'completed' && (report?.active !== false || !time(report?.durationMs) || report.durationMs < durationMs)) fail('recording_duration_short');
     endedAtMs = lastWallMs;
     finishing = false;
-    return snapshot();
+    return status();
   }
   function inspectCore(core, wallMs) {
     if (!core || core.initialized !== true) return 'core_uninitialized';
@@ -105,40 +107,49 @@ export function createBrowserSceneSession({ sceneId, fixtureSha256, startEmulate
     return null;
   }
   function pump() {
-    if (terminal() || finishing || pumping) return snapshot();
+    if (terminal() || finishing || pumping) return status();
     pumping = true;
     try {
       let wallMs, core, visible, activeToken;
       try { wallMs = clock(); } catch { return finish('clock_failed'); }
+      if (terminal()) return status();
       if (!time(wallMs)) return finish('invalid_wall_time');
       if (lastWallMs !== null && wallMs < lastWallMs) return finish('wall_time_regressed');
       lastWallMs = wallMs; armedAtMs ??= wallMs;
       try { visible = isVisible(); } catch { return finish('visibility_read_failed'); }
+      if (terminal()) return status();
       if (visible !== true) return finish('page_hidden');
       try { core = readCore(); } catch { return finish('core_read_failed'); }
+      if (terminal()) return status();
       const coreError = inspectCore(core, wallMs);
       if (coreError) return finish(coreError);
       try { activeToken = perf.token(); } catch { return finish('performance_read_failed'); }
       if (phase === 'waiting') {
         if (activeToken !== 0) return finish('existing_recording');
         if (wallMs - armedAtMs > maxWaitMs) return finish('wait_timeout');
-      } else if (activeToken !== ownedToken) return finish('recording_lost');
+      } else if (activeToken !== ownedToken || perf.sessionToken() !== ownedToken) return finish('recording_lost');
 
       const due = scheduler.step(core, wallMs, { visible });
       if (due.phase === 'invalid') return finish(due.reason);
       if (phase === 'waiting' && core.emulatedUs >= startEmulatedUs) {
-        let startFailed = false;
-        try { perf.start(); } catch { startFailed = true; }
-        try { const token = perf.token(); if (integer(token) && token > 0) ownedToken = token; }
-        catch { return finish('performance_read_failed'); }
+        const previousToken = perf.sessionToken();
+        if (!integer(previousToken) || !integer(previousToken + 1)) return finish('performance_read_failed');
+        // This anticipated id is ours even if start throws after allocating it.
+        // Never adopt the active id after callbacks may have opened another run.
+        ownedToken = previousToken + 1;
+        let startFailed = false, startedToken;
+        try { startedToken = perf.start(); } catch { startFailed = true; }
+        if (terminal()) return status();
         if (startFailed) return finish('performance_start_failed');
-        if (ownedToken === null) return finish('performance_not_started');
+        if (startedToken !== ownedToken) return finish('performance_not_started');
+        if (perf.sessionToken() !== ownedToken || perf.token() !== ownedToken) return finish('recording_lost');
         startedAtMs = wallMs; phase = 'recording';
         const reportError = readOwnedReport();
         if (reportError) return finish(reportError);
         const first = report.samples?.[0];
         if (report.active !== true || report.totalSamples !== 1 || first?.visible !== true
           || !integer(first.core?.emulatedUs) || Math.abs(first.core.emulatedUs - startEmulatedUs) > maxLatenessUs
+          || !integer(first.core?.sequence) || first.core.sequence % 2 || !time(first.core.sampleAgeMs) || first.core.sampleAgeMs > 2500
           || first.core.initialized !== true || first.core.emulating !== true) return finish('start_sample_mismatch');
         settings = { ...report.settings }; scene.timeAligned = true;
       }
@@ -147,6 +158,7 @@ export function createBrowserSceneSession({ sceneId, fixtureSha256, startEmulate
           const reportError = readOwnedReport();
           if (reportError) return finish(reportError);
         }
+        if (terminal()) return status();
         // A fixed wall-time window never catches up by sending overdue actions
         // after its endpoint. Incomplete plans remain explicitly invalid.
         if (wallMs - startedAtMs >= durationMs) {
@@ -158,13 +170,15 @@ export function createBrowserSceneSession({ sceneId, fixtureSha256, startEmulate
             if (edge.phase === 'down') { cleanup.inputReleased = false; setButtons([...edge.buttons]); }
             else { release(); if (!cleanup.inputReleased) return finish('input_release_failed'); }
           } catch { return finish('input_dispatch_failed'); }
+          if (terminal()) return status();
           let dispatchedWallMs;
           try { dispatchedWallMs = clock(); } catch { return finish('clock_failed'); }
+          if (terminal()) return status();
           if (!time(dispatchedWallMs) || dispatchedWallMs < wallMs) return finish('invalid_wall_time');
           dispatches.push({ ...edge, buttons: [...edge.buttons], dispatchedWallMs });
         }
       }
-      return snapshot();
+      return status();
     } catch { return finish('performance_read_failed'); }
     finally { pumping = false; }
   }

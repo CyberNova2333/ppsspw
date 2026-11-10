@@ -62,7 +62,7 @@
     const visible = options.visible || (() => !document?.hidden);
     const maxSamples = Math.max(1, Math.min(300, options.maxSamples || 300));
     let source = options.source || (() => ({}));
-    let active = false, session = 0, timer = null, frame = null, observer = null;
+    let active = false, session = 0, stoppingSession = 0, timer = null, frame = null, observer = null;
     let startedAt = null, stoppedAt = null, lastAt = null, previousCore = null, previousVisible = false;
     let samples = [], totalSamples = 0, samplingErrors = 0, rafCount = 0, lastRaf = null;
     let visibilityChanges = 0;
@@ -73,6 +73,7 @@
     let stoppedMarks = null;
     let previousAudio = null, audioTotals = Object.fromEntries(AUDIO_KEYS.map(key => [key, 0]));
     const marks = {}, listeners = new Set();
+    let publication = 0;
     function resetIO() {
       io = { request: histogram(), queue: histogram(), physical: histogram(), requestBytes: 0, physicalBytes: 0, failures: 0 };
     }
@@ -85,8 +86,13 @@
         resources: last?.resources ? { ...last.resources } : null };
     }
     function publish() {
+      const generation = ++publication;
       const state = summary();
-      for (const listener of listeners) { try { listener(state); } catch (_) {} }
+      for (const listener of listeners) {
+        // Nested stop/start notifications supersede this captured summary.
+        if (generation !== publication) break;
+        try { listener(state); } catch (_) {}
+      }
     }
     function sample() {
       if (!active) return;
@@ -150,13 +156,13 @@
       previousCore = rawCore; previousVisible = isVisible; lastAt = at; rafCount = 0;
       publish();
     }
-    function onFrame(at) {
-      if (!active) return;
+    function onFrame(at, token) {
+      if (!active || session !== token) return;
       if (visible()) {
         if (lastRaf !== null) add(frameTimes, at - lastRaf);
         lastRaf = at; rafCount++;
       } else lastRaf = null;
-      frame = requestFrame(onFrame);
+      frame = requestFrame(at => onFrame(at, token));
     }
     function collectLongTasks(entries) {
       if (active) for (const entry of entries) if (entry.startTime >= startedAt && visible()) add(longTasks, entry.duration);
@@ -166,8 +172,9 @@
       lastRaf = null; rafCount = 0; previousCore = null; previousVisible = false;
     }
     function start() {
-      if (active) return;
+      if (active) return 0;
       active = true; session++; startedAt = now(); stoppedAt = null; lastAt = null;
+      const token = session;
       stoppedMarks = null;
       previousCore = null; previousVisible = false; samples = []; totalSamples = 0; samplingErrors = 0;
       visibilityChanges = 0;
@@ -187,23 +194,33 @@
           observer.observe({ type: "longtask", buffered: false }); longTasksSupported = true;
         } catch (_) { observer?.disconnect(); observer = null; }
       }
-      sample(); timer = interval(sample, 1000); frame = requestFrame(onFrame);
+      // Set up work before publishing: a subscriber may synchronously stop or
+      // replace this recording from the first sample notification.
+      timer = interval(() => { if (session === token) sample(); }, 1000);
+      frame = requestFrame(at => onFrame(at, token));
+      sample();
+      return token;
     }
     function stop() {
-      if (!active) return;
+      if (!active || stoppingSession === session) return;
+      stoppingSession = session;
       try { collectLongTasks(observer?.takeRecords?.() || []); } catch (_) {}
       sample();
       active = false; stoppedAt = now();
       stoppedMarks = { ...marks };
       clear(timer); timer = null; cancelFrame(frame); frame = null;
       document?.removeEventListener?.("visibilitychange", visibilityChanged);
-      observer?.disconnect(); observer = null; lastRaf = null; publish();
+      observer?.disconnect(); observer = null; lastRaf = null;
+      stoppingSession = 0;
+      publish();
     }
     return {
       start, stop, summary,
       setSource(fn) { if (typeof fn === "function") source = fn; },
       subscribe(fn) { listeners.add(fn); fn(summary()); return () => listeners.delete(fn); },
       token() { return active ? session : 0; },
+      // Unlike token(), this still identifies the retained report after stop.
+      sessionToken() { return session; },
       recordIO(kind, token, durationMs, bytes = 0, failed = false) {
         if (!active || token !== session || !["request", "queue", "physical"].includes(kind)) return;
         add(io[kind], durationMs);
