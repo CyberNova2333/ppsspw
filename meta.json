@@ -1,0 +1,64 @@
+{
+  "$schema": "https://raw.githubusercontent.com/CyberNova2333/cybernova-homepage/main/public/schemas/repo-meta.v1.json",
+  "schemaVersion": 1,
+  "slug": "ppsspw",
+  "name": "PPSSPW",
+  "title": {
+    "zh": "PPSSPW · 基于 PPSSPP WebAssembly 的网页版 PSP 模拟器",
+    "en": "PPSSPW · Browser PSP Emulator Based on PPSSPP WebAssembly"
+  },
+  "visibility": "public",
+  "status": "active",
+  "category": "media-engine",
+  "featured": true,
+  "order": 4,
+  "repository": "https://github.com/CyberNova2333/ppsspw",
+  "homepage": "https://ppsspw.cbnv.me",
+  "docsUrl": "https://ppsspw.cbnv.me/docs/",
+  "license": "GPL-2.0-or-later",
+  "primaryLanguage": "C++",
+  "techStack": [
+    "WebAssembly",
+    "Emscripten",
+    "C++",
+    "Angular",
+    "WebGL 2",
+    "FFmpeg Wasm"
+  ],
+  "tags": [
+    "emulator",
+    "psp",
+    "webassembly",
+    "webgl",
+    "streaming-iso"
+  ],
+  "summary": {
+    "zh": "在 PPSSPP WebAssembly 基础上修改的中文网页端 PSP 模拟器，增加了 8MiB 窗口分段读取 ISO、分块断点续传、1x–3x 渲染倍率与触屏手柄支持。",
+    "en": "Browser PSP emulator modified from PPSSPP WebAssembly, adding 8MiB windowed on-demand ISO reading, resumable chunked downloads, 1x–3x resolution scaling, and touch controls."
+  },
+  "highlights": {
+    "zh": [
+      "ISO 镜像改为按需分段读取（缓存窗口上限 8MiB），避免启动时把整张光盘镜像一次性塞进浏览器内存",
+      "支持导入外部 JSON 游戏列表、分块下载暂停与续传、1x–3x 内部渲染分辨率切换及存档导入导出",
+      "附带本地运行诊断面板，方便查看帧率、模拟速度、ISO 读取耗时和音频缓冲情况"
+    ],
+    "en": [
+      "Reads ISO images on demand with an 8MiB cache cap instead of loading the entire disc into browser memory",
+      "Supports external JSON game manifests, resumable downloads, 1x–3x resolution scaling, and save import/export",
+      "Includes a local diagnostics panel showing frame rate, ISO read latency, and audio buffer metrics"
+    ]
+  },
+  "quickStart": [
+    "python3 server/serve-player.py",
+    "pnpm --dir docs-site run docs:dev"
+  ],
+  "roadmap": {
+    "stage": "日常维护",
+    "stageEn": "Maintained",
+    "milestone": {
+      "zh": "已完成按需读取 ISO、分辨率调整与触控按键适配，日常按需修补兼容性。",
+      "en": "On-demand ISO reading, resolution scaling, and touch controls are working; maintained for compatibility."
+    }
+  },
+  "updatedAt": "2026-11-11"
+}
