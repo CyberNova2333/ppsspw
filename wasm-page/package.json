@@ -13,10 +13,10 @@
     "test": "node --test tests/runtime.test.mjs tests/orientation.test.mjs tests/touch-controls.test.mjs tests/adhoc-transport.test.mjs tests/browser-files.test.mjs tests/game-download.test.mjs tests/online-games.test.mjs tests/performance.test.mjs"
   },
   "dependencies": {
-    "@angular/common": "22.2.3",
-    "@angular/compiler": "22.2.3",
-    "@angular/core": "22.2.3",
-    "@angular/platform-browser": "22.2.3",
+    "@angular/common": "22.2.5",
+    "@angular/compiler": "22.2.5",
+    "@angular/core": "22.2.5",
+    "@angular/platform-browser": "22.2.5",
     "animejs": "4.5.0",
     "jsqr": "^1.4.0",
     "lucide": "1.59.0",
@@ -24,9 +24,9 @@
     "tslib": "2.8.1"
   },
   "devDependencies": {
-    "@angular/build": "22.2.3",
-    "@angular/cli": "22.2.3",
-    "@angular/compiler-cli": "22.2.3",
+    "@angular/build": "22.2.5",
+    "@angular/cli": "22.2.5",
+    "@angular/compiler-cli": "22.2.5",
     "@resvg/resvg-js": "2.6.2",
     "@types/qrcode": "^1.5.6",
     "typescript": "6.0.3"
