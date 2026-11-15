@@ -2,61 +2,33 @@
 layout: home
 
 hero:
-  name: PPSSPW 网页模拟器
-  text: 现代技术基础设施
-  tagline: PPSSPW 是基于 WebAssembly 与 WebGL2 技术的**高性能网页端 Sony PSP 掌机模拟器**。
+  name: "PPSSPW"
+  text: "浏览器端 PPSSPP WebAssembly 运行时"
+  tagline: "8 MiB 分窗按需读取本地镜像、OPFS 持久化存档、SHA-256 分块续传与 WebGL2 多线程核心。"
   actions:
     - theme: brand
-      text: 快速开始阅读
+      text: "起步与配置部署"
       link: /docs/
     - theme: alt
-      text: 交互式架构全景
+      text: "架构全景与交互图谱"
       link: /docs/architecture
-    - theme: alt
-      text: GitHub 仓库
-      link: https://github.com/CyberNova2333/ppsspw
 
 features:
-  - title: 极简快速上手
-    details: 通俗易懂的文档组织结构，分钟级完成环境搭建与快速启动。
-  - title: 严密安全防护
-    details: 零凭据泄漏防护、受控沙箱隔离与细粒度白名单权限控制。
-  - title: 现代化视觉呈现
-    details: 质感模式与简约模式双向自适应，内建 Archify 交互架构图表。
+  - title: "8 MiB 滑动窗口直读"
+    details: "BrowserFileLoader 将原生 ReadAt 经跨线程代理映射到 256 KiB 分块与 8 MiB LRU 窗口，无需将 1.5 GB ISO 整体塞入 WASM 内存。"
+  - title: "OPFS 断点续传与即时存档"
+    details: "专用 Worker 通过 HTTP Range 206 与逐块 SHA-256 校验写入 OPFS；运行期存档通过 canOwn 所有权接管与 1 MiB ZSTD 流式解压落盘。"
+  - title: "隔离头门禁与自托管栈"
+    details: "内置 COOP/COEP/CORP 与 .wasm MIME 检测、EdgeOne 部署校验脚本，以及可按 open/keys 模式鉴权的 Ad Hoc WebSocket 中继栈。"
 ---
 
-## 架构全景
+## 按身份 / 目标快速入口
 
-<div class="archify-diagram-card" style="margin: 1.5rem 0; border: 1px solid var(--vp-c-border); border-radius: 12px; overflow: hidden; background: var(--vp-c-bg-soft); box-shadow: 0 4px 16px rgba(0,0,0,0.06);">
-  <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 18px; background: var(--vp-c-bg-elv); border-bottom: 1px solid var(--vp-c-border); font-size: 13px;">
-    <span style="font-weight: 600; color: var(--vp-c-text-1); display: flex; align-items: center; gap: 8px;">
-      <span style="font-size: 16px;">📐</span> 模拟器前端与 WASM 调度架构（基于 Archify 的高保真交互图表，支持平移/缩放/探查）
-    </span>
-    <a href="/diagrams/ppsspw-architecture.html" target="_blank" rel="noreferrer" style="font-size: 12px; color: var(--vp-c-brand-1); text-decoration: none; font-weight: 500;">
-      在新窗口全屏打开 ↗
-    </a>
-  </div>
-  <iframe src="/diagrams/ppsspw-architecture.html" width="100%" height="520px" frameborder="0" style="display: block; border: none;" allowfullscreen loading="lazy"></iframe>
-</div>
-
-## 快速上手演示
-
-```bash
-# 1. 安装开发依赖
-pnpm install
-
-# 2. 启动本地调试服务器
-pnpm run start
-
-# 3. 浏览器访问测试
-http://localhost:4200
-```
-
-## 文档分层导航
-
-::: tip 按照读者需求快速跳转
-- **初次上手**：直接阅读 [快速入门与实战](/docs/)，走通环境配置与首次执行流程；
-- **架构探查**：查阅 [系统架构与设计](/docs/architecture)，全屏体验交互式拓扑图表；
-- **详细配置**：查阅 [配置与使用指南](/docs/configuration)，查阅所有环境变量与参数；
-- **排查解惑**：查阅 [常见问题与排错](/docs/faq)，快速定位解决使用疑难。
-:::
+| 你的身份或当前目标 | 推荐先看这一页 | 你能直接完成的事 |
+| --- | --- | --- |
+| 第一次在本地或服务器跑起来 | [部署模式与下载清单准备](/docs/deployment) | 用 `serve-player.py`、Docker Compose 或 EdgeOne 正确注入 COOP/COEP 并打包运行 |
+| 准备远程游戏清单 / 排查加载报错 | [部署与运行排错 FAQ](/docs/troubleshooting) | 检查 `crossOriginIsolated`、HTTPS/CSP、`Range 206` 与端口占用错误 |
+| 接入 8 MiB 读取、分块清单或联机中继 | [8 MiB 分窗、续传与中继契约](/docs/contracts) | 确认清单 schema、`PRO`/`PU1`/`PT1` 二进制帧与 `LOCAL_ONLY = true` UI 开关现状 |
+| 调优高负载游戏帧率、音频与内存 | [画质倍率、音频与稳定性调优](/docs/performance) | 配置 `1x–3x` 倍率、`8 ms` 音频泵、`WASM_FRAME_TIMING` 采样与手机对照边界 |
+| 二次开发前端壳层、WASM 补丁或定位源码 | [架构全景与交互图谱](/docs/architecture) | 打开交互式架构图、顺着主链路走查和代码地图找到精准改动入口 |
+| 了解关键编译开关与历史排坑结论 | [工程决策与调查迁移](/docs/decisions) | 查清 `WASM_ENABLE_LTO=OFF`、RAF 节拍、CI 卡死排查与《战神》调优结论 |

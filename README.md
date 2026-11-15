@@ -2,102 +2,81 @@
 
 **简体中文** | [English](README.en.md)
 
-**PPSSPW** 全称为 **P**layStation **P**ortable **S**imulator **S**uitable for **P**laying on the **W**eb，是基于 PPSSPP WebAssembly 的中文浏览器客户端，属于非官方修改版本。
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPLv3-blue.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/Docs-ppsspw.cbnv.me-0ea5e9.svg)](https://ppsspw.cbnv.me/docs/)
 
-网页、模拟器核心及其递归依赖的源码直接保存在本仓库，便于独立维护；不需要拉取上游或应用补丁才能构建。
+**PPSSPW**（PlayStation Portable Simulator Suitable for Playing on the Web）是基于上游 `ppsspp-wasm` 与 `ppsspp-web` 独立维护的中文浏览器 PSP 模拟器客户端。仓库内完整保存前端页面、工具脚本、可选中继后端与锁版本核心源码，无需在构建时临时拉取外部上游；同时**不包含任何游戏镜像、下载 CDN 或第三方私有凭据**，玩家需使用自己合法持有的镜像或合规清单。
 
-网页、安装入口及网页核心使用 PPSSPW 自有图标与字标，可编辑源稿与生成方法见 [品牌资源](branding/README.md)。原始 PPSSPP 的作者、版权、许可与组件来源继续保留。
+## 核心能力与运行架构
 
-目前实现本地游戏选择与游戏库、通用分块下载与暂停续传、中文网页和模拟器界面、移动布局、多指屏幕手柄、1×/2×/3×内部渲染分辨率、帧率显示，以及存档导入、导出和本机同步。运行中调整画质会在下次启动生效，屏幕手柄可立即显示或隐藏。
+- **8 MiB 分窗读盘与多线程调度**：`BrowserFileLoader` 通过 Emscripten 代理把核心 `ReadAt` 请求切回 JS 层 256 KiB 分块缓存（总上限 8 MiB），避免整包载入 `MEMFS`；仿真循环运行在独立 `pthread` 防止阻塞主线程。
+- **OPFS 断点下载与即时存档优化**：支持以 `HTTP 206` 与逐块 `SHA-256` 校验将远程分块清单落盘至 OPFS（Web Locks 互斥），结合 `canOwn` 所有权移交与 1 MiB 流式 ZSTD 解压缩降低读档内存尖峰。
+- **画质倍率、多指触控与 8 ms 音频泵**：支持 `1x`–`3x` 渲染内部分辨率、60 ms 最短轻触保底与失焦释放的屏幕手柄、DPI 优先刷新与 `720` 阈值原生设置分栏，以及基于 `SharedArrayBuffer` 与 `70 ms` 前瞻门控的 `AudioWorklet`（`SP-shim`）。
+- **脱敏性能采样与发布门禁**：网页可导出不含游戏名、URL 与日志的帧率/耗时 JSON；CI 发布校验脚本默认拦截带 `WASM_FRAME_TIMING` / `WASM_IR_BLOCK_PROFILE` 的诊断核心进入生产站点。
+- **可选中继服务栈**：保留可配置 `open`/`keys` SQLite 鉴权的 `PRO`/`PU1`/`PT1` WebSocket 中继栈（当前发行 UI 默认 `LOCAL_ONLY = true` 隐藏联机与云盘入口）。
 
-下载地址由运行时导入的清单提供，可以选择本地 JSON 清单或输入清单链接。客户端不内置游戏目录或 CDN 地址，换来源不需要重新构建。
+```mermaid
+flowchart LR
+    U["用户浏览器<br/>本地 ISO 或 Manifest"] --> G["预检与隔离门禁<br/>COOP/COEP + WebGL2 + Build Check"]
+    G --> F["分窗读取 / 分块下载<br/>8 MiB Cache / Range 206 + SHA-256"]
+    F --> C["Emscripten pthread 核心<br/>BrowserFileLoader + 1x-3x GL"]
+    C --> S["OPFS 持久化 & 8 ms 音频泵<br/>persist/ + AudioWorklet SP-shim"]
+    C --> D["Canvas 渲染 & 触控/采样<br/>60 ms 触控 / performance.js"]
+```
 
-游戏文件按需读取，读取缓存上限为 8 MiB，启动时不再将整个 ISO 复制到模拟器内存。图像超分和进一步的浏览器性能优化仍待实现；提高内部渲染分辨率不会自动补齐原始纹理和二维素材的细节。
+## 快速开始（本地预览打包）
 
-「系统诊断」支持按需记录核心实际帧率、仿真速度、启动阶段、ISO 读取延迟和音频欠载，并导出不含游戏名、网址或日志的性能 JSON。手机采样方法、桌面对照结果及指标边界见 [性能测量](docs/browser-performance.md)。
-
-
-## 源码布局
-
-| 路径 | 内容 |
-| --- | --- |
-| `wasm-page/` | Angular 网页入口、运行时和行为测试 |
-| `deps/ppsspp-wasm/` | 模拟器核心及展开后的第三方源码 |
-| `scripts/build-ffmpeg-wasm.sh` | 浏览器电影与音频解码依赖构建 |
-| `scripts/package-player.py` | 配套核心产物与网页打包 |
-| `server/serve-player.py` | 只提供打包目录的本地预览服务器 |
-| `.github/workflows/` | 自动化测试构建与正式部署工作流 |
-| `scripts/ci/` | 完整构建、静态产物准备与线上响应头验证 |
-| `upstream/source-lock.json` | 所有上游提交、导入规则和排除清单 |
-| `upstream/web/` | 上游原始工程元数据和构建入口备份 |
-
-历史上游文档、服务器、部署模板和补丁保留用于阅读；本客户端以这里的构建命令为准。`patches/` 不参与当前构建。更新上游应作为显式的源码合并和评审进行，不跟踪浮动版本。
-
-## 正式构建与部署
-
-正式发布走 **GitHub Actions 完整源码构建 → 任务级注入保密配置 → EdgeOne Makers 直传**。推送 `main` 只运行测试和完整构建；在 GitHub 手动运行同名工作流，才执行发布，并检查线上构建版本、COOP/COEP/CSP 和 Wasm 响应类型。
-
-在仓库 Actions secrets 中配置 `EDGEONE_PROJECT_NAME`、`EDGEONE_PAGES_API_TOKEN` 和 `PLAYER_PUBLIC_ORIGIN`，只在部署或线上验证步骤注入。配置仅提供目标项目、部署凭据和线上验证地址；构建无需游戏下载来源或清单。真实配置地址和凭据不写入源码。配置格式与权限范围见 [部署说明](docs/deployment.md)，游戏下载协议见 [下载说明](docs/game-download.md)。
-
-## 本地开发与验证
-
-需要 Node.js 24.21 或满足 `wasm-page/package.json` 的版本、pnpm 12、Python 3.9+、GNU Make、CMake、Ninja，以及已激活的 Emscripten **6.0.12**。核心构建使用 Linux；Windows 使用 WSL。工具链和 pnpm 包通过锁定版本安装，不把它们的安装目录入库。
-
-在已激活 Emscripten 的 shell 中运行：
+前提：已按构建说明生成或取得配套 WASM 核心产物，并安装 Node.js 24+、`pnpm` 与 Python 3.13+：
 
 ```sh
-pnpm --dir wasm-page install --frozen-lockfile
-make wasm-release WASM_JOBS=-j8 WASM_FFMPEG_JOBS=8
-pnpm --dir wasm-page run build:pages
-python3 scripts/package-player.py
+# 1. 构建网页资源并打包校验核心产物至 wasm-page/dist/ppsspp-web/
+make app-build && python3 scripts/package-player.py
+
+# 2. 启动带 COOP/COEP/CORP/CSP 响应头的本地受限预览服务（127.0.0.1:17881）
 python3 server/serve-player.py
+
+# 可选：离线回归网页运行时合约与预览服务端口独占约束
+pnpm --dir wasm-page test && python3 -m unittest discover -s server/player-tests -v
 ```
 
-访问 <http://127.0.0.1:17881/>。也可用 `make pages` 执行核心、网页和打包步骤。核心启用 FFmpeg，以支持游戏中的视频和音频；默认关闭 LTO。完整构建可能耗时较长。
+其他构建与部署方式请直接查看文档站（[ppsspw.cbnv.me/docs](https://ppsspw.cbnv.me/docs/)）：
 
-只修改网页时，重新执行网页构建和打包两条命令。Angular 构建会清空输出目录，因此每次都需要重新打包核心。`pnpm --dir wasm-page start` 可开发网页，但启动真实游戏仍需配套核心产物。
+| 使用或部署模式 | 适用场景 | 入口文档 |
+| --- | --- | --- |
+| Docker Compose 静态预览 | 在 `0.0.0.0:17881` 快速暴露已构建好的 `wasm-page/dist/ppsspp-web` | [部署模式与下载清单准备](docs-site/docs/deployment.md#模式二docker-compose-静态预览容器) |
+| 全量 WASM 工具链编译 & EdgeOne CI | 使用 `emsdk:6.0.12` 完整编译核心并通过 GitHub Actions 发布 | [部署模式与下载清单准备](docs-site/docs/deployment.md#模式三全量工具链构建与-edgeone-pages-ci-发布) |
+| 分块下载清单制作（`create-game-manifest.py`） | 为自持镜像切分 64 KiB–16 MiB 分块并配置 `HTTPS` + `Range 206` | [部署模式与下载清单准备](docs-site/docs/deployment.md#准备在线分块下载清单game-manifest) |
+| 自托管 Ad Hoc 中继（`deploy/relay/`） | 使用 Caddy + Docker Compose 启动带 SQLite 密钥管理的联机中继 | [部署模式与下载清单准备](docs-site/docs/deployment.md#可选部署-ad-hoc-多人中继服务) |
+| 本地文档站预览与静态构建 | 启动 `docs-site` VitePress 开发预览或输出静态文档站点 | [概览与运行边界](docs-site/docs/index.md) |
 
-本地构建仅用于开发和验证。预览服务器只暴露 `wasm-page/dist/ppsspp-web/`，不会提供 `resources/` 或仓库源码，并设置 WebAssembly 线程所需的 COOP/COEP 响应头。手机通过局域网访问需要受信任的 HTTPS，可使用 `--bind`、`--cert` 和 `--key` 参数。`docker compose up` 仅预览已打包目录。
+## 采用前常见疑问
 
-## 使用说明
+1. **为什么必须在服务端配置 `COOP` / `COEP` 响应头？**
+   PPSSPW 的多线程仿真（`pthreads`）、`BrowserFileLoader` 跨线程代理和低拷贝 `AudioWorklet` 都需要 `SharedArrayBuffer`，浏览器仅在 `crossOriginIsolated === true` 且安全上下文（`HTTPS` 或 `localhost`）下放行。
 
-- 自备游戏镜像，选择 ISO、CSO、CHD 等支持的格式。ZIP / 7z 需先解压。此仓库不含游戏本体。
-- 选择本地文件并启动不会自动将游戏复制到浏览器存储；需要保存到游戏库时，使用游戏库的添加操作。在线下载会直接保存在独立的下载缓存中。
-- 在下载页导入清单，确认游戏文件后点击下载；必须下载完成后才能启动。刷新后重新导入对应清单即可继续，恢复依据已落盘的校验记录跳过完成块，不会每次重新计算整个游戏的哈希。
-- 手机默认显示屏幕手柄，提供方向键、模拟摇杆、四个动作键、L/R、START 和 SELECT，支持多指组合操作。顶部手柄按钮、全屏「···」菜单或「画质与操作」可随时切换显示；竖屏按键位于画面下方，横屏分布在两侧。切后台、打开网页菜单或取消触摸会释放屏幕按键。已保存的关闭偏好会保留。
-- 手机点击顶部全屏按钮后会请求锁定横屏，退出全屏时解除网页方向锁定并恢复系统设置。浏览器不支持或拒绝锁定时会提示手动旋转，不中断游戏；普通标签页能否锁定取决于浏览器的 Screen Orientation API，安装入口中的横屏声明不能替代它。
-- 标准实体手柄可与屏幕按键一起使用；选择非标准实体手柄时保留其原始映射并暂时隐藏屏幕手柄，点击顶部手柄按钮可切回。键盘方向键移动，`X` 对应圆圈，`Z` 对应叉，空格对应 START，`Esc` 打开模拟器菜单。
-- 网页输入统一送入核心的第一个手柄。旧配置若曾单独绑定第二、第三个实体手柄的设备号，需要在模拟器控制设置中重新绑定。
-- 启动时游戏嵌入网页显示，需要全屏时使用网页工具栏按钮；导入配置中的原生全屏设置不会在启动时自动生效。
-- 「同步到本机」保存游戏已经生成的存档文件，不能替代游戏内存档。离开前在游戏中保存，再同步或导出备份。
-- 浏览器存储与网站地址和浏览器配置绑定；清理网站数据、隐私模式或存储空间回收可能影响本地文件。重要进度请导出备份。
-- 当前仍运行 PSP 模拟器。低端移动设备的速度、内存占用和耗电需要真机验证，不能由桌面运行结果推断。
+2. **载入 1.5 GB 的 PSP 镜像会撑爆浏览器内存吗？**
+   不会整盘载入内存。前端仅挂载零字节 `MEMFS` 存根并用 8 MiB LRU 窗口按需读取 `256 KiB` 切片，核心初始线性内存为 `512 MiB`、上限 `4 GiB`。
 
-## 检查
+3. **克隆仓库启动后可以直接联机或同步云端存档吗？**
+   默认发行版前端在 `ppsspp-runtime.js` 设置了 `LOCAL_ONLY = true`，隐藏了联机（`tabNetwork`）和云驱动（`tabDrive`）面板；仓库保留了完整的 `server/relay.py` 与 `deploy/relay/` 实现供自托管测试与二次集成。
 
-```sh
-pnpm --dir wasm-page test
-python3 -m unittest discover -s server/player-tests -v
-node --test scripts/ci/prepare-deploy.test.mjs
-node --test scripts/profile-browser.test.mjs
-```
+4. **从源码重新编译 WASM 核心需要什么环境？**
+   需要 Linux 或 WSL 环境搭配 `emsdk:6.0.12`（或直接使用 `scripts/ci/Dockerfile` 工具链镜像）执行 `make pages` 或 `scripts/ci/build.sh`；只改前端壳层可直接运行 `make app-build`。
 
-游戏镜像及提取文件统一放在被忽略的 `resources/` 中；本地截图和验证日志可放在被忽略的 `.local/` 中。不要将这些内容、依赖安装目录或构建输出添加到版本控制。
+5. **客户端是否附带游戏 ROM，调高 `3x` 分辨率能增强 2D 贴图吗？**
+   不附带任何游戏文件、清单地址或账号凭据；调高 `InternalResolution` 仅提升 3D 几何渲染倍率，不会替低分辨率原图或 2D HUD 自动超分细节。
 
-## 许可
+## 阅读路径导航
 
-本项目按 [GPLv3](LICENSE) 发布。引入的 PPSSPP 核心和网页运行时声明为 GPL-2.0-or-later，可选择 GPLv3 条款分发；所有第三方源码保留原有版权与许可声明，详见 [UPSTREAM.md](UPSTREAM.md) 和各组件的许可文件。游戏本体与素材不由本项目许可证授权。
+| 读者目标 | 公开文档站（`docs-site/`） | 源码维护指南（`repo-docs/`） |
+| --- | --- | --- |
+| 初次部署、清单生成与响应头排错 | [概览、部署与排错 FAQ](docs-site/docs/index.md) | [本地运行主流程](repo-docs/walkthroughs/one-real-run.md) |
+| 集成 8 MiB 读盘、Range 续传或中继协议 | [分窗、续传与中继契约](docs-site/docs/contracts.md) | [分窗与下载模块](repo-docs/modules/windowed-iso-and-download.md) / [中继模块](repo-docs/modules/adhoc-relay-protocol.md) |
+| 调优高负载帧率、音频与稳定性边界 | [画质倍率、音频与稳定性调优](docs-site/docs/performance.md) | [运行时节拍与性能模块](repo-docs/modules/runtime-perf-and-stability.md) |
+| 浏览交互架构图、变更决策与源码定位 | [架构图谱与工程决策](docs-site/docs/architecture.md) | [代码地图](repo-docs/code-map.md) / [术语表](repo-docs/glossary.md) / [源码证据](repo-docs/references/source-evidence.md) |
 
-## 源码阅读与文档站
+## 许可与上游致谢
 
-从[中文阅读路径](repo-docs/README.md)进入[一次真实主流程](repo-docs/walkthroughs/one-real-run.md)，再查[代码地图](repo-docs/code-map.md)与[源码证据](repo-docs/references/source-evidence.md)。指南明确限定覆盖范围，不把未运行的测试写成通过。
-
-文档站采用 VitePress 默认主题，依赖与业务项目分开安装。默认输出 `docs-site/.vitepress/dist/`；独立核验可在构建命令后加 `-- --outDir <仓库外绝对目录>`。指南正文只维护 `repo-docs/`，站点通过 include 读取；网页中的仓库源码链接显示为精确文件路径，不复制源码或本机资源。
-
-```sh
-pnpm --dir docs-site install --frozen-lockfile
-pnpm --dir docs-site run docs:dev -- --host 127.0.0.1
-pnpm --dir docs-site run docs:build
-```
-
-文档站采用 VitePress 默认主题；默认输出 `docs-site/.vitepress/dist/`，独立验证使用 `-- --outDir <仓库外绝对目录>`。指南正文由 repo-docs include 引入，源码链接在网页中显示为精确路径。
+- 本项目组合程序依据 [GNU AGPLv3](LICENSE)（`AGPL-3.0-only`）条款发布，同时完整保留上游 `ppsspp-wasm` 核心、`ppsspp-web` 兼容层以及 [LICENSE.TXT](LICENSE.TXT) 中的原作者版权与 `GPL-2.0-or-later` 许可声明。
+- 第三方组件（FFmpeg、SDL、glslang、FreeType、zstd 等）各自沿用所在目录原有许可证与源码声明，详细锁定提交清单与合规边界见 [上游来源与第三方声明](UPSTREAM.md)。
+- 网页图标与字标资源归口见 [品牌资源说明](branding/README.md)；本项目仅供技术学习与个人持有合法游戏镜像运行测试使用，严禁用于商业或未授权分发。

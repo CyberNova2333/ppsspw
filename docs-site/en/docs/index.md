@@ -1,44 +1,29 @@
----
-title: Quick Start
-description: Run PSP software and homebrew titles directly in modern web browsers without native installation.
----
+# Overview & Scope Boundaries
 
-::: warning AI Translation Notice
-This document was translated by an AI language model. In case of any discrepancies or ambiguities, please refer to the [original Chinese documentation](/docs/) as the authoritative reference.
-:::
+PPSSPW packages an upstream `ppsspp-wasm` + `ppsspp-web` browser PSP emulator wrapper alongside an Angular control shell, an 8 MiB windowed ISO reader, OPFS persistence, SHA-256 chunked game downloads, mobile touch controls, and a self-hosted Ad Hoc WebSocket relay stack.
 
-# Quick Start
+## Runtime Tabs & Capabilities
 
-Run PSP software and homebrew titles directly in modern web browsers without native installation.
+The active frontend build (`ppsspp-player-v16`) exposes 8 panels in the right sidebar (`wasm-page/src/app/app.html`):
 
-## Core Problems Solved
+| Tab | Role | Backing Mechanism |
+| --- | --- | --- |
+| Library (`library`) | Import user-owned local `.iso`/`.cso`/`.chd` images or launch installed games | `BrowserFileLoader`, OPFS |
+| Online (`online`) | Validate HTTPS chunk manifests and run resumable downloads | `game-download.js`, Web Locks |
+| Settings (`settings`) | Configure `1x`–`3x` internal resolution, display, and touch layout | Layered over `WEB_NATIVE_TIMING_CONFIG` |
+| Saves (`saves`) | Manage Memory Stick saves and savestate snapshots | OPFS `/ppsspp-web/persist` |
+| Storage (`storage`) | Inspect, export, or purge cached OPFS downloads and save data | `PpssppGameStorage` |
+| Info (`info`) | Record real-time FPS, speed, startup phase, and sanitized JSON reports | `performance.js` |
+| Log (`log`) | Inspect timestamped, color-coded runtime and audio diagnostics (500-line cap) | In-memory buffer |
+| About (`about`) | Show core build metadata, provenance, and licensing notices | `build-info.json` |
 
-- **Pain Point 1**: Traditional native emulators require complex platform-specific installation and OS permissions.
-- **Pain Point 2**: Browser-based emulators often struggle with high CPU overhead and audio stutter.
-- **Pain Point 3**: Cumbersome save state and game ISO management on mobile devices.
+> [!IMPORTANT]
+> **Multiplayer & cloud UI gate**: `LOCAL_ONLY = true` (`wasm-page/public/ppsspp-runtime.js:31`) currently hides `tabNetwork` and `tabDrive` inside `.legacy-integrations[hidden][inert]`. See [Contracts](/en/docs/contracts) for the underlying `PRO`/`PU1`/`PT1` relay protocol.
 
----
+## Browser Preconditions & Scope Limits
 
-## Prerequisites
+1. **Cross-Origin Isolation is required**: Emscripten `pthreads` and the `SharedArrayBuffer` audio ring require `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` (`window.crossOriginIsolated === true`).
+2. **Secure Context required outside localhost**: Production deployments require `HTTPS` (`localhost`, `127.0.0.1`, and `[::1]` work locally over HTTP).
+3. **Zero bundled ROMs or credentials**: Neither the repository nor CI pipelines contain PSP game images, manifest URLs, or third-party credentials.
 
-Modern evergreen browser with WebAssembly and WebGL 2.0 support (Chrome 90+, Edge 90+, Firefox 90+, Safari 16+).
-
----
-
-## Quick Installation & Launch
-
-```bash
-# 1. Install project dependencies
-pnpm install
-
-# 2. Run local tests and verification
-pnpm test
-```
-
----
-
-## Next Steps
-
-- Explore internal mechanics: [Architecture & Design](/en/docs/architecture)
-- Comprehensive configuration reference: [Configuration Guide](/en/docs/configuration)
-- Troubleshooting & FAQ: [FAQ & Diagnostics](/en/docs/faq)
+Continue to [Deployment, Headers & Manifests](/en/docs/deployment).

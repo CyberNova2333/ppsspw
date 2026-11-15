@@ -9,7 +9,9 @@
 | `wasm-page/public/` | 启动、触控、浏览器文件与存档的实际运行逻辑 | `ppsspp-runtime.js / touch-controls.js` | 页面按序载入 |
 | `wasm-page/tests/` | 约束启动、栏目切换、触控和存储失败行为 | `runtime.test.mjs / touch-controls.test.mjs` | wasm-page 的 test 命令 |
 | `scripts/` | 把配套核心交给静态网页产物 | `scripts/package-player.py` | make pages 或显式打包命令 |
-| `server/` | 只暴露打包目录并设置线程所需响应头 | `server/serve-player.py` | 打包后的人工预览 |
+| `server/` | 静态预览服务与 WebSocket 多人中继服务 | `serve-player.py / relay.py / relay_auth.py` | 本地预览与自托管中继容器 |
+| `deploy/relay/` | 多人中继容器编排与 Caddy 反代配置 | `compose.yml / Caddyfile / deploy.sh` | 自托管联机中继部署 |
+| `deps/ppsspp-wasm/Core/FileLoaders/` | 浏览器分段随机读取桥接 | `BrowserFileLoader.cpp` | 原生文件加载路径经 Emscripten 代理调回 JS |
 | `deps/ppsspp-wasm/SDL/` | 窗口变化时同步显示尺寸与输入比例 | `SDLMain.cpp` | 网页尺寸通知抵达原生 SDL 后处理 |
 | `deps/ppsspp-wasm/UI/` | 原生设置栏目按可用宽度切换布局 | `TabbedDialogScreen.cpp / GameSettingsScreen.cpp` | 接收核心尺寸变化并重建栏目 |
 | `deps/ppsspp-wasm/Common/UI/` | 栏目导航、选中可见与视图状态恢复 | `TabHolder.cpp / UIScreen.cpp` | 原生设置页共用的视图机制 |
@@ -47,6 +49,10 @@
 | [栏目导航](../wasm-page/public/ppsspp-runtime.js) | 切换选中面板、焦点和键盘导航 | `activatePanelTab / onPanelTabKeyDown` | 模板中的栏目按钮 |
 | [布局与画布跟踪](../wasm-page/public/ppsspp-runtime.js) | 区分布局与可视区域，向核心通知画布尺寸变化、向手柄通知位置变化 | `syncViewportSize / installCanvasResizeTracking / ppsspp-player-layout` | 浏览器视口、全屏、画布观察器 |
 | [屏幕手柄](../wasm-page/public/touch-controls.js) | 每指针输入、方向拖动、摇杆死区与安全释放 | `createState / mount / dpadButtons / stickAxes` | 运行时输入桥采样 |
+| [8 MiB 分窗读取](../wasm-page/public/browser-files.js) | 256 KiB 分块调度、8 MiB LRU 窗口与零字节存根兜底 | `CACHE_BYTES / BLOCK_BYTES / READ_CONCURRENCY` | 原生 `BrowserFileLoader` 跨线程代理 |
+| [在线清单与续传](../wasm-page/public/game-download.js) | 分块 HTTP Range 校验、Web Locks 与 OPFS 断点写入协调 | `download-worker.js / online-games.js` | 在线清单安装与续传任务 |
+| [运行时性能采样](../wasm-page/public/performance.js) | 读取帧边界快照并导出脱敏采样 JSON | `start / exportReport` | 面板诊断开关与离线比对脚本 |
+| [Ad Hoc 中继传输](../wasm-page/public/adhoc-transport.js) | `PRO`/`PU1`/`PT1` WebSocket 联机二进制封装（当前受 `LOCAL_ONLY = true` 隐藏） | `connect / sendPacket` | 联机开启时的原生网口桥 |
 
 相关验证：`wasm-page/tests/runtime.test.mjs`、`wasm-page/tests/orientation.test.mjs`、`wasm-page/tests/touch-controls.test.mjs`；模拟器核心仍需单独验收。
 
@@ -73,6 +79,8 @@
 | [窗口尺寸回归入口](../scripts/test-sdl-viewport.py) | 从当前生产源码提取函数和 resize 分支，编译并执行小型 Wasm 测试 | `body / main` | 显式运行；需要 Emscripten SDK 与 Node.js |
 | [栏目模式回归入口](../scripts/test-tabbed-layout.py) | 提取真实布局决策和尺寸回调，分别验证网页与非网页分支 | `main / UseHorizontalTabs / resized` | 显式运行；需要 Emscripten SDK 与 Node.js |
 | [构建验证顺序](../scripts/ci/build.sh) | 完整核心构建前先执行窗口尺寸和栏目模式回归 | `test-sdl-viewport.py / test-tabbed-layout.py / make wasm-release` | 构建任务入口；改动脚本不代表任务已执行 |
+| [清单生成工具](../scripts/create-game-manifest.py) | 按 64 KiB–16 MiB 切分镜像并计算每块 SHA-256 与 HTTPS 源约束 | `main / schemaVersion` | 部署在线分块镜像前的离线准备 |
+| [发布前门禁](../scripts/ci/prepare-deploy.mjs) | 写入 COOP/COEP/CORP/CSP 与 `.wasm` 头规则，并阻断未放行的诊断构建 | `--allow-diagnostics / WASM_FRAME_TIMING` | EdgeOne 部署准备与校验步骤 |
 
 打包边界的验证入口为 `server/player-tests/`；窗口尺寸分支由独立编译脚本执行，结果分别记录，不能互相替代。
 
@@ -83,6 +91,8 @@
 | 重要代码 | 功能 | 关键符号 | 调用方 / 使用方 |
 | --- | --- | --- | --- |
 | [职责入口](../server/serve-player.py) | 只暴露打包目录并设置线程所需响应头 | `PlayerServer / PlayerHandler / main` | 打包后的人工预览 |
+| [Ad Hoc 中继核心](../server/relay.py) | 处理 `PRO`/`PU1`/`PT1` 二进制帧分发、连接上限与网络损伤参数 | `RELAY_MAX_CONNECTIONS / RELAY_LATENCY_MS` | 自托管联机中继容器与中继单测 |
+| [中继鉴权与命令行管理](../server/relay_auth.py) | 管理 `open`/`keys` 鉴权模式与本地 SQLite 哈希密钥签发吊销 | `KeyStore / RelayAuth / relay_admin.py` | 中继服务握手鉴权与运维 CLI |
 
 相关验证：`server/player-tests/`。本轮只检查可读证据，业务测试没有执行。
 
@@ -118,9 +128,26 @@
 
 验证需在完整核心中检查栏目选中、手动导航、滚动与焦点恢复；实际已执行的项目及设备边界见[指南变更记录](change-log.md)。
 
+## `deploy/relay/`
+
+自托管 Ad Hoc 中继容器编排与 TLS 反代配置；独立于静态玩家前端与 GitHub Pages 文档站点部署。
+
+| 重要代码 | 功能 | 关键符号 | 调用方 / 使用方 |
+| --- | --- | --- | --- |
+| [中继编排入口](../deploy/relay/compose.yml) | 拉起 `relay.py` 服务、挂载 `/data` SQLite 卷并传递环境开关 | `RELAY_AUTH_MODE / RELAY_AUTH_DB` | 自托管联机运维容器 |
+| [反向代理与部署脚本](../deploy/relay/Caddyfile) | 暴露 `/healthz` 与 `/adhoc` WebSocket 入口；配合 `deploy.sh` 部署 | `/healthz / /adhoc` | 中继公网 HTTPS 入口 |
+
+## `deps/ppsspp-wasm/Core/FileLoaders/`
+
+仅追踪浏览器随机读盘边界，`deps/` 其余格式解码与通用文件系统不作逐层展开。
+
+| 重要代码 | 功能 | 关键符号 | 调用方 / 使用方 |
+| --- | --- | --- | --- |
+| [浏览器文件加载器](../deps/ppsspp-wasm/Core/FileLoaders/BrowserFileLoader.cpp) | 把原生 `ReadAt` 转发至 Emscripten 异步代理并拒绝主线程阻塞调用 | `ReadAt / emscripten_is_main_runtime_thread` | 仿真线程读盘与 [8 MiB 分窗模块](modules/windowed-iso-and-download.md) |
+
 ## 覆盖范围
 
-覆盖 Angular 到浏览器运行时的接线、栏目与触控交互、启动能力检查、本地文件挂载、打包与预览；只追踪这些入口。模拟器 CPU/GPU、FFmpeg、完整在线下载、联机、云同步和移动设备性能未覆盖；deps 仅追踪对话框确认、窗口尺寸与设置栏目相关入口，其余第三方实现不作逐层架构讲解。
+本地图覆盖 Angular 壳层、浏览器运行时、触控视口、8 MiB 分窗读盘与分块下载、性能采样、预览打包以及 Ad Hoc 中继服务；按模块细读机制请转到[模块目录](modules/windowed-iso-and-download.md)。PPSSPP 内部 CPU JIT、FFmpeg 与未点名的 `deps/` 子目录未作逐层拆解。
 
 生成物、依赖安装目录、临时日志及第三方供应商源码不作为本次第一方模块地图。修改范围外机制前应重新调查，不能从本页推断兼容性。
 

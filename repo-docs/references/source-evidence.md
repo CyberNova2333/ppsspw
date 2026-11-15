@@ -28,15 +28,19 @@
 | 原生设置页按核心有效宽度切换栏目并交接状态 | [栏目布局](../../deps/ppsspp-wasm/UI/TabbedDialogScreen.cpp)：`UseHorizontalTabs / resized / CreateViews / ApplySearchFilter`；[栏目容器](../../deps/ppsspp-wasm/Common/UI/TabHolder.cpp)：`Layout / PersistData`；[视图重建](../../deps/ppsspp-wasm/Common/UI/UIScreen.cpp)：`DoRecreateViews` | Confirmed | 720 阈值为核心 UI 单位；布局策略编译回归与完整核心浏览器检查分别记于[变更记录](../change-log.md)，不替代真实手机或游戏性能验收 | [主流程](../walkthroughs/one-real-run.md)、[代码地图](../code-map.md) |
 | 通过受限预览入口提供运行条件 | [源码定位](../../server/serve-player.py)：`PlayerHandler、root；打包脚本 scripts/package-player.py` | Confirmed | 源码静态确认；本轮未运行业务路径 | [主流程](../walkthroughs/one-real-run.md)、[代码地图](../code-map.md) |
 
+| 模块机制已补充独立源码对照 | [8 MiB 分窗与下载](../modules/windowed-iso-and-download.md)、[运行时与稳定性](../modules/runtime-perf-and-stability.md)、[Ad Hoc 中继](../modules/adhoc-relay-protocol.md)、[触控与视口](../modules/touch-gamepad-and-viewport.md) | Confirmed | 已迁移原散落文档的技术约束；联机 UI 默认被 `LOCAL_ONLY = true` 隐藏 | [总览](../README.md)、[术语表](../glossary.md) |
+
 ## 反证与后续问题
 
 反证检查（Falsifying check）：若缺少共享内存仍进入核心启动，或部分核心文件能绕过配套检查，本指南的启动边界便不成立。
 
-下一位读者可能问（Next reader question）：在线下载如何恢复分块？既有 docs/game-download.md 解释协议，当前 walkthrough 不展开该路径。
+下一位读者可能问（Next reader question）：在线下载如何恢复分块？[8 MiB 分窗读取与断点下载恢复](../modules/windowed-iso-and-download.md)已记录 `Range 206` 与 SHA-256 续传细节；如后续开启联机面板，需先按[Ad Hoc 多人联机中继协议与前端开关边界](../modules/adhoc-relay-protocol.md)核对 `LOCAL_ONLY` 开关。
 
 ## 范围与未验证事项
 
-覆盖 Angular 到浏览器运行时的接线、栏目与触控交互、启动能力检查、本地文件挂载、打包与预览；只追踪这些入口。模拟器 CPU/GPU、FFmpeg、完整在线下载、联机、云同步和移动设备性能未覆盖；deps 仅追踪对话框确认、窗口尺寸与设置栏目相关入口，其余第三方实现不作逐层架构讲解。
+覆盖 Angular 到浏览器运行时的接线、栏目与触控交互、启动能力检查、8 MiB 分窗挂载与在线下载恢复、性能与音频节拍、打包预览及 WebSocket 中继栈；PPSSPP 核心内部 CPU JIT 指令实现与各平台音频后端细节仍不作逐层展开。
+
+原根目录零散技术笔记已合并入各模块页与公开文档站（`docs-site/`），本轮删除旧笔记后已复核全库链接指向；真实手机手感与真机跑分需以实测报告为准，不从离线回归推断帧率。
 
 运行时与触控测试执行真实 public 脚本函数并用替身验证边界，与真实核心和真实游戏验收分别记录。完整核心构建按根 README 的 Emscripten/Linux 或 WSL 要求执行；每次调查实际运行的验证见下方同步记录。
 

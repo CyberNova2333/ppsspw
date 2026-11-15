@@ -92,6 +92,6 @@ python scripts/test-tabbed-layout.py
 
 GitHub Actions 调用[构建入口](../../scripts/ci/build.sh)，在完整核心构建之前执行窗口尺寸和栏目模式回归；手动部署也复用同一产物。脚本中加入检查不表示云构建或真实部署已经运行。
 
-理解这条交接后，用[代码地图定位下一次修改](../code-map.md)；需要反查依据时查看[源码调查与边界证据](../references/source-evidence.md)。
+理解这条交接后，用[代码地图定位下一次修改](../code-map.md)；需要展开分窗读盘或断点续传机制时看[8 MiB 分窗读取与断点下载恢复](../modules/windowed-iso-and-download.md)，需要反查依据时查看[源码调查与边界证据](../references/source-evidence.md)。
 
 证据状态：除特别标注外，本页基于当前源码已确认。
