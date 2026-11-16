@@ -26,4 +26,4 @@ The active frontend build (`ppsspp-player-v16`) exposes 8 panels in the right si
 2. **Secure Context required outside localhost**: Production deployments require `HTTPS` (`localhost`, `127.0.0.1`, and `[::1]` work locally over HTTP).
 3. **Zero bundled ROMs or credentials**: Neither the repository nor CI pipelines contain PSP game images, manifest URLs, or third-party credentials.
 
-Continue to [Deployment, Headers & Manifests](/en/docs/deployment).
+Continue to [Deployment, Headers & Manifests](/en/docs/deployment), or inspect per-component constants, manifest CLI flags, and relay framing in [API & Component Reference](/en/api-reference/).

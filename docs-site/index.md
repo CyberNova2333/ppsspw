@@ -10,11 +10,11 @@ hero:
       text: "起步与配置部署"
       link: /docs/
     - theme: alt
+      text: "API 与组件参考"
+      link: /api-reference/
+    - theme: alt
       text: "架构全景与交互图谱"
       link: /docs/architecture
-    - theme: alt
-      text: "GitHub 仓库"
-      link: https://github.com/CyberNova2333/ppsspw
 
 features:
   - title: "8 MiB 滑动窗口直读"
@@ -24,6 +24,17 @@ features:
   - title: "隔离头门禁与自托管栈"
     details: "内置 COOP/COEP/CORP 与 .wasm MIME 检测、EdgeOne 部署校验脚本，以及可按 open/keys 模式鉴权的 Ad Hoc WebSocket 中继栈。"
 ---
+
+::: info 它能做到什么程度（已实现能力）
+- 免整包载入 `MEMFS` 直接运行本地 `1.5 GB+` `.iso`/`.cso`/`.chd` 镜像（`256 KiB` 切片 / `8 MiB` LRU 窗口 / `1 MiB` 读上限 / `4` 并发），并支持 `HTTP 206` + 逐块 `SHA-256` + Web Locks 互斥写入 OPFS 与 `1 MiB` 流式 ZSTD 即时存档。
+- 提供 `1x–3x` 3D 内部分辨率、`8 ms` 时钟门控 `SP-shim AudioWorklet`、脱敏性能导出（无游戏名/URL/日志）及 `PRO`/`PU1`/`PT1` 自托管 WebSocket 中继栈；全组件与 CLI 参数详见 [API 与组件参考](/api-reference/)。
+:::
+
+::: warning 明确不做什么（边界与硬限制）
+- **不包含游戏内容且默认隐藏联网/云盘 UI**：仓库与构建产物内置零 ROM/BIOS/凭据；默认发行版前端在 `ppsspp-runtime.js:31` 锁定 `LOCAL_ONLY = true`（`tabNetwork` 与 `tabDrive` 处于 `hidden` + `inert` 状态）。
+- **必须具备 COOP/COEP 跨源隔离与安全上下文**：无 `COOP: same-origin` + `COEP: require-corp`（或非回环明文 HTTP）无法启用多线程 `pthreads` 与 SAB 音频泵；`3x` 倍率仅放大 3D 渲染而不超分 2D 贴图。
+- **容器预览不重编核心且无公网中继后台**：`docker-compose.yml` 仅挂载静态 dist，重编核心需 `emsdk:6.0.12`；`relay_admin.py` 仅走本地 CLI，不开放公网 HTTP 管理接口。
+:::
 
 ## 架构全景
 

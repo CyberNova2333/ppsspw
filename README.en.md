@@ -5,7 +5,17 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPLv3-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/Docs-ppsspw.cbnv.me-0ea5e9.svg)](https://ppsspw.cbnv.me/en/docs/)
 
-**PPSSPW** (**P**layStation **P**ortable **S**imulator **S**uitable for **P**laying on the **W**eb) is a self-contained browser packaging of upstream `ppsspp-wasm` and `ppsspp-web`. The repository vendors the Angular web shell, minimal core C++ patches, build/verification tooling, and an optional Ad Hoc relay stack while shipping **zero PSP games, BIOS files, or private CDN credentials**.
+**PPSSPW** (**P**layStation **P**ortable **S**imulator **S**uitable for **P**laying on the **W**eb) is a self-contained browser packaging of upstream `ppsspp-wasm` and `ppsspp-web` (see also [API & Component Reference](docs-site/en/api-reference/index.md)). The repository vendors the Angular web shell, minimal core C++ patches, build/verification tooling, and an optional Ad Hoc relay stack while shipping **zero PSP games, BIOS files, or private CDN credentials**.
+
+## Capability Scope & Explicit Non-Goals
+
+- **How far it goes (Delivered)**:
+  - Streams local `1.5 GB+` `.iso`/`.cso`/`.chd` images lazily (`256 KiB` blocks / `8 MiB` LRU / `4` concurrent reads), verifies `HTTP 206` + per-chunk `SHA-256` chunks under Web Locks into OPFS, and loads `1 MiB` ZSTD savestates safely;
+  - Provides `1x–3x` 3D scaling, an `8 ms` SAB `SP-shim AudioWorklet`, `60 ms` touch tap floor, sanitized FPS/latency JSON exports, and a `PRO`/`PU1`/`PT1` Ad Hoc relay stack — full parameters in [API & Component Reference](docs-site/en/api-reference/index.md).
+- **What it explicitly does NOT do**:
+  - **Zero bundled ROMs & hidden Netplay UI (`LOCAL_ONLY = true`)**: Ships zero games or keys; `ppsspp-runtime.js:31` keeps `tabNetwork` and `tabDrive` `hidden` and `inert` in default builds;
+  - **Requires COOP/COEP & HTTPS outside localhost**: `pthreads` and `SharedArrayBuffer` fail without `crossOriginIsolated === true`; `1x–3x` resolution scales 3D geometry only and does NOT upscale 2D textures;
+  - **No runtime core rebuild & CLI-only key management**: `docker-compose.yml` mounts static `dist` only (`emsdk:6.0.12` required to rebuild WASM), `relay_admin.py` exposes zero HTTP endpoints, and production CI blocks unflagged diagnostic cores.
 
 ## Core Capabilities & Data Flow
 
@@ -71,7 +81,7 @@ Other deployment and build modes are covered in the documentation site ([ppsspw.
 | Goal | Public Docs (`docs-site/en/`) | Source Walkthroughs (`repo-docs/`, Chinese) |
 | --- | --- | --- |
 | Deploy static assets, headers & manifests | [Overview, Deployment & FAQ](docs-site/en/docs/index.md) | [Local Run Walkthrough](repo-docs/walkthroughs/one-real-run.md) |
-| Integrate 8 MiB reads, Range resume & relay | [Contracts](docs-site/en/docs/contracts.md) | [Windowed ISO Module](repo-docs/modules/windowed-iso-and-download.md) / [Relay Module](repo-docs/modules/adhoc-relay-protocol.md) |
+| Integrate 8 MiB reads, Range resume & relay | [Contracts](docs-site/en/docs/contracts.md) · [API & Component Reference](docs-site/en/api-reference/index.md) | [Windowed ISO Module](repo-docs/modules/windowed-iso-and-download.md) / [Relay Module](repo-docs/modules/adhoc-relay-protocol.md) |
 | Tune FPS, 1x–3x scale, audio & memory | [Performance Tuning](docs-site/en/docs/performance.md) | [Runtime & Stability Module](repo-docs/modules/runtime-perf-and-stability.md) |
 | Inspect architecture diagram, ADRs & code map | [Architecture & Decisions](docs-site/en/docs/architecture.md) | [Code Map](repo-docs/code-map.md) / [Glossary](repo-docs/glossary.md) / [Source Evidence](repo-docs/references/source-evidence.md) |
 

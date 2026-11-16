@@ -10,11 +10,11 @@ hero:
       text: "Getting Started & Deploy"
       link: /en/docs/
     - theme: alt
+      text: "API & Components"
+      link: /en/api-reference/
+    - theme: alt
       text: "Architecture & Diagram"
       link: /en/docs/architecture
-    - theme: alt
-      text: "GitHub Repo"
-      link: https://github.com/CyberNova2333/ppsspw
 
 features:
   - title: "8 MiB Windowed ISO Access"
@@ -24,6 +24,17 @@ features:
   - title: "Header Enforcement & Optional Relay"
     details: "Ships COOP/COEP/CORP preview tooling, EdgeOne deployment gates, and a self-hosted PRO/PU1/PT1 Ad Hoc WebSocket relay stack."
 ---
+
+::: info Delivered Capabilities (How Far It Goes)
+- Streams local `1.5 GB+` `.iso`/`.cso`/`.chd` images on-demand (`256 KiB` slices / `8 MiB` LRU / `4` concurrent reads), verifies `HTTP 206` + per-block `SHA-256` chunks into OPFS under Web Locks, and streams `1 MiB` ZSTD savestates.
+- Provides `1x–3x` 3D scaling, an `8 ms` SAB `SP-shim AudioWorklet`, sanitized telemetry exports, and a `PRO`/`PU1`/`PT1` WebSocket relay stack — explore every module and CLI flag in [API & Components](/en/api-reference/).
+:::
+
+::: warning Explicit Non-Goals & Hard Boundaries
+- **Zero ROMs/credentials & hidden Netplay UI (`LOCAL_ONLY = true`)**: Ships zero games or keys; default frontend sets `LOCAL_ONLY = true` (`ppsspp-runtime.js:31`), keeping `tabNetwork` and `tabDrive` `hidden` and `inert`.
+- **Requires COOP/COEP & HTTPS outside localhost**: Without `crossOriginIsolated === true`, `pthreads` and SAB audio rings cannot run; `1x–3x` scaling enhances 3D geometry only (never 2D textures).
+- **No runtime core rebuild & no HTTP admin panel**: `docker-compose.yml` mounts prebuilt `dist` only (`emsdk:6.0.12` needed to rebuild C++), and `relay_admin.py` is CLI-only with zero HTTP endpoints.
+:::
 
 ## Architecture Overview
 

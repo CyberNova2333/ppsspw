@@ -5,7 +5,17 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPLv3-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/Docs-ppsspw.cbnv.me-0ea5e9.svg)](https://ppsspw.cbnv.me/docs/)
 
-**PPSSPW**（PlayStation Portable Simulator Suitable for Playing on the Web）是基于上游 `ppsspp-wasm` 与 `ppsspp-web` 独立维护的中文浏览器 PSP 模拟器客户端。仓库内完整保存前端页面、工具脚本、可选中继后端与锁版本核心源码，无需在构建时临时拉取外部上游；同时**不包含任何游戏镜像、下载 CDN 或第三方私有凭据**，玩家需使用自己合法持有的镜像或合规清单。
+**PPSSPW**（PlayStation Portable Simulator Suitable for Playing on the Web）是基于上游 `ppsspp-wasm` 与 `ppsspp-web` 独立维护的中文浏览器 PSP 模拟器客户端，参见 [API 与组件参考](docs-site/api-reference/index.md)。仓库内完整保存前端页面、工具脚本、可选中继后端与锁版本核心源码，无需在构建时临时拉取外部上游；同时**不包含任何游戏镜像、下载 CDN 或第三方私有凭据**，玩家需使用自己合法持有的镜像或合规清单。
+
+## 能力边界与明确非目标
+
+- **能做到什么程度**：
+  - 浏览器端免整盘载入 `MEMFS` 直接流式运行本地 `.iso`/`.cso`/`.chd` 镜像（`256 KiB` 切片 / `8 MiB` LRU / `4` 并发），并支持 `HTTP 206` + `SHA-256` 校验与 Web Locks 互斥写入 OPFS，搭配 `1 MiB` 流式 ZSTD 即时存档；
+  - 提供 `1x–3x` 3D 分辨率、每 `8 ms` 校验的 `SP-shim AudioWorklet`、`60 ms` 防粘连多指触控、脱敏性能导出及配套 `PRO`/`PU1`/`PT1` 中继服务端（全参数详见 [API 与组件参考](docs-site/api-reference/index.md)）。
+- **明确不做什么**：
+  - **绝不分发 ROM/BIOS 且默认关闭联机/云盘 UI**：前端 `ppsspp-runtime.js:31` 锁定 `LOCAL_ONLY = true` 隐藏 `tabNetwork` 与 `tabDrive`；
+  - **不可绕过跨源隔离与 HTTPS 上下文**：缺失 `COOP: same-origin` / `COEP: require-corp` 或移动局域网明文 HTTP 无法解锁 `pthreads` 与 SAB 音频泵；`3x` 仅提升 3D 内部倍率，不超分 2D 贴图；
+  - **容器预览不重编 WASM、无公网密钥 HTTP 后台**：`docker-compose.yml` 仅暴露静产物；`relay_admin.py` 仅走本地 CLI；CI 默认拒绝诊断版核心（`WASM_FRAME_TIMING`/`WASM_IR_BLOCK_PROFILE`）上线。
 
 ## 核心能力与运行架构
 
@@ -71,7 +81,7 @@ pnpm --dir wasm-page test && python3 -m unittest discover -s server/player-tests
 | 读者目标 | 公开文档站（`docs-site/`） | 源码维护指南（`repo-docs/`） |
 | --- | --- | --- |
 | 初次部署、清单生成与响应头排错 | [概览、部署与排错 FAQ](docs-site/docs/index.md) | [本地运行主流程](repo-docs/walkthroughs/one-real-run.md) |
-| 集成 8 MiB 读盘、Range 续传或中继协议 | [分窗、续传与中继契约](docs-site/docs/contracts.md) | [分窗与下载模块](repo-docs/modules/windowed-iso-and-download.md) / [中继模块](repo-docs/modules/adhoc-relay-protocol.md) |
+| 集成 8 MiB 读盘、Range 续传或中继协议 | [分窗、续传与中继契约](docs-site/docs/contracts.md) · [API 与组件参考](docs-site/api-reference/index.md) | [分窗与下载模块](repo-docs/modules/windowed-iso-and-download.md) / [中继模块](repo-docs/modules/adhoc-relay-protocol.md) |
 | 调优高负载帧率、音频与稳定性边界 | [画质倍率、音频与稳定性调优](docs-site/docs/performance.md) | [运行时节拍与性能模块](repo-docs/modules/runtime-perf-and-stability.md) |
 | 浏览交互架构图、变更决策与源码定位 | [架构图谱与工程决策](docs-site/docs/architecture.md) | [代码地图](repo-docs/code-map.md) / [术语表](repo-docs/glossary.md) / [源码证据](repo-docs/references/source-evidence.md) |
 

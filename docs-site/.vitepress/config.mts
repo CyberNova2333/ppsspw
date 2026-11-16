@@ -31,10 +31,11 @@ export default defineConfig({
       lang: 'zh-CN',
       themeConfig: {
         nav: [
-          { text: '起步与配置部署', link: '/docs/' },
-          { text: '契约与性能调优', link: '/docs/contracts' },
-          { text: '原理与源码导览', link: '/docs/architecture' },
-          { text: 'GitHub', link: 'https://github.com/CyberNova2333/ppsspw' },
+          { text: '首页', link: '/' },
+          { text: '起步与部署', link: '/docs/' },
+          { text: '契约与调优', link: '/docs/contracts' },
+          { text: '架构与源码', link: '/docs/architecture' },
+          { text: 'API 与组件', link: '/api-reference/' },
         ],
         sidebar: {
           '/docs/': [
@@ -43,6 +44,7 @@ export default defineConfig({
               items: [
                 { text: '概览与运行边界', link: '/docs/' },
                 { text: '部署模式与下载清单准备', link: '/docs/deployment' },
+                { text: 'API 与组件参考（Apifox 视图）', link: '/api-reference/' },
                 { text: '部署与运行排错 FAQ', link: '/docs/troubleshooting' },
               ],
             },
@@ -74,10 +76,11 @@ export default defineConfig({
       link: '/en/',
       themeConfig: {
         nav: [
-          { text: 'Getting Started & Deploy', link: '/en/docs/' },
-          { text: 'Contracts & Performance', link: '/en/docs/contracts' },
-          { text: 'Architecture & Decisions', link: '/en/docs/architecture' },
-          { text: 'GitHub', link: 'https://github.com/CyberNova2333/ppsspw' },
+          { text: 'Home', link: '/en/' },
+          { text: 'Getting Started', link: '/en/docs/' },
+          { text: 'Contracts & Perf', link: '/en/docs/contracts' },
+          { text: 'Architecture', link: '/en/docs/architecture' },
+          { text: 'API & Components', link: '/en/api-reference/' },
         ],
         sidebar: {
           '/en/docs/': [
@@ -86,6 +89,7 @@ export default defineConfig({
               items: [
                 { text: 'Overview & Scope Boundaries', link: '/en/docs/' },
                 { text: 'Deployment, Headers & Manifests', link: '/en/docs/deployment' },
+                { text: 'API & Component Reference', link: '/en/api-reference/' },
                 { text: 'Deployment & Runtime FAQ', link: '/en/docs/troubleshooting' },
               ],
             },
