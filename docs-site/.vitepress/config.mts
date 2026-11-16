@@ -39,7 +39,7 @@ export default defineConfig({
         sidebar: {
           '/docs/': [
             {
-              text: '1. 起步与配置部署',
+              text: '起步与配置部署',
               items: [
                 { text: '概览与运行边界', link: '/docs/' },
                 { text: '部署模式与下载清单准备', link: '/docs/deployment' },
@@ -47,14 +47,14 @@ export default defineConfig({
               ],
             },
             {
-              text: '2. 契约与性能调优',
+              text: '契约与性能调优',
               items: [
                 { text: '8 MiB 分窗、续传与中继契约', link: '/docs/contracts' },
                 { text: '画质倍率、音频与稳定性调优', link: '/docs/performance' },
               ],
             },
             {
-              text: '3. 原理与源码导览（含决策迁移）',
+              text: '原理与源码导览',
               items: [
                 { text: '架构全景与交互图谱', link: '/docs/architecture' },
                 { text: '一次真实运行走查（源码）', link: '/docs/walkthrough' },
@@ -82,7 +82,7 @@ export default defineConfig({
         sidebar: {
           '/en/docs/': [
             {
-              text: '1. Getting Started & Deployment',
+              text: 'Getting Started & Deployment',
               items: [
                 { text: 'Overview & Scope Boundaries', link: '/en/docs/' },
                 { text: 'Deployment, Headers & Manifests', link: '/en/docs/deployment' },
@@ -90,14 +90,14 @@ export default defineConfig({
               ],
             },
             {
-              text: '2. Contracts & Performance',
+              text: 'Contracts & Performance',
               items: [
                 { text: '8 MiB Window, Range & Relay Contracts', link: '/en/docs/contracts' },
                 { text: 'Render Scale, Audio & Stability Tuning', link: '/en/docs/performance' },
               ],
             },
             {
-              text: '3. Architecture & Decisions',
+              text: 'Architecture & Decisions',
               items: [
                 { text: 'Architecture & Interactive Diagram', link: '/en/docs/architecture' },
                 { text: 'Decisions, ADRs & Investigations', link: '/en/docs/decisions' },
