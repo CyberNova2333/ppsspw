@@ -1,0 +1,48 @@
+.check-code: &check-code
+  name: 网页端与播放器测试
+  script: |
+    set -eu
+    corepack enable
+    pnpm --dir wasm-page install --frozen-lockfile
+    pnpm --dir wasm-page test
+    python3 -B -m unittest discover -s server/player-tests -v
+    node --test scripts/ci/prepare-deploy.test.mjs
+    node --test scripts/scene-input-scheduler.test.mjs
+    node --test scripts/browser-scene-session.test.mjs
+    python3 -B scripts/test-sdl-viewport.py
+    python3 -B scripts/test-tabbed-layout.py
+
+.build-docs: &build-docs
+  name: 构建并核对文档站
+  script: |
+    set -eu
+    corepack enable
+    pnpm --dir docs-site install --frozen-lockfile
+    pnpm --dir docs-site run docs:build
+    test -f docs-site/.vitepress/dist/index.html
+
+main:
+  push:
+    - name: 持续集成与构建检查
+      docker:
+        image: node:24-bookworm
+      lock:
+        key: checks_main
+        wait: true
+        cancel-in-wait: true
+      stages:
+        - *check-code
+        - *build-docs
+
+$:
+  web_trigger_check:
+    - name: 手动构建检查（不发布）
+      docker:
+        image: node:24-bookworm
+      lock:
+        key: checks_manual
+        wait: true
+        cancel-in-wait: true
+      stages:
+        - *check-code
+        - *build-docs
