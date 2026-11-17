@@ -1,9 +1,17 @@
-# PPSSPW · WebAssembly PSP Emulator Client
+<p align="center">
+  <img src="branding/ppsspw-symbol.svg" alt="PPSSPW" width="88" height="88" />
+</p>
 
-[简体中文](README.md) | **English**
+<h1 align="center">PPSSPW · WebAssembly PSP Emulator Client</h1>
 
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPLv3-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/Docs-ppsspw.cbnv.me-0ea5e9.svg)](https://ppsspw.cbnv.me/en/docs/)
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPLv3-blue.svg" alt="License: AGPL-3.0" /></a>
+  <a href="https://ppsspw.cbnv.me/en/docs/"><img src="https://img.shields.io/badge/Docs-ppsspw.cbnv.me-0ea5e9.svg" alt="Docs" /></a>
+</p>
+
+<p align="center">
+  <a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://ppsspw.cbnv.me/en/docs/">Docs Site</a> · <a href="docs-site/en/api-reference/index.md">API &amp; Component Reference</a> · <a href="repo-docs/README.md">Source Guide (ZH)</a>
+</p>
 
 **PPSSPW** (**P**layStation **P**ortable **S**imulator **S**uitable for **P**laying on the **W**eb) is a self-contained browser packaging of upstream `ppsspp-wasm` and `ppsspp-web` (see also [API & Component Reference](docs-site/en/api-reference/index.md)). The repository vendors the Angular web shell, minimal core C++ patches, build/verification tooling, and an optional Ad Hoc relay stack while shipping **zero PSP games, BIOS files, or private CDN credentials**.
 
