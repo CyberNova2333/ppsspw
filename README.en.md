@@ -10,7 +10,11 @@
 </p>
 
 <p align="center">
-  <a href="README.md">简体中文</a> · <strong>English</strong> · <a href="https://ppsspw.cbnv.me/en/docs/">Docs Site</a> · <a href="docs-site/en/api-reference/index.md">API &amp; Component Reference</a> · <a href="repo-docs/README.md">Source Guide (ZH)</a>
+  <a href="README.md">简体中文</a> | <strong>English</strong>
+</p>
+
+<p align="center">
+  <a href="https://ppsspw.cbnv.me/en/docs/">Docs Site</a> · <a href="docs-site/en/api-reference/index.md">API &amp; Component Reference</a> · <a href="repo-docs/README.md">Source Guide (ZH)</a>
 </p>
 
 **PPSSPW** (**P**layStation **P**ortable **S**imulator **S**uitable for **P**laying on the **W**eb) is a self-contained browser packaging of upstream `ppsspp-wasm` and `ppsspp-web` (see also [API & Component Reference](docs-site/en/api-reference/index.md)). The repository vendors the Angular web shell, minimal core C++ patches, build/verification tooling, and an optional Ad Hoc relay stack while shipping **zero PSP games, BIOS files, or private CDN credentials**.

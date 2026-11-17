@@ -10,7 +10,11 @@
 </p>
 
 <p align="center">
-  <strong>简体中文</strong> · <a href="README.en.md">English</a> · <a href="https://ppsspw.cbnv.me/docs/">在线文档站</a> · <a href="docs-site/api-reference/index.md">API 与组件参考</a> · <a href="repo-docs/README.md">源码指南</a>
+  <strong>简体中文</strong> | <a href="README.en.md">English</a>
+</p>
+
+<p align="center">
+  <a href="https://ppsspw.cbnv.me/docs/">在线文档站</a> · <a href="docs-site/api-reference/index.md">API 与组件参考</a> · <a href="repo-docs/README.md">源码指南</a>
 </p>
 
 **PPSSPW**（PlayStation Portable Simulator Suitable for Playing on the Web）是基于上游 `ppsspp-wasm` 与 `ppsspp-web` 独立维护的中文浏览器 PSP 模拟器客户端，参见 [API 与组件参考](docs-site/api-reference/index.md)。仓库内完整保存前端页面、工具脚本、可选中继后端与锁版本核心源码，无需在构建时临时拉取外部上游；同时**不包含任何游戏镜像、下载 CDN 或第三方私有凭据**，玩家需使用自己合法持有的镜像或合规清单。
