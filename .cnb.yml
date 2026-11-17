@@ -2,8 +2,6 @@
   name: 网页端与播放器测试
   script: |
     set -eu
-    corepack enable
-    command -v python3 >/dev/null 2>&1 || { apt-get update && apt-get install -y --no-install-recommends python3; }
     (cd wasm-page && pnpm install --frozen-lockfile && pnpm test)
     python3 -B -m unittest discover -s server/player-tests -v
     node --test scripts/ci/prepare-deploy.test.mjs
@@ -16,7 +14,6 @@
   name: 构建并核对文档站
   script: |
     set -eu
-    corepack enable
     (cd docs-site && pnpm install --frozen-lockfile && pnpm run docs:build)
     test -f docs-site/.vitepress/dist/index.html
 
@@ -24,7 +21,7 @@ main:
   push:
     - name: 持续集成与构建检查
       docker:
-        image: node:24-bookworm
+        build: scripts/ci/Dockerfile
       lock:
         key: checks_main
         wait: true
@@ -37,7 +34,7 @@ $:
   web_trigger_check:
     - name: 手动构建检查（不发布）
       docker:
-        image: node:24-bookworm
+        build: scripts/ci/Dockerfile
       lock:
         key: checks_manual
         wait: true
