@@ -60,5 +60,8 @@
       "en": "On-demand ISO reading, resolution scaling, and touch controls are working; maintained for compatibility."
     }
   },
+  "additionalTermsConsent": {
+    "CyberNova": true
+  },
   "updatedAt": "2026-11-11"
 }
