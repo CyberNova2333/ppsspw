@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// This file is part of PPSSPW and is licensed under GNU AGPLv3 with Additional Terms (see LICENSE and ADDITIONAL_TERMS.zh-CN.md; ref: ADDITIONAL_TERMS.en.md).
 import { afterNextRender, ChangeDetectionStrategy, Component, DestroyRef, inject } from '@angular/core';
 
 import { PpssppRuntime } from './ppsspp-runtime';

@@ -102,3 +102,5 @@ pnpm --dir wasm-page test && python3 -m unittest discover -s server/player-tests
 - 本项目组合程序依据 [GNU AGPLv3](LICENSE)（`AGPL-3.0-only`）条款发布，同时完整保留上游 `ppsspp-wasm` 核心、`ppsspp-web` 兼容层以及 [LICENSE.TXT](LICENSE.TXT) 中的原作者版权与 `GPL-2.0-or-later` 许可声明。
 - 第三方组件（FFmpeg、SDL、glslang、FreeType、zstd 等）各自沿用所在目录原有许可证与源码声明，详细锁定提交清单与合规边界见 [上游来源与第三方声明](UPSTREAM.md)。
 - 网页图标与字标资源归口见 [品牌资源说明](branding/README.md)；本项目仅供技术学习与个人持有合法游戏镜像运行测试使用，严禁用于商业或未授权分发。
+
+- **附加条款与资产规则**：本项目依据 GNU AGPLv3 第 7 条适用 [`ADDITIONAL_TERMS.zh-CN.md`](ADDITIONAL_TERMS.zh-CN.md)（英文参考译文：[`ADDITIONAL_TERMS.en.md`](ADDITIONAL_TERMS.en.md)，以简体中文完整版正文为准），对来源陈述、修改标识、禁止冒充、扩展模块有条件附加许可及项目标识边界作出补充说明；独立美术、字体与图标许可清单见 [`ASSET_LICENSES.md`](ASSET_LICENSES.md)。第 9.5–9.6 款的附加许可豁免仅对已取得相应版权持有人有效授权的适用材料生效，未取得该等授权的第三方或上游材料仍受其原有有效许可约束。

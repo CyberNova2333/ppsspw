@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// This file is part of PPSSPW and is licensed under GNU AGPLv3 with Additional Terms (see LICENSE and ADDITIONAL_TERMS.zh-CN.md; ref: ADDITIONAL_TERMS.en.md).
 /* Browser transport for the existing PPSSPP Ad Hoc HLE socket operations.
  * Only Ad Hoc sockets are routed; PSP matching and blocking-call scheduling
  * remain in the emulator. Socket syscalls from pthreads are proxied by Emscripten.

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: AGPL-3.0-only
+// This file is part of PPSSPW and is licensed under GNU AGPLv3 with Additional Terms (see LICENSE and ADDITIONAL_TERMS.zh-CN.md; ref: ADDITIONAL_TERMS.en.md).
 // Built frontend QR generation/import and camera lifecycle in real Chromium.
 // No test framework dependency; uses Chrome DevTools Protocol and Node WebSocket.
 import assert from 'node:assert/strict';

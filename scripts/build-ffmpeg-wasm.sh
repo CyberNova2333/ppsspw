@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
+# This file is part of PPSSPW and is licensed under GNU AGPLv3 with Additional Terms (see LICENSE and ADDITIONAL_TERMS.zh-CN.md; ref: ADDITIONAL_TERMS.en.md).
 # Build bundled FFmpeg with PPSSPP's SIMD/pthread ABI.
 # Decode PSP movies on the emulation thread: automatic decoder worker creation
 # can exhaust the browser pthread pool while its main thread is blocked.

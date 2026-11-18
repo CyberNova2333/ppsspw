@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// This file is part of PPSSPW and is licensed under GNU AGPLv3 with Additional Terms (see LICENSE and ADDITIONAL_TERMS.zh-CN.md; ref: ADDITIONAL_TERMS.en.md).
 import { randomBytes } from 'node:crypto';
 import { lstat, readFile, readdir, rmdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';

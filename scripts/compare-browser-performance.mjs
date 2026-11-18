@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: AGPL-3.0-only
+// This file is part of PPSSPW and is licensed under GNU AGPLv3 with Additional Terms (see LICENSE and ADDITIONAL_TERMS.zh-CN.md; ref: ADDITIONAL_TERMS.en.md).
 // Compare local performance exports. This script never opens a browser or reads game files.
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';

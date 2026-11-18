@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# This file is part of PPSSPW and is licensed under GNU AGPLv3 with Additional Terms (see LICENSE and ADDITIONAL_TERMS.zh-CN.md; ref: ADDITIONAL_TERMS.en.md).
 """Browser Ad Hoc relay v1. PRO control + PU1 datagrams + PT1 streams.
 
 A random per-browser capability binds all data sockets to their control login.

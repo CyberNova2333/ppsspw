@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// This file is part of PPSSPW and is licensed under GNU AGPLv3 with Additional Terms (see LICENSE and ADDITIONAL_TERMS.zh-CN.md; ref: ADDITIONAL_TERMS.en.md).
 // Schedule input edges against observed emulated time, without sending input.
 // These records prove scheduling only, not PSP acceptance or deterministic replay.
 const BUTTONS = new Set(['circle', 'cross', 'square', 'triangle', 'up', 'down', 'left', 'right', 'l', 'r', 'start', 'select']);
