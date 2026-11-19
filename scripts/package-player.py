@@ -117,6 +117,10 @@ def main():
                                                       'diagnostics': diagnostics}, indent=2) + '\n', encoding='utf-8')
     (output / 'LICENSE').write_bytes((repo / 'LICENSE').read_bytes())
     (output / 'UPSTREAM-LICENSE.txt').write_bytes((repo / 'LICENSE.TXT').read_bytes())
+    for extra in ('LICENSE-ADDITIONAL_TERMS-zh-CN.md', 'LICENSE-ADDITIONAL_TERMS-en.md'):
+        src_doc = repo / extra
+        if src_doc.is_file():
+            (output / extra).write_bytes(src_doc.read_bytes())
     print(f'Packaged {len(names)} emulator artifacts: {digest}')
 
 

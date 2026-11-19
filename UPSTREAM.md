@@ -31,10 +31,16 @@
 
 恢复专用的目录枚举只查找一次存储根，递归使用已枚举的目录句柄，随后通过本次枚举的文件句柄获取新快照并读取。句柄只用于当次恢复，不跨启动缓存；枚举中途或读取失败会阻止启动。通用文件列表继续查询大小，原有按路径读取的调用也保持可用。
 
-## AGPLv3 与第三方声明
+## GPLv2+ 与 AGPLv3 组合边界与第三方声明
 
-PPSSPP 核心的 `Core/Core.cpp` 等文件及网页 `wasm-page/public/ppsspp-runtime.js` 的许可头明确允许 GPL 第 2 版或任何后续版本。本项目选择按 AGPLv3（`AGPL-3.0-only`）条款发布组合程序（基于 GPLv3/AGPLv3 §13 与 `GPL-2.0-or-later` 上游组合），并保留原作者声明和 [上游许可文本](LICENSE.TXT)。GPL-2.0-only 与 GPL-2.0-or-later 的含义不同，此选择依据后者；参见 [GNU 的版本兼容说明](https://www.gnu.org/licenses/gpl-faq.en.html#v2v3Compatibility)。
+PPSSPP 核心的 `Core/Core.cpp` 等文件及网页 `wasm-page/public/ppsspp-runtime.js` 等上游文件的许可头明确允许 GNU GPL 第 2 版或任何后续版本（`GPL-2.0-or-later`）；详见根目录 [上游许可文本](LICENSE.TXT)。
 
-第三方组件并未统一改标 AGPLv3。FFmpeg、SDL 相关文件、glslang、FreeType、zstd 等依赖继续保留其目录内的 LICENSE / COPYING 文件和源码许可头，具体文件以自身声明为准。发布修改后的程序时，应同时提供对应源码和构建说明，并保留适用的版权与许可通知。
+本项目由 CyberNova 原创编写的脚本、工具与新增前端模块以 `AGPL-3.0-only`（适用根目录 [附加条款](LICENSE-ADDITIONAL_TERMS-zh-CN.md)）发布。当本项目将上述 `AGPL-3.0-only` 原创材料与源于 `root-hunter/ppsspp-web` / `root-hunter/ppsspp-wasm` 的 `GPL-2.0-or-later` 代码结合构成组合程序时，依据 **GPL 第 3 版第 13 条与 AGPLv3 第 13 条的兼容组合机制**处理：
+
+- 该兼容组合机制**不将原 GPL 材料概括改授 `AGPL-3.0-only`**，也不使根目录附加条款中的附加要求或第 9.5–9.6 款附加许可豁免自动覆盖原 GPL 部分；
+- 对源自上游 `GPL-2.0-or-later` 文件的本地修改继续保留 `GPL-2.0-or-later` 许可及原作者声明（参见 [GNU 的版本兼容说明](https://www.gnu.org/licenses/gpl-faq.en.html#v2v3Compatibility) 与本仓库 [LICENSE-ADDITIONAL_TERMS-zh-CN.md](LICENSE-ADDITIONAL_TERMS-zh-CN.md) 第 7.4 款）；
+- 对外分发或通过网络提供该组合程序时，须同时满足 AGPLv3 第 13 条、GPLv3 第 13 条以及各组成部分对应的源码提供与声明保留义务。
+
+第三方组件并未统一改标 AGPLv3。FFmpeg（按纯 `LGPL-2.1-or-later` 配置编译，未启用 `--enable-gpl`）、SDL 相关文件、glslang、FreeType、zstd 等依赖继续保留其目录内的 LICENSE / COPYING 文件和源码许可头，具体文件以自身声明为准。发布修改后的程序时，应同时提供对应源码和构建说明，并保留适用的版权与许可通知；综合清单见 [ASSETS_LICENSES.md](ASSETS_LICENSES.md)。
 
 游戏镜像、文本、声音、图像和其他游戏素材不在此源码分发及许可范围内。

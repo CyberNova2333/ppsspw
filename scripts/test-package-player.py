@@ -107,6 +107,8 @@ class PackageIntegration(unittest.TestCase):
             (destination / 'PPSSPPSDL.worker.js').write_text('stale worker')
             (repo / 'LICENSE').write_text('License')
             (repo / 'LICENSE.TXT').write_text('Upstream license')
+            (repo / 'LICENSE-ADDITIONAL_TERMS-zh-CN.md').write_text('Additional terms zh')
+            (repo / 'LICENSE-ADDITIONAL_TERMS-en.md').write_text('Additional terms en')
             source = repo / 'compilation-output'
             source.mkdir()
             expected = hashlib.sha256()
@@ -125,6 +127,10 @@ class PackageIntegration(unittest.TestCase):
                                         'diagnostics': DEFAULT_DIAGNOSTICS})
             self.assertEqual(sorted(path.name for path in destination.iterdir()),
                              ['PPSSPPSDL.data', 'PPSSPPSDL.js', 'PPSSPPSDL.wasm'])
+            self.assertEqual((output / 'LICENSE').read_text(), 'License')
+            self.assertEqual((output / 'UPSTREAM-LICENSE.txt').read_text(), 'Upstream license')
+            self.assertEqual((output / 'LICENSE-ADDITIONAL_TERMS-zh-CN.md').read_text(), 'Additional terms zh')
+            self.assertEqual((output / 'LICENSE-ADDITIONAL_TERMS-en.md').read_text(), 'Additional terms en')
 
 
 class DiagnosticPackaging(unittest.TestCase):
@@ -140,6 +146,8 @@ class DiagnosticPackaging(unittest.TestCase):
         (self.output / 'index.html').write_text('<!doctype html>')
         (self.repo / 'LICENSE').write_text('License')
         (self.repo / 'LICENSE.TXT').write_text('Upstream license')
+        (self.repo / 'LICENSE-ADDITIONAL_TERMS-zh-CN.md').write_text('Additional terms zh')
+        (self.repo / 'LICENSE-ADDITIONAL_TERMS-en.md').write_text('Additional terms en')
         self.source = self.repo / 'compilation-output'
         self.source.mkdir()
         for name in ('PPSSPPSDL.js', 'PPSSPPSDL.wasm', 'PPSSPPSDL.data'):
