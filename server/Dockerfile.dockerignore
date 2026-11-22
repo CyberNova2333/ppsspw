@@ -1,4 +1,9 @@
 **
+!LICENSE
+!LICENSE.TXT
+!GPL-3.0.txt
+!LICENSE-ADDITIONAL_TERMS-zh-CN.md
+!LICENSE-ADDITIONAL_TERMS-en.md
 !server/serve.py
 !server/relay.py
 !server/relay_auth.py

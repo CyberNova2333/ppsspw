@@ -10,7 +10,13 @@ async function fixture(t) {
   const output = await mkdtemp(join(tmpdir(), 'player-ci-'));
   t.after(() => rm(output, { recursive: true, force: true }));
   const revision = 'a'.repeat(64);
-  for (const name of ['index.html', 'download-worker.js', 'game-download.js', 'online-games.js', 'browser-files.js', 'browser-storage.js', 'ppsspp-runtime.js', 'build-wasm/PPSSPPSDL.js', 'build-wasm/PPSSPPSDL.wasm', 'build-wasm/PPSSPPSDL.data']) {
+  for (const name of [
+    'index.html', 'download-worker.js', 'game-download.js', 'online-games.js',
+    'browser-files.js', 'browser-storage.js', 'touch-controls.js', 'pad-presets.js', 'ppsspp-runtime.js',
+    'build-wasm/PPSSPPSDL.js', 'build-wasm/PPSSPPSDL.wasm', 'build-wasm/PPSSPPSDL.data',
+    'LICENSE', 'UPSTREAM-LICENSE.txt', 'GPL-3.0.txt',
+    'LICENSE-ADDITIONAL_TERMS-zh-CN.md', 'LICENSE-ADDITIONAL_TERMS-en.md',
+  ]) {
     await mkdir(dirname(join(output, name)), { recursive: true });
     await writeFile(join(output, name), 'fixture');
   }
@@ -78,6 +84,29 @@ test('static output verification rejects game packages, fixed catalogs, missing 
   headers.headers[0].headers.find(({ key }) => key === 'Content-Security-Policy').value = "connect-src 'self'";
   await writeFile(join(output, 'edgeone.json'), JSON.stringify(headers));
   await assert.rejects(verifyStaticOutput(output));
+});
+
+test('missing or empty license texts block preparation before it changes a previous deployment', async t => {
+  const { output } = await fixture(t);
+  await prepareDeployment({ output });
+  const buildInfo = await readFile(join(output, 'build-info.json'));
+  await writeFile(join(output, 'edgeone.json'), 'previous configuration');
+  await writeFile(join(output, 'game-catalog.json'), 'previous catalog');
+  for (const name of ['LICENSE', 'UPSTREAM-LICENSE.txt', 'GPL-3.0.txt', 'LICENSE-ADDITIONAL_TERMS-zh-CN.md', 'LICENSE-ADDITIONAL_TERMS-en.md']) {
+    const path = join(output, name);
+    await rm(path);
+    for (const empty of [false, true]) {
+      if (empty) await writeFile(path, '');
+      await assert.rejects(verifyStaticOutput(output), error => error.message.includes(name));
+      await assert.rejects(prepareDeployment({ output }), error => error.message.includes(name));
+      assert.deepEqual(await readFile(join(output, 'build-info.json')), buildInfo);
+      assert.equal(await readFile(join(output, 'edgeone.json'), 'utf8'), 'previous configuration');
+      assert.equal(await readFile(join(output, 'game-catalog.json'), 'utf8'), 'previous catalog');
+    }
+    await writeFile(path, 'fixture');
+  }
+  await prepareDeployment({ output });
+  await verifyStaticOutput(output);
 });
 
 test('production verification checks this deployment and isolation headers without a game catalog', async t => {

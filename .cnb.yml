@@ -1,31 +1,20 @@
 .sync-assets-licenses: &sync-assets-licenses
-  name: 检查并增量同步 ASSETS_LICENSES.md（默认停用）
+  name: 核对贡献者清单（默认停用）
   image: python:3.12-bookworm
   if: '[ "${ENABLE_MANIFEST_SYNC:-false}" = "true" ]'
   script: |
     set -eu
     export MIRROR_WEB_ENDPOINT="${CNB_WEB_ENDPOINT:-}"
     export MIRROR_REPO_SLUG="${CNB_REPO_SLUG:-}"
-    export MIRROR_TOKEN_USER="${CNB_TOKEN_USER_NAME:-cnb}"
-    export MIRROR_TOKEN="${CNB_TOKEN:-}"
-    export MIRROR_BRANCH="${CNB_BRANCH:-main}"
-    export MIRROR_REF_TYPE="${CNB_REF_TYPE:-}"
-    export MIRROR_COMMITTER_NAME="cnb"
-    export MIRROR_COMMITTER_EMAIL="noreply""@cnb.""local"
     export MIRROR_NOREPLY_DOMAIN="cnb."
-    python3 .github/scripts/sync_assets_licenses.py mirror
+    python3 .github/scripts/sync_assets_licenses.py mirror --check
 
 .check-code: &check-code
   name: 网页端与播放器测试
   script: |
     set -eu
-    (cd wasm-page && pnpm install --frozen-lockfile && pnpm test)
-    python3 -B -m unittest discover -s server/player-tests -v
-    node --test scripts/ci/prepare-deploy.test.mjs
-    node --test scripts/scene-input-scheduler.test.mjs
-    node --test scripts/browser-scene-session.test.mjs
-    python3 -B scripts/test-sdl-viewport.py
-    python3 -B scripts/test-tabbed-layout.py
+    make app-install
+    make test-ci
 
 .build-docs: &build-docs
   name: 构建并核对文档站

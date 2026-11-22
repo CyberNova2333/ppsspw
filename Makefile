@@ -1,6 +1,6 @@
 # All emulator and bundled dependency sources live in this repository.
 # Requires an activated Emscripten SDK for wasm-* targets (Linux / WSL).
-.PHONY: help app-install app-build app-build-pages wasm-root-check wasm-ffmpeg wasm-dev wasm-release pages serve test
+.PHONY: help app-install app-build app-build-pages wasm-root-check wasm-ffmpeg wasm-dev wasm-release pages serve test test-ci
 
 APP_DIR := wasm-page
 WASM_ROOT := deps/ppsspp-wasm
@@ -16,13 +16,14 @@ WASM_FFMPEG_DIR := $(abspath $(WASM_ROOT)/build-ffmpeg-wasm/install)
 help:
 	@echo "app-install: install locked web dependencies; app-build: build web UI"
 	@echo "wasm-release: compile the vendored emulator; pages: build complete player"
-	@echo "serve: preview packaged player; test: run web behavior tests"
+	@echo "serve: preview packaged player; test: run web, preview and packaging tests"
+	@echo "test-ci: also run scene and native layout tests (requires Emscripten)"
 
 app-install:
-	npm --prefix $(APP_DIR) ci
+	cd $(APP_DIR) && pnpm install --frozen-lockfile
 
 app-build:
-	npm --prefix $(APP_DIR) run build:pages
+	cd $(APP_DIR) && pnpm run build:pages
 
 wasm-root-check:
 	@test -f "$(WASM_ROOT)/CMakeLists.txt" || (echo "Missing vendored core source" >&2; exit 1)
@@ -50,5 +51,13 @@ serve:
 	$(PYTHON) server/serve-player.py --bind "$(BIND)" --port "$(PORT)"
 
 test:
-	npm --prefix $(APP_DIR) test
+	cd $(APP_DIR) && pnpm test
 	$(PYTHON) -m unittest discover -s server/player-tests -v
+	$(PYTHON) scripts/test-package-player.py
+# The SDK has a directory named node on PATH. env skips it when resolving Node.js.
+	env node --test scripts/ci/prepare-deploy.test.mjs
+
+test-ci: test
+	env node --test scripts/scene-input-scheduler.test.mjs scripts/browser-scene-session.test.mjs
+	$(PYTHON) scripts/test-sdl-viewport.py
+	$(PYTHON) scripts/test-tabbed-layout.py

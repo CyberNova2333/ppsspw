@@ -3,12 +3,14 @@
 # Derived from upstream root-hunter/ppsspp-web (GPL-2.0-or-later; see LICENSE.TXT and UPSTREAM.md), with modifications by CyberNova for PPSSPW (combined with PPSSPW AGPL-3.0-only modules under GPLv3/AGPLv3 Section 13).
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import argparse
+import io
 import ssl
 import os
 import subprocess
 import threading
 import signal
-from urllib.parse import urlparse
+from pathlib import Path
+from urllib.parse import unquote, urlparse
 from functools import partial
 
 
@@ -23,21 +25,7 @@ class WasmThreadingServer(TrackedServerMixin, ThreadingHTTPServer):
 
 
 class WasmThreadingHandler(SimpleHTTPRequestHandler):
-    """
-    Serves the web repo and a separate PPSSPP wasm repo together.
-
-    Requests for / or /index.html are transparently rewritten to the Angular build
-    in /wasm-page/dist/ppsspp-web. Static assets first resolve from that build,
-    then from /wasm-page/public for local development. Build outputs like
-    /build-wasm/... are served from the wasm repo.
-    """
-    PUBLIC_FILES = {
-        "/favicon.ico",
-        "/manifest.webmanifest",
-        "/ppsspp-runtime.js",
-        "/adhoc-transport.js",
-        "/sw.js",
-    }
+    """Publish the packaged player, public assets and named development core outputs."""
 
     def __init__(self, *args, web_root=None, wasm_root=None, **kwargs):
         self.web_root = os.path.abspath(web_root)
@@ -50,14 +38,6 @@ class WasmThreadingHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
-        if path == "/healthz":
-            body = b'{"status":"ok","relay_protocol":1}'
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
         if path == "/adhoc" or path.startswith("/adhoc/"):
             if not getattr(self.server, "adhoc_enabled", False):
                 self.send_error(404)
@@ -76,47 +56,48 @@ class WasmThreadingHandler(SimpleHTTPRequestHandler):
             finally:
                 relay.finish()
             return
-        if path.startswith("/server/") or any(part.startswith(".") for part in path.split("/")):
-            self.send_error(404)
-            return
         super().do_GET()
 
-    def do_HEAD(self):
-        if urlparse(self.path).path.startswith("/server/"):
+    def send_head(self):
+        if urlparse(self.path).path == "/healthz":
+            body = b'{"status":"ok","relay_protocol":1}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return io.BytesIO(body)
+        self.published_file = self.published_path(self.path)
+        if self.published_file is None:
             self.send_error(404)
-            return
-        super().do_HEAD()
+            return None
+        return super().send_head()
 
     def translate_path(self, path):
-        request_path = urlparse(path).path
+        return str(self.published_file)
 
-        if request_path in ("/", "/index.html"):
-            angular_index = os.path.join(self.angular_root, "index.html")
-            if os.path.isfile(angular_index):
-                return self._translate_under(self.angular_root, "/index.html")
-            return self._translate_under(self.web_root, "/wasm-page/src/index.html")
-        angular_path = self._translate_under(self.angular_root, request_path)
-        if os.path.isfile(angular_path):
-            return angular_path
-        public_path = self._translate_under(self.web_root, "/wasm-page/public" + request_path)
-        if request_path in self.PUBLIC_FILES or request_path.startswith("/icons/"):
-            return public_path
-        if request_path == "/assets-manifest.txt":
-            return public_path
-        if request_path.startswith(("/wasm-page/", "/server/")):
-            return self._translate_under(self.web_root, request_path)
+    def list_directory(self, path):
+        self.send_error(404)
+        return None
 
-        return self._translate_under(self.wasm_root, request_path)
-
-    def _translate_under(self, root, path):
-        previous = self.directory
-        self.directory = root
-        try:
-            return super().translate_path(path)
-        finally:
-            self.directory = previous
+    def published_path(self, url):
+        path = unquote(urlparse(url).path).lstrip("/") or "index.html"
+        if any(part.startswith(".") for part in path.split("/")) or "\\" in path or "\x00" in path:
+            return None
+        public = Path(self.web_root, "wasm-page", "public")
+        candidates = [(Path(self.angular_root), path), (public, path.removeprefix("wasm-page/public/"))]
+        build, sep, asset = path.partition("/")
+        if sep and build in ("build-wasm", "build-wasm-release") and (
+                asset in ("PPSSPPSDL.js", "PPSSPPSDL.wasm", "PPSSPPSDL.data", "PPSSPPSDL.worker.js")
+                or asset.startswith("assets/")):
+            candidates.append((Path(self.wasm_root, build), asset))
+        for root, relative in candidates:
+            candidate = (root / relative).resolve()
+            if candidate.is_relative_to(root.resolve()) and candidate.is_file():
+                return candidate
+        return None
 
     def end_headers(self):
+        self.send_header("Content-Security-Policy", "script-src-attr 'none'")
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
         self.send_header("Cross-Origin-Resource-Policy", "same-origin")
@@ -145,8 +126,8 @@ def main():
     parser.add_argument("--bind", "--address", dest="bind", default="192.168.1.170")
     parser.add_argument("--port", type=int, default=8081)
     parser.add_argument("--https", action="store_true", help="Enable HTTPS (TLS)")
-    parser.add_argument("--cert", default="cert.pem", help="TLS certificate file (PEM)")
-    parser.add_argument("--key", default="key.pem", help="TLS private key file (PEM)")
+    parser.add_argument("--cert", default=None, help="TLS certificate file (PEM)")
+    parser.add_argument("--key", default=None, help="TLS private key file (PEM)")
     parser.add_argument("--web-root", default=web_root, help="ppsspp-web checkout root.")
     parser.add_argument("--wasm-root", "--dir", dest="wasm_root", default=default_wasm_root, help="ppsspp-wasm checkout root containing build-wasm/ and build-wasm-release/.")
     parser.add_argument("--adhoc-ws", action="store_true", help="Enable the browser WebSocket ad hoc lobby server.")
@@ -162,11 +143,18 @@ def main():
     server.relay_auth = RelayAuth.from_env()
     server.adhoc_enabled = args.adhoc_ws
     if args.https:
+        if args.cert is None or args.key is None:
+            private_dir = Path.home() / ".local" / "share" / "ppsspw" / "tls"
+            private_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            args.cert = args.cert or str(private_dir / "cert.pem")
+            args.key = args.key or str(private_dir / "key.pem")
         if not os.path.isabs(args.cert):
             args.cert = os.path.join(script_dir, args.cert)
         if not os.path.isabs(args.key):
             args.key = os.path.join(script_dir, args.key)
-        if not os.path.exists(args.cert) or not os.path.exists(args.key):
+        if os.path.exists(args.cert) != os.path.exists(args.key):
+            parser.error("TLS certificate and key must be supplied together")
+        if not os.path.exists(args.cert):
             generate_self_signed_cert(args.cert, args.key)
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(certfile=args.cert, keyfile=args.key)

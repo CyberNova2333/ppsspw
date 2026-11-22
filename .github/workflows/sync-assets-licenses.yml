@@ -1,21 +1,12 @@
-name: 自动同步 ASSETS_LICENSES
+name: 核对 ASSETS_LICENSES
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      mode:
-        description: '执行模式（sync 自动同步提交 / check 仅核对不改文件）'
-        required: false
-        type: choice
-        default: 'sync'
-        options:
-          - 'sync'
-          - 'check'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: assets-licenses-${{ github.ref }}
@@ -23,7 +14,7 @@ concurrency:
 
 jobs:
   sync-assets-licenses:
-    name: 检查并增量同步 ASSETS_LICENSES.md
+    name: 核对 ASSETS_LICENSES.md
     if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -32,17 +23,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          token: ${{ secrets.AUTHORS_VAR_TOKEN || secrets.GH_PAT || github.token }}
+          persist-credentials: false
 
-      - name: 检查或增量同步 ASSETS_LICENSES.md
-        env:
-          GH_TOKEN: ${{ secrets.AUTHORS_VAR_TOKEN || secrets.GH_PAT || github.token }}
-          SAVED_MANIFEST_HASH: ${{ vars.ASSETS_LICENSES_HASH }}
-          UPDATE_MANIFEST_VAR: ${{ (secrets.AUTHORS_VAR_TOKEN != '' || secrets.GH_PAT != '') && 'true' || 'false' }}
-          SYNC_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'sync' }}
-        run: |
-          if [ "$SYNC_MODE" = "check" ]; then
-            python3 .github/scripts/sync_assets_licenses.py github --check
-          else
-            python3 .github/scripts/sync_assets_licenses.py github
-          fi
+      - name: 检查贡献者清单
+        run: python3 .github/scripts/sync_assets_licenses.py github --check

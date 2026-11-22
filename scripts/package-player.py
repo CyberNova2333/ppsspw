@@ -10,6 +10,29 @@ import re
 import shutil
 
 
+REQUIRED_LICENSES = (
+    ('LICENSE', 'LICENSE'),
+    ('LICENSE.TXT', 'UPSTREAM-LICENSE.txt'),
+    ('GPL-3.0.txt', 'GPL-3.0.txt'),
+    ('LICENSE-ADDITIONAL_TERMS-zh-CN.md', 'LICENSE-ADDITIONAL_TERMS-zh-CN.md'),
+    ('LICENSE-ADDITIONAL_TERMS-en.md', 'LICENSE-ADDITIONAL_TERMS-en.md'),
+)
+
+
+def read_required_licenses(repo, parser):
+    """Verify and load all required license texts before modifying output."""
+    licenses = []
+    for source_name, target_name in REQUIRED_LICENSES:
+        source_path = repo / source_name
+        if not source_path.is_file():
+            parser.error(f'Missing required license file: {source_path}')
+        content = source_path.read_bytes()
+        if not content:
+            parser.error(f'Empty required license file: {source_path}')
+        licenses.append((target_name, content))
+    return licenses
+
+
 def diagnostic_metadata(cache_text, javascript):
     """Detect profiling builds even when a prebuilt bundle has no CMake cache."""
     false_values = {'', '0', 'OFF', 'NO', 'FALSE', 'N', 'IGNORE', 'NOTFOUND'}
@@ -60,6 +83,35 @@ def resource_metadata(cache_text, source_fingerprint=None):
     return result
 
 
+def package_offline_shell(output):
+    worker = output / 'sw.js'
+    if not worker.is_file():
+        return
+    index = (output / 'index.html').read_text(encoding='utf-8')
+    paths = {p for p in output.glob('*.js') if p != worker and
+             (not p.name.startswith('main-') or p.name in index)}
+    paths.update(p for p in output.glob('*.css') if p.name in index)
+    for directory in ('fonts', 'media', 'images', 'icons'):
+        paths.update(p for p in (output / directory).rglob('*') if p.suffix.lower() in
+                     {'.woff2', '.png', '.svg', '.webp', '.ico'})
+    paths.update(p for name in ('index.html', 'manifest.webmanifest', 'assets-manifest.txt', 'build-info.json')
+                 if (p := output / name).is_file())
+    files = []
+    digest = hashlib.sha256()
+    for path in sorted(paths):
+        name = './' + path.relative_to(output).as_posix()
+        files.append(name)
+        digest.update(name.encode())
+        digest.update(hashlib.sha256(path.read_bytes()).digest())
+    manifest = json.dumps({'files': files, 'digest': digest.hexdigest()}, separators=(',', ':'))
+    script = worker.read_text(encoding='utf-8')
+    script, count = re.subn(r'^const BUILD_SHELL = .*?;$', lambda _: f'const BUILD_SHELL = {manifest};',
+                            script, flags=re.MULTILINE)
+    if count != 1:
+        raise ValueError('Missing offline shell manifest declaration')
+    worker.write_text(script, encoding='utf-8')
+
+
 def main():
     repo = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
@@ -106,6 +158,7 @@ def main():
     else:
         if 'USE_FFMPEG:BOOL=ON' not in cache_text:
             parser.error('Use a local FFmpeg-enabled build, or supply a verified --expected-revision')
+    license_contents = read_required_licenses(repo, parser)
     destination = output / 'build-wasm'
     destination.mkdir(exist_ok=True)
     for name in names:
@@ -115,12 +168,9 @@ def main():
         (destination / 'PPSSPPSDL.worker.js').unlink(missing_ok=True)
     (output / 'build-info.json').write_text(json.dumps({'revision': digest, 'resources': resources,
                                                       'diagnostics': diagnostics}, indent=2) + '\n', encoding='utf-8')
-    (output / 'LICENSE').write_bytes((repo / 'LICENSE').read_bytes())
-    (output / 'UPSTREAM-LICENSE.txt').write_bytes((repo / 'LICENSE.TXT').read_bytes())
-    for extra in ('LICENSE-ADDITIONAL_TERMS-zh-CN.md', 'LICENSE-ADDITIONAL_TERMS-en.md'):
-        src_doc = repo / extra
-        if src_doc.is_file():
-            (output / extra).write_bytes(src_doc.read_bytes())
+    for target_name, content in license_contents:
+        (output / target_name).write_bytes(content)
+    package_offline_shell(output)
     print(f'Packaged {len(names)} emulator artifacts: {digest}')
 
 

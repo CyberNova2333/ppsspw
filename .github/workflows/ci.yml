@@ -46,17 +46,7 @@ jobs:
           BUILD_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.build_scope || 'full' }}
         run: |
           if [ "$BUILD_SCOPE" = "tests-only" ]; then
-            docker run --rm -v "$GITHUB_WORKSPACE:/workspace" -w /workspace ppsspw-ci bash -lc '
-              set -euo pipefail
-              pnpm --dir wasm-page install --frozen-lockfile
-              pnpm --dir wasm-page test
-              python3 -m unittest discover -s server/player-tests -v
-              node --test scripts/ci/prepare-deploy.test.mjs
-              node --test scripts/scene-input-scheduler.test.mjs
-              node --test scripts/browser-scene-session.test.mjs
-              python3 scripts/test-sdl-viewport.py
-              python3 scripts/test-tabbed-layout.py
-            '
+            docker run --rm -v "$GITHUB_WORKSPACE:/workspace" -w /workspace ppsspw-ci bash -c 'make app-install && make test-ci'
           else
             docker run --rm -v "$GITHUB_WORKSPACE:/workspace" -w /workspace ppsspw-ci bash scripts/ci/build.sh
           fi

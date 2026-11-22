@@ -9,7 +9,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import base64
 from collections import Counter
 from datetime import datetime, timezone
 import hashlib
@@ -19,7 +18,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from urllib.parse import quote, quote_plus, urlsplit
+from urllib.parse import urlsplit
 
 GH_NOREPLY_RE = re.compile(
     r"^(?:(\d+)\+)?([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)(\[bot\])?@users\.noreply\.github\.com$",
@@ -841,74 +840,6 @@ def write_step_summary(repo_name: str, stats: dict[str, int], added_items: list[
         fh.write("\n".join(rows))
 
 
-def _update_github_hash_var(new_hash: str) -> None:
-    if os.environ.get("UPDATE_MANIFEST_VAR") != "true":
-        return
-    saved_hash = os.environ.get("SAVED_MANIFEST_HASH", "").strip()
-    if saved_hash == new_hash:
-        return
-    gh_token = os.environ.get("GH_TOKEN", "").strip()
-    repo_slug = os.environ.get("GITHUB_REPOSITORY", "").strip()
-    if not (gh_token and repo_slug):
-        return
-    r1 = subprocess.run(
-        ["gh", "variable", "set", "ASSETS_LICENSES_HASH", "-R", repo_slug, "--body", new_hash],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    if r1.returncode == 0:
-        log("已更新 Actions Variable (ASSETS_LICENSES_HASH)。")
-    else:
-        log(f"警告：更新 Actions Variable 失败（退出码 {r1.returncode}）：{redact_url_userinfo(r1.stderr.strip())}")
-
-
-def _validate_mirror_endpoint(base: str) -> None:
-    parts = urlsplit(base)
-    scheme = parts.scheme.lower()
-    host = (parts.hostname or "").lower()
-    if scheme not in {"http", "https"} or not host:
-        raise RuntimeError(f"非法的镜像端点 URL：{base}")
-    if scheme != "https" and host not in {"localhost", "127.0.0.1", "::1"}:
-        raise RuntimeError(f"拒绝通过非加密 HTTP 端点推送镜像凭据：{base}")
-
-
-def _push_mirror(repo_dir: Path, base: str, slug: str, user: str, tok: str, branch: str) -> None:
-    _validate_mirror_endpoint(base)
-    auth_b64 = base64.b64encode(f"{user}:{tok}".encode("utf-8")).decode("ascii")
-    push_env = dict(os.environ)
-    push_env["GIT_TERMINAL_PROMPT"] = "0"
-    push_env.pop("GIT_CONFIG_PARAMETERS", None)
-    try:
-        idx = max(0, int(push_env.get("GIT_CONFIG_COUNT", "0")))
-    except ValueError:
-        idx = 0
-    push_env["GIT_CONFIG_COUNT"] = str(idx + 4)
-    push_env[f"GIT_CONFIG_KEY_{idx}"] = f"http.{base}/.extraHeader"
-    push_env[f"GIT_CONFIG_VALUE_{idx}"] = ""
-    push_env[f"GIT_CONFIG_KEY_{idx + 1}"] = f"http.{base}/.extraHeader"
-    push_env[f"GIT_CONFIG_VALUE_{idx + 1}"] = f"AUTHORIZATION: Basic {auth_b64}"
-    push_env[f"GIT_CONFIG_KEY_{idx + 2}"] = f"http.{base}/{slug}.extraHeader"
-    push_env[f"GIT_CONFIG_VALUE_{idx + 2}"] = ""
-    push_env[f"GIT_CONFIG_KEY_{idx + 3}"] = f"http.{base}/{slug}.extraHeader"
-    push_env[f"GIT_CONFIG_VALUE_{idx + 3}"] = f"AUTHORIZATION: Basic {auth_b64}"
-
-    push_res = subprocess.run(
-        ["git", "-C", str(repo_dir), "push", "--no-verify", f"{base}/{slug}", f"HEAD:refs/heads/{branch}", "-o", "ci.skip"],
-        env=push_env,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    if push_res.returncode != 0:
-        err_text = "\n".join(p for p in (push_res.stderr, push_res.stdout) if p and p.strip())
-        for secret in (tok, quote(tok, safe=""), quote(tok), quote_plus(tok), auth_b64):
-            if secret:
-                err_text = err_text.replace(secret, "***")
-        err_text = redact_url_userinfo(err_text)
-        raise RuntimeError(f"镜像推送失败（退出码 {push_res.returncode}）：{err_text.strip()}")
-
-
 class _UniqueRepoAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         if getattr(namespace, "_repo_seen", False):
@@ -979,119 +910,10 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return 0
 
-    if platform == "github":
-        if not file_changed:
-            log("ASSETS_LICENSES.md 为最新，无新增人类贡献者或 AI 工具，跳过提交。")
-            write_step_summary(repo_dir.name, stats, added_items, new_hash, "已是最新（跳过）")
-            _update_github_hash_var(new_hash)
-            return 0
-
-        if os.environ.get("GITHUB_REF_TYPE") == "tag":
-            log("当前运行在 Tag 引用上，检测到新增条目但不自动写回分支。")
-            write_step_summary(repo_dir.name, stats, added_items, new_hash, "Tag 运行跳过分支提交")
-            return 0
-
+    if file_changed:
         manifest_path.write_text(new_text, encoding="utf-8", newline="\n")
-        subprocess.run(["git", "-C", str(repo_dir), "add", "ASSETS_LICENSES.md"], check=True, timeout=30)
-        if (
-            subprocess.run(
-                ["git", "-C", str(repo_dir), "diff", "--cached", "--quiet", "--", "ASSETS_LICENSES.md"],
-                timeout=30,
-            ).returncode
-            != 0
-        ):
-            msg = (
-                "chore(licenses): 自动同步 ASSETS_LICENSES.md 新增贡献记录 [skip ci]\n\n"
-                "文档: 依据当前完整 Git 提交历史增量登记新增人类贡献者（默认未发表意见）与 AI 辅助工具至 ASSETS_LICENSES.md。\n\n"
-                "[skip-hooks]\n"
-                "Generated-by: GitHub Actions\n"
-            )
-            subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(repo_dir),
-                    "-c",
-                    "user.name=github-actions[bot]",
-                    "-c",
-                    "user.email=41898282+github-actions[bot]@users.noreply.github.com",
-                    "-c",
-                    "commit.gpgsign=false",
-                    "commit",
-                    "--no-verify",
-                    "-m",
-                    msg,
-                ],
-                check=True,
-                timeout=60,
-            )
-            branch = (os.environ.get("GITHUB_REF_NAME") or "main").strip() or "main"
-            subprocess.run(
-                ["git", "-C", str(repo_dir), "push", "--no-verify", "origin", f"HEAD:refs/heads/{branch}"],
-                check=True,
-                timeout=120,
-            )
-            log(f"已提交并推送更新后的 ASSETS_LICENSES.md 至分支 {branch}。")
-            if is_gha:
-                log(f"::notice::已自动登记 {len(added_items)} 条新增记录：{added_desc}")
-        _update_github_hash_var(new_hash)
-        write_step_summary(repo_dir.name, stats, added_items, new_hash, f"已自动提交 {len(added_items)} 条新增")
-        return 0
-
-    # 镜像平台分支（先验证必要环境变量与非 Tag 引用，避免留下脏工作区/未推提交）
-    if os.environ.get("MIRROR_REF_TYPE") == "tag" or os.environ.get("GITHUB_REF_TYPE") == "tag":
-        log("当前运行在 Tag 引用上，镜像模式跳过自动写回分支。")
-        return 0
-    if not file_changed:
-        log("ASSETS_LICENSES.md 无新增贡献者或 AI 工具记录，跳过提交。")
-        return 0
-
-    committer_name = (os.environ.get("MIRROR_COMMITTER_NAME") or "mirror-bot[bot]").strip() or "mirror-bot[bot]"
-    committer_email = (os.environ.get("MIRROR_COMMITTER_EMAIL") or "noreply@example.test").strip() or "noreply@example.test"
-    base = resolve_mirror_base(repo_dir)
-    slug = os.environ.get("MIRROR_REPO_SLUG", "").strip()
-    user = (os.environ.get("MIRROR_TOKEN_USER") or committer_name).strip() or committer_name
-    tok = os.environ.get("MIRROR_TOKEN", "").strip()
-    branch = (os.environ.get("MIRROR_BRANCH") or "main").strip() or "main"
-    if not (base and slug and tok):
-        raise RuntimeError("缺少镜像推送所需环境变量 (endpoint/slug/token)")
-    _validate_mirror_endpoint(base)
-
-    manifest_path.write_text(new_text, encoding="utf-8", newline="\n")
-    subprocess.run(["git", "-C", str(repo_dir), "add", "ASSETS_LICENSES.md"], check=True, timeout=30)
-    if (
-        subprocess.run(
-            ["git", "-C", str(repo_dir), "diff", "--cached", "--quiet", "--", "ASSETS_LICENSES.md"],
-            timeout=30,
-        ).returncode
-        != 0
-    ):
-        msg = (
-            "chore(licenses): 自动同步 ASSETS_LICENSES.md 新增贡献记录 [skip ci]\n\n"
-            "文档: 依据当前完整 Git 提交历史增量登记新增人类贡献者（默认未发表意见）与 AI 辅助工具至 ASSETS_LICENSES.md。\n\n"
-            "[skip-hooks]\n"
-        )
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo_dir),
-                "-c",
-                f"user.name={committer_name}",
-                "-c",
-                f"user.email={committer_email}",
-                "-c",
-                "commit.gpgsign=false",
-                "commit",
-                "--no-verify",
-                "-m",
-                msg,
-            ],
-            check=True,
-            timeout=60,
-        )
-        _push_mirror(repo_dir, base, slug, user, tok, branch)
-        log(f"已提交并推送更新后的 ASSETS_LICENSES.md 至镜像分支 {branch}。")
+    write_step_summary(repo_dir.name, stats, added_items, new_hash,
+                       "已生成待审核改动" if file_changed else "已是最新")
     return 0
 
 

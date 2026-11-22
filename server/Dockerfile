@@ -2,11 +2,16 @@ FROM node:24.22.0-alpine AS web-build
 
 WORKDIR /web
 
-COPY wasm-page/package*.json ./
-RUN npm install --global npm@12.2.0 && npm ci
+COPY wasm-page/package.json wasm-page/pnpm-lock.yaml wasm-page/pnpm-workspace.yaml ./
+RUN npm install --global "$(node -p 'require("./package.json").packageManager')" \
+	&& pnpm install --frozen-lockfile
 
 COPY wasm-page ./
-RUN npm run build:pages
+RUN pnpm run build:pages
+COPY LICENSE GPL-3.0.txt LICENSE-ADDITIONAL_TERMS-zh-CN.md LICENSE-ADDITIONAL_TERMS-en.md /notices/
+COPY LICENSE.TXT /notices/UPSTREAM-LICENSE.txt
+RUN for notice in /notices/*; do test -s "$notice" || exit 1; done \
+    && cp /notices/* dist/ppsspp-web/
 
 FROM python:3.13-slim
 

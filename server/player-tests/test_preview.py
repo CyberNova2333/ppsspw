@@ -35,7 +35,7 @@ class PreviewTests(unittest.TestCase):
                     self.assertEqual(response.headers['Cross-Origin-Opener-Policy'], 'same-origin')
                     self.assertEqual(response.headers['Cross-Origin-Embedder-Policy'], 'require-corp')
                     self.assertEqual(response.headers['Content-Security-Policy'],
-                                     "connect-src 'self' blob: https:; worker-src 'self' blob:; form-action 'none'; frame-src 'none'")
+                                     "connect-src 'self' blob: https:; worker-src 'self' blob:; form-action 'none'; frame-src 'none'; script-src-attr 'none'")
                     self.assertIn('游戏', response.read().decode())
                 with self.client.open(base + '/core.wasm', timeout=3) as response:
                     self.assertEqual(response.headers.get_content_type(), 'application/wasm')
@@ -65,7 +65,7 @@ class PreviewTests(unittest.TestCase):
                 with self.client.open(base + '/', timeout=3) as response:
                     self.assertEqual(response.headers['Content-Security-Policy'],
                                      "connect-src 'self' blob: https: http://127.0.0.1:17882; "
-                                     "worker-src 'self' blob:; form-action 'none'; frame-src 'none'")
+                                     "worker-src 'self' blob:; form-action 'none'; frame-src 'none'; script-src-attr 'none'")
                     self.assertEqual(response.headers['Cross-Origin-Embedder-Policy'], 'require-corp')
                 with self.assertRaises(urllib.error.HTTPError) as error:
                     self.client.open(base + '/resources/game.iso', timeout=3)

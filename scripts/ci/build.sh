@@ -12,16 +12,9 @@ if [ -n "$(git ls-files resources)" ]; then
   exit 1
 fi
 
-pnpm --dir wasm-page install --frozen-lockfile
-pnpm --dir wasm-page test
-python3 -m unittest discover -s server/player-tests -v
-node --test scripts/ci/prepare-deploy.test.mjs
-node --test scripts/scene-input-scheduler.test.mjs
-node --test scripts/browser-scene-session.test.mjs
-python3 scripts/test-sdl-viewport.py
-python3 scripts/test-tabbed-layout.py
+make app-install
+make test-ci
 make wasm-release WASM_JOBS=-j8 WASM_FFMPEG_JOBS=8 WASM_ENABLE_LTO=OFF
-pnpm --dir wasm-page run build:pages
-python3 scripts/package-player.py
+make app-build-pages
 # Push builds are independent of private configuration and never publish.
 node scripts/ci/prepare-deploy.mjs

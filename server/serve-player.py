@@ -75,7 +75,7 @@ class PlayerHandler(SimpleHTTPRequestHandler):
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
         connections = "'self' blob: https:" + ''.join(f' {origin}' for origin in self.cdn_origins)
-        self.send_header('Content-Security-Policy', f"connect-src {connections}; worker-src 'self' blob:; form-action 'none'; frame-src 'none'")
+        self.send_header('Content-Security-Policy', f"connect-src {connections}; worker-src 'self' blob:; form-action 'none'; frame-src 'none'; script-src-attr 'none'")
         super().end_headers()
 
 

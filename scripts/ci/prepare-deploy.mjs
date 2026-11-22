@@ -22,7 +22,7 @@ export function edgeoneConfig() {
     'Cross-Origin-Opener-Policy': 'same-origin',
     'Cross-Origin-Embedder-Policy': 'require-corp',
     'Cross-Origin-Resource-Policy': 'same-origin',
-    'Content-Security-Policy': "connect-src 'self' blob: https:; worker-src 'self' blob:; form-action 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'",
+    'Content-Security-Policy': "connect-src 'self' blob: https:; worker-src 'self' blob:; form-action 'none'; frame-src 'none'; script-src-attr 'none'; object-src 'none'; base-uri 'self'",
     'Cache-Control': 'no-cache',
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
@@ -62,9 +62,18 @@ async function clearLegacyCatalog(output) {
   if (catalog) await unlink(catalogPath);
 }
 
+async function verifyLicenses(output) {
+  for (const name of ['LICENSE', 'UPSTREAM-LICENSE.txt', 'GPL-3.0.txt',
+    'LICENSE-ADDITIONAL_TERMS-zh-CN.md', 'LICENSE-ADDITIONAL_TERMS-en.md']) {
+    const file = await lstat(join(output, name));
+    if (!file.isFile() || !file.size) error(`许可文件必须为非空普通文件：${name}`);
+  }
+}
+
 export async function prepareDeployment({ output = OUTPUT } = {}) {
   const root = await lstat(output);
   if (!root.isDirectory() || root.isSymbolicLink()) error('静态输出必须为普通目录');
+  await verifyLicenses(output);
   await clearLegacyCatalog(output);
   await writeFile(join(output, 'edgeone.json'), json(edgeoneConfig()));
   await stampDeployment(output);
@@ -72,7 +81,12 @@ export async function prepareDeployment({ output = OUTPUT } = {}) {
 }
 
 export async function verifyStaticOutput(output = OUTPUT) {
-  for (const name of ['index.html', 'download-worker.js', 'game-download.js', 'online-games.js', 'browser-files.js', 'browser-storage.js', 'ppsspp-runtime.js', 'build-info.json', 'build-wasm/PPSSPPSDL.js', 'build-wasm/PPSSPPSDL.wasm', 'build-wasm/PPSSPPSDL.data']) {
+  await verifyLicenses(output);
+  for (const name of [
+    'index.html', 'download-worker.js', 'game-download.js', 'online-games.js',
+    'browser-files.js', 'browser-storage.js', 'touch-controls.js', 'pad-presets.js', 'ppsspp-runtime.js', 'build-info.json',
+    'build-wasm/PPSSPPSDL.js', 'build-wasm/PPSSPPSDL.wasm', 'build-wasm/PPSSPPSDL.data',
+  ]) {
     if (!(await stat(join(output, name))).isFile()) error('静态产物不完整');
   }
   const build = JSON.parse(await readFile(join(output, 'build-info.json'), 'utf8'));

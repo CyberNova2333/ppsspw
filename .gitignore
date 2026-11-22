@@ -10,6 +10,7 @@
 # Generated builds and local tools; upstream source remains ordinary files.
 /node_modules/
 /wasm-page/node_modules/
+/scripts/ci/deploy-tool/node_modules/
 /wasm-page/.angular/
 /wasm-page/dist/
 /wasm-page/public/build-wasm/

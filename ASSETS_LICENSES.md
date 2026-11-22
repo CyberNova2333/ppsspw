@@ -90,7 +90,7 @@
 
 | 组件编号 | 声明类别及原始出处 | 实际随附或提供位置 | 原许可要求保留的内容和适用范围 | 载体安排说明 |
 | --- | --- | --- | --- | --- |
-| `C-01` | GPL-2.0-or-later 原文、`UPSTREAM.md`、锁文件与子目录 `LICENSE`/`COPYING` | `LICENSE.TXT`、`UPSTREAM.md`、`upstream/source-lock.json`、`deps/ppsspp-wasm/LICENSE.TXT` 及各子目录许可文件 | 分发编译产物或部署线上实例须履行 GPLv3/AGPLv3 §13 对应源码提供与全部声明保留义务 | 原样随仓保留并在应用“关于”界面提供 `UPSTREAM-LICENSE.txt` 链接 |
+| `C-01` | GPL-2.0-or-later 原文、`UPSTREAM.md`、锁文件与子目录 `LICENSE`/`COPYING` | `LICENSE.TXT`、`UPSTREAM.md`、`upstream/source-lock.json`、`deps/ppsspp-wasm/LICENSE.TXT` 及各子目录许可文件 | 分发编译产物或部署线上实例须履行 GPLv3/AGPLv3 §13 对应源码提供与全部声明保留义务 | 应用「关于」页提供随包的上游声明 `UPSTREAM-LICENSE.txt` 和 [GPLv3 原文](GPL-3.0.txt) |
 | `C-02` | 上游版权声明、`LICENSE.TXT` 与修改标识 | `LICENSE.TXT`、`UPSTREAM.md` 及各修改文件头部 | 保留原版权声明、GPL-2.0-or-later 许可与显著修改说明 | 随源码文件头与根目录 `LICENSE.TXT` 完整保留 |
 | `C-03` | PSPSDK 版权与三条款免责声明 | `LICENSE.TXT`（1–28 行） | 源代码与二进制分发须保留该版权与免责声明 | 保留于 `LICENSE.TXT` 与构建产物 `UPSTREAM-LICENSE.txt` |
 | `C-04` | MIT 版权与许可声明 | `wasm-page/public/licenses/animejs-MIT.txt`、`docs-site/.vitepress/theme/vendor/animejs/LICENSE.md` | 随源代码及静态站点分发保留原版权声明与 MIT 许可全文 | 随仓提供完整 `LICENSE.md` / `animejs-MIT.txt` 文本文件 |

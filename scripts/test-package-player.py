@@ -14,6 +14,13 @@ import unittest
 
 
 SCRIPT = Path(__file__).with_name('package-player.py')
+LICENSE_FILES = {
+    'LICENSE': 'LICENSE',
+    'LICENSE.TXT': 'UPSTREAM-LICENSE.txt',
+    'GPL-3.0.txt': 'GPL-3.0.txt',
+    'LICENSE-ADDITIONAL_TERMS-zh-CN.md': 'LICENSE-ADDITIONAL_TERMS-zh-CN.md',
+    'LICENSE-ADDITIONAL_TERMS-en.md': 'LICENSE-ADDITIONAL_TERMS-en.md',
+}
 SPEC = importlib.util.spec_from_file_location('package_player', SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
@@ -39,6 +46,27 @@ DIAGNOSTIC_EXPORTS = (
     ('ppssppRequestFrameTiming', 'frameTiming'),
     ('ppssppGetFrameTimingMetric', 'frameTiming'),
 )
+
+
+class OfflineShell(unittest.TestCase):
+    def test_generated_shell_tracks_the_current_entry_and_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            shutil.copy(SCRIPT.parents[1] / 'wasm-page/public/sw.js', output)
+            (output / 'index.html').write_text('<script src="main-NEW.js"></script><link href="styles-NEW.css">')
+            for name in ('main-OLD.js', 'main-NEW.js', 'styles-NEW.css', 'browser-files.js'):
+                (output / name).write_text('one')
+            (output / 'build-wasm').mkdir()
+            (output / 'build-wasm/PPSSPPSDL.js').write_text('core')
+            def generated():
+                MODULE.package_offline_shell(output)
+                line = next(line for line in (output / 'sw.js').read_text().splitlines() if line.startswith('const BUILD_SHELL = '))
+                return json.loads(line.removeprefix('const BUILD_SHELL = ').removesuffix(';'))
+            first = generated()
+            self.assertEqual(first['files'], ['./browser-files.js', './index.html', './main-NEW.js', './styles-NEW.css'])
+            self.assertEqual(first, generated())
+            (output / 'browser-files.js').write_text('two')
+            self.assertNotEqual(first['digest'], generated()['digest'])
 
 
 class ResourceMetadata(unittest.TestCase):
@@ -105,10 +133,8 @@ class PackageIntegration(unittest.TestCase):
             destination = output / 'build-wasm'
             destination.mkdir()
             (destination / 'PPSSPPSDL.worker.js').write_text('stale worker')
-            (repo / 'LICENSE').write_text('License')
-            (repo / 'LICENSE.TXT').write_text('Upstream license')
-            (repo / 'LICENSE-ADDITIONAL_TERMS-zh-CN.md').write_text('Additional terms zh')
-            (repo / 'LICENSE-ADDITIONAL_TERMS-en.md').write_text('Additional terms en')
+            for name in LICENSE_FILES:
+                shutil.copyfile(SCRIPT.parents[1] / name, repo / name)
             source = repo / 'compilation-output'
             source.mkdir()
             expected = hashlib.sha256()
@@ -127,10 +153,8 @@ class PackageIntegration(unittest.TestCase):
                                         'diagnostics': DEFAULT_DIAGNOSTICS})
             self.assertEqual(sorted(path.name for path in destination.iterdir()),
                              ['PPSSPPSDL.data', 'PPSSPPSDL.js', 'PPSSPPSDL.wasm'])
-            self.assertEqual((output / 'LICENSE').read_text(), 'License')
-            self.assertEqual((output / 'UPSTREAM-LICENSE.txt').read_text(), 'Upstream license')
-            self.assertEqual((output / 'LICENSE-ADDITIONAL_TERMS-zh-CN.md').read_text(), 'Additional terms zh')
-            self.assertEqual((output / 'LICENSE-ADDITIONAL_TERMS-en.md').read_text(), 'Additional terms en')
+            for name, target in LICENSE_FILES.items():
+                self.assertEqual((output / target).read_bytes(), (repo / name).read_bytes())
 
 
 class DiagnosticPackaging(unittest.TestCase):
@@ -144,10 +168,8 @@ class DiagnosticPackaging(unittest.TestCase):
         self.output = self.repo / 'wasm-page/dist/ppsspp-web'
         self.output.mkdir(parents=True)
         (self.output / 'index.html').write_text('<!doctype html>')
-        (self.repo / 'LICENSE').write_text('License')
-        (self.repo / 'LICENSE.TXT').write_text('Upstream license')
-        (self.repo / 'LICENSE-ADDITIONAL_TERMS-zh-CN.md').write_text('Additional terms zh')
-        (self.repo / 'LICENSE-ADDITIONAL_TERMS-en.md').write_text('Additional terms en')
+        for name in LICENSE_FILES:
+            (self.repo / name).write_text(f'content-{name}')
         self.source = self.repo / 'compilation-output'
         self.source.mkdir()
         for name in ('PPSSPPSDL.js', 'PPSSPPSDL.wasm', 'PPSSPPSDL.data'):
@@ -280,6 +302,33 @@ class DiagnosticPackaging(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('does not match the expected build', result.stderr)
         self.assertEqual(self.output_snapshot(), before)
+
+    def test_missing_or_empty_required_license_refuses_before_modifying_output(self):
+        self.write_cache(DEFAULT_CACHE)
+        for existing_dist in (False, True):
+            if existing_dist:
+                destination = self.output / 'build-wasm'
+                destination.mkdir(exist_ok=True)
+                (destination / 'PPSSPPSDL.js').write_text('previous release')
+                (self.output / 'build-info.json').write_text('{"previous": true}')
+            for missing in LICENSE_FILES:
+                with self.subTest(existing_dist=existing_dist, missing=missing):
+                    (self.repo / missing).unlink()
+                    before = self.output_snapshot()
+                    result = self.package()
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('Missing required license file', result.stderr)
+                    self.assertIn(missing, result.stderr)
+                    self.assertEqual(self.output_snapshot(), before)
+                    (self.repo / missing).write_bytes(b'')
+                    result = self.package()
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('Empty required license file', result.stderr)
+                    self.assertIn(missing, result.stderr)
+                    self.assertEqual(self.output_snapshot(), before)
+                    if not existing_dist:
+                        self.assertFalse((self.output / 'build-wasm').exists())
+                    (self.repo / missing).write_text(f'content-{missing}')
 
 
 if __name__ == '__main__':

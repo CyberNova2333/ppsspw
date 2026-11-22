@@ -1,0 +1,8 @@
+{
+  "name": "player-deploy-tool",
+  "private": true,
+  "packageManager": "pnpm@12.6.0",
+  "dependencies": {
+    "edgeone": "1.7.6"
+  }
+}
