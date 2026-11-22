@@ -8,6 +8,7 @@ export class DownloadError extends Error {
 }
 
 const MAX_SIZE = 8 * 1024 ** 3;
+const MEMORY_CHUNK = 1024 ** 2;
 const MAX_CHUNK = 16 * 1024 ** 2;
 const HEX = /^[a-f0-9]{64}$/i;
 const fail = (code, message) => { throw new DownloadError(code, message); };
@@ -61,21 +62,23 @@ function optionsFor(input = {}) {
     timeoutMs: Math.max(1000, Math.min(120000, Number(input.timeoutMs) || 30000)) };
 }
 
-async function writeJSON(dir, name, value) {
-  const handle = await dir.getFileHandle(name, { create: true });
-  const stream = await handle.createWritable();
-  try { await stream.write(JSON.stringify(value)); await stream.close(); }
-  catch (error) { try { await stream.abort(); } catch {} throw error; }
-}
-
 async function readResume(dir, fingerprint, count) {
+  try {
+    const file = await (await dir.getFileHandle('resume.bin')).getFile();
+    if (file.size === count) {
+      const bits = Array.from(new Uint8Array(await file.arrayBuffer()));
+      if (bits.every(bit => bit === 0 || bit === 1)) return { bits, current: true };
+    }
+    // Interrupted migration can leave an empty new handle. The old journal
+    // remains authoritative until its replacement has closed successfully.
+  } catch (error) { if (error.name !== 'NotFoundError') throw error; }
   try {
     const handle = await dir.getFileHandle('resume.json');
     const file = await handle.getFile();
     if (file.size > count * 2 + 1024) return null;
     const value = JSON.parse(await file.text());
     return value.version === 1 && value.fingerprint === fingerprint && Array.isArray(value.verified)
-      && value.verified.length === count && value.verified.every(v => v === 0 || v === 1) ? value.verified : null;
+      && value.verified.length === count && value.verified.every(v => v === 0 || v === 1) ? { bits: value.verified, current: false } : null;
   } catch (error) {
     if (error.name === 'NotFoundError' || error instanceof SyntaxError) return null;
     throw error;
@@ -112,11 +115,11 @@ export async function downloadGame(input, options = {}) {
     return await globalThis.PpssppGameStorage.withShared(() => locks.request('ppsspp-download-' + fingerprint, { mode: 'exclusive', ifAvailable: true }, async lock => {
       if (!lock) fail('BUSY', '另一个页面正在下载此游戏，请返回该页面或等待下载结束');
       stopped(signal);
-      const root = await storage.getDirectory();
-      const downloads = await root.getDirectoryHandle('game-downloads', { create: true });
+      const downloads = await globalThis.PpssppGameStorage.downloads(storage, true);
       const dir = await downloads.getDirectoryHandle(fingerprint, { create: true });
       const handle = await dir.getFileHandle('game.bin', { create: true });
-      let verified = await readResume(dir, fingerprint, manifest.sha256.length);
+      const resume = await readResume(dir, fingerprint, manifest.sha256.length);
+      let verified = resume?.bits;
       let existingSize = (await handle.getFile()).size;
       if (existingSize !== manifest.size) verified = null;
       stopped(signal);
@@ -146,6 +149,8 @@ export async function downloadGame(input, options = {}) {
       verified ||= Array(manifest.sha256.length).fill(0);
       const blockBytes = i => Math.min(manifest.chunkSize, manifest.size - i * manifest.chunkSize);
       let verifiedBytes = verified.reduce((sum, v, i) => sum + (v ? blockBytes(i) : 0), 0);
+      let completedChunks = verified.reduce((sum, bit) => sum + bit, 0);
+      let journal;
       const initialBytes = verifiedBytes;
       const started = performance.now();
       const inflight = new Map();
@@ -156,7 +161,7 @@ export async function downloadGame(input, options = {}) {
         lastUpdate = now;
         options.onProgress?.({ status, id: manifest.id, name: manifest.name, total: manifest.size,
           verifiedBytes, receivedBytes: verifiedBytes + [...inflight.values()].reduce((a, b) => a + b, 0),
-          completedChunks: verified.reduce((sum, v) => sum + v, 0), totalChunks: verified.length,
+          completedChunks, totalChunks: verified.length,
           speedBytesPerSecond: (verifiedBytes - initialBytes) / Math.max(1, (now - started) / 1000),
           message: status === 'complete' ? '下载完成，校验通过' : '正在下载并校验游戏' });
       };
@@ -172,8 +177,10 @@ export async function downloadGame(input, options = {}) {
           }
           output.flush();
           // Durable payload first, then the journal. A crash can only redownload a block.
+          if (journal.write(Uint8Array.of(1), { at: index }) !== 1) fail('STORAGE', '无法写入下载进度');
+          journal.flush();
           verified[index] = 1;
-          await writeJSON(dir, 'resume.json', { version: 1, fingerprint, verified });
+          completedChunks++;
           verifiedBytes += bytes.byteLength;
           inflight.delete(index);
           progress('downloading');
@@ -190,7 +197,7 @@ export async function downloadGame(input, options = {}) {
         let timer;
         const resetTimeout = () => { clearTimeout(timer); timer = setTimeout(() => request.abort(new DownloadError('TIMEOUT', '下载连接超时')), config.timeoutMs); };
         const tempName = 'block-' + index + '.tmp';
-        let writable, reader, closed = false;
+        let temp, writable, reader, closed = false;
         try {
           resetTimeout();
           const start = index * manifest.chunkSize;
@@ -209,8 +216,12 @@ export async function downloadGame(input, options = {}) {
           if (encoding && encoding !== 'identity') fail('RANGE', '下载来源不能对游戏分块进行传输压缩');
           if (!response.body) fail('NETWORK', '浏览器未提供下载数据流');
           reader = response.body.getReader();
-          const temp = await dir.getFileHandle(tempName, { create: true });
-          writable = await temp.createWritable();
+          let bytes;
+          if (expected <= MEMORY_CHUNK) bytes = new Uint8Array(expected);
+          else {
+            temp = await dir.getFileHandle(tempName, { create: true });
+            writable = await temp.createWritable();
+          }
           let received = 0;
           while (true) {
             stopped(activeSignal);
@@ -220,16 +231,18 @@ export async function downloadGame(input, options = {}) {
             stopped(activeSignal);
             received += value.byteLength;
             if (received > expected) fail('RANGE', '下载分块超出清单规定的大小');
-            await writable.write(value);
+            if (bytes) bytes.set(value, received - value.byteLength);
+            else await writable.write(value);
             inflight.set(index, received);
             progress('downloading');
           }
           clearTimeout(timer);
           if (received !== expected) fail('NETWORK', '下载分块不完整');
-          await writable.close(); closed = true;
+          if (temp) {
+            await writable.close(); closed = true;
+            bytes = new Uint8Array(await (await temp.getFile()).arrayBuffer());
+          }
           stopped(activeSignal);
-          // WebCrypto needs a complete block, bounded by MAX_CHUNK, never the complete ISO.
-          const bytes = new Uint8Array(await (await temp.getFile()).arrayBuffer());
           const digest = hex(await crypto.subtle.digest('SHA-256', bytes));
           stopped(activeSignal);
           if (digest !== manifest.sha256[index]) fail('HASH', '下载分块校验失败，正在尝试重新下载');
@@ -244,22 +257,38 @@ export async function downloadGame(input, options = {}) {
           try { await reader?.cancel(); } catch {}
           if (writable && !closed) { try { await writable.abort(); } catch {} }
           inflight.delete(index);
-          await removeTemp(dir, tempName);
+          if (temp) await removeTemp(dir, tempName);
         }
       };
 
       let firstError;
       try {
         stopped(activeSignal);
-        const remaining = manifest.size - verifiedBytes;
-        if (remaining && storage.estimate) {
+        for await (const name of dir.keys()) {
+          if (/^block-\d+\.tmp$/.test(name)) await removeTemp(dir, name);
+        }
+        // Indices are ascending. All blocks except the final one have equal
+        // length, so the first concurrent jobs give the peak scratch usage.
+        const pending = verified.map((v, i) => v ? -1 : i).filter(i => i >= 0);
+        if (pending.length && storage.estimate) {
           const estimate = await storage.estimate();
-          const needed = Math.max(0, manifest.size - existingSize) + Math.min(config.concurrency, verified.filter(v => !v).length) * Math.min(manifest.chunkSize, manifest.size) + 1024 * 1024;
+          const scratch = pending.slice(0, config.concurrency).reduce((total, index) => {
+            const size = blockBytes(index);
+            return total + (size > MEMORY_CHUNK ? size : 0);
+          }, 0);
+          const needed = Math.max(0, manifest.size - existingSize) + scratch + 1024 * 1024;
           if (Number.isFinite(estimate.quota) && Number.isFinite(estimate.usage) && estimate.quota - estimate.usage < needed) fail('STORAGE', '浏览器可用存储空间不足，请清理缓存后继续下载');
         }
+        const journalFile = await dir.getFileHandle('resume.bin', { create: true });
+        if (!resume?.current || existingSize !== manifest.size) {
+          const writable = await journalFile.createWritable();
+          try { await writable.write(Uint8Array.from(verified)); await writable.close(); }
+          catch (error) { try { await writable.abort(); } catch {} throw error; }
+        }
+        await removeTemp(dir, 'resume.json');
+        journal = await journalFile.createSyncAccessHandle();
         if (existingSize !== manifest.size) output.truncate(manifest.size);
         progress('downloading', true);
-        const pending = verified.map((v, i) => v ? -1 : i).filter(i => i >= 0);
         let next = 0;
         const worker = async () => {
           try {
@@ -291,7 +320,7 @@ export async function downloadGame(input, options = {}) {
       } finally {
         controller.abort();
         signal.removeEventListener('abort', abort);
-        output.close();
+        try { journal?.close(); } finally { output.close(); }
       }
     }), locks);
   } catch (error) { throw normalizedError(error); }

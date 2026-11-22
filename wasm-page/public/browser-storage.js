@@ -3,6 +3,7 @@
 /* Coordinate game File snapshots with cache mutations across pages and workers. */
 (function (root) {
   'use strict';
+  const DOWNLOAD_DIRECTORY = 'game-downloads';
   const NAME = 'ppsspp-game-storage';
   const error = (code, message) => Object.assign(new Error(message), { name: 'GameStorageError', code });
   function request(mode, action, locks = root.navigator?.locks) {
@@ -13,6 +14,25 @@
     });
   }
   root.PpssppGameStorage = {
+    downloads(storage, create = false) {
+      return storage.getDirectory().then(origin => origin.getDirectoryHandle(DOWNLOAD_DIRECTORY, { create }));
+    },
+    async clearDownloads(storage = root.navigator.storage) {
+      try { await (await storage.getDirectory()).removeEntry(DOWNLOAD_DIRECTORY, { recursive: true }); }
+      catch (error) { if (error.name !== 'NotFoundError') throw error; }
+    },
+    async downloadUsage(storage = root.navigator.storage) {
+      const usage = { bytes: 0, files: 0 };
+      async function walk(dir) {
+        for await (const [, handle] of dir.entries()) {
+          if (handle.kind === 'directory') await walk(handle);
+          else { usage.bytes += (await handle.getFile()).size; usage.files++; }
+        }
+      }
+      try { await walk(await this.downloads(storage)); }
+      catch (error) { if (error.name !== 'NotFoundError') throw error; }
+      return usage;
+    },
     withShared(action, locks) { return request('shared', action, locks); },
     withExclusive(action, locks) { return request('exclusive', action, locks); },
     acquireShared(locks) {

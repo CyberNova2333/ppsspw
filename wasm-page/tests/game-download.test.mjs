@@ -9,11 +9,11 @@ const digest = async bytes => Buffer.from(await webcrypto.subtle.digest('SHA-256
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const missing = () => new DOMException('missing', 'NotFoundError');
 const quota = () => new DOMException('full', 'QuotaExceededError');
-async function fixture(size = CHUNK * 2 + 17) {
+async function fixture(size = CHUNK * 2 + 17, chunkSize = CHUNK) {
   const bytes = Uint8Array.from({ length: size }, (_, i) => (i * 17 + 3) & 255);
   const sha256 = [];
-  for (let offset = 0; offset < size; offset += CHUNK) sha256.push(await digest(bytes.subarray(offset, offset + CHUNK)));
-  return { bytes, manifest: { schemaVersion: 1, id: 'test', name: '测试游戏.iso', size, chunkSize: CHUNK,
+  for (let offset = 0; offset < size; offset += chunkSize) sha256.push(await digest(bytes.subarray(offset, offset + chunkSize)));
+  return { bytes, manifest: { schemaVersion: 1, id: 'test', name: '测试游戏.iso', size, chunkSize,
     sha256, sources: ['https://cdn.example/game.iso'] } };
 }
 
@@ -34,11 +34,12 @@ function platform() {
       const chunks = [];
       return {
         write: async value => {
+          if (failures.journalWrite && path.endsWith('/resume.bin')) throw quota();
           if (failures.tempWrite && path.endsWith('.tmp')) throw quota();
           chunks.push(typeof value === 'string' ? new TextEncoder().encode(value) : new Uint8Array(value).slice());
         },
         close: async () => {
-          if (failures.metadata && path.endsWith('/resume.json')) throw quota();
+          if (failures.journalClose && path.endsWith('/resume.bin')) throw quota();
           const result = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
           let offset = 0;
           for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
@@ -54,13 +55,16 @@ function platform() {
       return {
         getSize: () => files.get(path).length,
         truncate: size => { mutations.push('truncate'); const next = new Uint8Array(size); next.set(files.get(path).subarray(0, size)); files.set(path, next); },
-        write: (bytes, { at }) => { if (failures.payload) throw quota(); files.get(path).set(bytes, at); writes.push({ path, at, size: bytes.length }); return bytes.length; },
+        write: (bytes, { at }) => { if (path.endsWith('/resume.bin') ? failures.metadata : failures.payload) throw quota(); files.get(path).set(bytes, at); writes.push({ path, at, size: bytes.length }); return bytes.length; },
         flush: () => { mutations.push('flush'); if (failures.flush) throw quota(); },
         close: () => { assert.equal(handles.delete(path), true); },
       };
     },
   });
   const directory = parent => ({
+    async *keys() {
+      for (const path of files.keys()) if (path.slice(0, path.lastIndexOf('/')) === parent) yield path.split('/').pop();
+    },
     getDirectoryHandle: async (name, { create = false } = {}) => {
       const path = parent + '/' + name;
       if (!dirs.has(path)) { if (!create) throw missing(); dirs.add(path); }
@@ -134,7 +138,7 @@ test('verified cache resumes across source changes without fetching or copying c
   p.mutations.length = 0;
   const second = await downloadGame({ ...manifest, sources: ['https://other.example/game.iso'] }, { ...p, fetch: () => assert.fail('completed blocks must not redownload') });
   assert.equal(first.fingerprint, second.fingerprint);
-  assert.equal(p.reads.length, 0);
+  assert.ok(p.reads.every(entry => entry.path.endsWith("/resume.bin") && entry.size === manifest.sha256.length));
   assert.deepEqual(p.mutations, [], 'reusing a finished file must not invalidate another tab’s File snapshot');
 });
 
@@ -157,7 +161,7 @@ test('a bad block retries a different mirror and never commits corrupt bytes', a
   await downloadGame(manifest, { ...p, fetch, maxRetries: 1 });
   assert.equal(calls.length, 2);
   assert.equal(calls[1].url, manifest.sources[1]);
-  assert.equal(p.writes.length, 1);
+  assert.equal(p.writes.filter(entry => entry.path.endsWith("/game.bin")).length, 1);
 });
 
 test('an interrupted response discards its temporary block and retries from the block boundary', async () => {
@@ -174,7 +178,7 @@ test('an interrupted response discards its temporary block and retries from the 
   });
   await downloadGame(manifest, { ...p, fetch, maxRetries: 1 });
   assert.deepEqual(calls.map(call => call.start), [0, 0]);
-  assert.equal(p.writes.length, 1);
+  assert.equal(p.writes.filter(entry => entry.path.endsWith("/game.bin")).length, 1);
 });
 
 test('a stalled request is aborted after its idle deadline and releases the download lock', async () => {
@@ -214,7 +218,7 @@ test('strict Range validation rejects ignored Range, shifted ranges, compression
   for (const transform of cases) {
     const p = platform();
     await assert.rejects(downloadGame(manifest, { ...p, fetch: fetchFixture(bytes, [], transform), maxRetries: 0 }));
-    assert.equal(p.writes.length, 0);
+    assert.equal(p.writes.filter(entry => entry.path.endsWith("/game.bin")).length, 0);
     assert.equal(p.held.size, 0);
     assert.equal(p.handles.size, 0);
   }
@@ -248,14 +252,15 @@ test('late network reads after pause cannot write and keep the lock until their 
   assert.equal(p.held.size, 2);
   release({ done: false, value: new Uint8Array(CHUNK) });
   await rejected;
-  assert.equal(p.writes.length, 0);
+  assert.equal(p.writes.filter(entry => entry.path.endsWith("/game.bin")).length, 0);
   assert.equal(p.held.size, 0);
   assert.equal(p.handles.size, 0);
 });
 
 test('disk full during payload or journal writes never reports success and remains resumable', async () => {
-  const { manifest, bytes } = await fixture(CHUNK);
   for (const failure of ['tempWrite', 'payload', 'flush', 'metadata']) {
+    const chunk = failure === 'tempWrite' ? 2 * 1024 ** 2 : CHUNK;
+    const { manifest, bytes } = await fixture(chunk, chunk);
     const p = platform();
     p.failures[failure] = true;
     await assert.rejects(downloadGame(manifest, { ...p, fetch: fetchFixture(bytes), maxRetries: 0 }), { code: 'STORAGE' });
@@ -294,7 +299,7 @@ test('concurrent workers stop together after a terminal error and do not commit 
   assert.equal(p.held.size, 2);
   release();
   await rejection;
-  assert.equal(p.writes.length, 0);
+  assert.equal(p.writes.filter(entry => entry.path.endsWith("/game.bin")).length, 0);
   assert.equal(p.handles.size, 0);
 });
 
@@ -353,4 +358,65 @@ test('cache maintenance prevents downloads from creating or truncating game data
     assert.deepEqual(p.mutations, []);
   }, p.locks);
   assert.equal(p.held.size, 0);
+});
+
+test('a legacy download migrates partial progress and commits one journal byte per new chunk', async () => {
+  const { manifest, bytes } = await fixture();
+  const p = platform();
+  await downloadGame(manifest, { ...p, fetch: fetchFixture(bytes) });
+  const dir = '/game-downloads/' + await manifestFingerprint(manifest, webcrypto);
+  p.files.delete(dir + '/resume.bin');
+  p.files.set(dir + '/resume.json', new TextEncoder().encode(JSON.stringify({
+    version: 1, fingerprint: dir.split('/').at(-1), verified: [1, 0, 1],
+  })));
+  const calls = [];
+  p.writes.length = 0;
+  await downloadGame(manifest, { ...p, fetch: fetchFixture(bytes, calls) });
+  assert.deepEqual(calls.map(call => call.start), [CHUNK]);
+  assert.deepEqual(p.writes.filter(w => w.path.endsWith('/resume.bin')).map(w => [w.at, w.size]), [[1, 1]]);
+  assert.deepEqual([...p.files.get(dir + '/resume.bin')], [1, 1, 1]);
+  p.files.set(dir + '/game.bin', new Uint8Array(0));
+  await downloadGame(manifest, { ...p, fetch: fetchFixture(bytes) });
+  assert.deepEqual(p.files.get(dir + '/game.bin'), bytes);
+});
+
+test('interruption while publishing the new journal preserves verified legacy blocks', async () => {
+  const { manifest, bytes } = await fixture();
+  const fingerprint = await manifestFingerprint(manifest, webcrypto);
+  const base = '/game-downloads/' + fingerprint;
+  for (const failure of ['journalWrite', 'journalClose']) {
+    const p = platform();
+    await downloadGame(manifest, { ...p, fetch: fetchFixture(bytes) });
+    p.files.set(base + '/resume.bin', Uint8Array.of(3));
+    p.files.set(base + '/resume.json', new TextEncoder().encode(JSON.stringify({version: 1, fingerprint, verified: [1, 0, 1]})));
+    p.failures[failure] = true;
+    await assert.rejects(downloadGame(manifest, { ...p, fetch: assert.fail }), { code: 'STORAGE' });
+    assert.ok(p.files.has(base + '/resume.json'));
+    delete p.failures[failure];
+    const calls = [];
+    await downloadGame(manifest, { ...p, fetch: fetchFixture(bytes, calls) });
+    assert.deepEqual(calls.map(call => call.start), [CHUNK]);
+    assert.deepEqual(p.files.get(base + '/game.bin'), bytes);
+  }
+});
+
+test('resume removes abandoned blocks before estimating and budgets only missing on-disk blocks', async () => {
+  const block = 2 * 1024 ** 2;
+  for (const tail of [block, CHUNK]) {
+    const { bytes, manifest } = await fixture(block + tail, block);
+    const p = platform();
+    const { fingerprint } = await downloadGame(manifest, { ...p, fetch: fetchFixture(bytes) });
+    const dir = '/game-downloads/' + fingerprint;
+    p.files.set(dir + '/resume.bin', Uint8Array.of(1, 0));
+    const temporary = dir + '/block-1.tmp';
+    if (tail === block) p.files.set(temporary, new Uint8Array(block));
+    p.storage.estimate = async () => ({
+      quota: 10 * 1024 ** 2, usage: (tail === CHUNK ? 8.5 : (p.files.has(temporary) ? 8 : 6)) * 1024 ** 2,
+    });
+    const requests = [];
+    await downloadGame(manifest, { ...p, fetch: fetchFixture(bytes, requests) });
+    assert.deepEqual(requests.map(({ start, end }) => [start, end]), [[block, block + tail - 1]]);
+    assert.equal(p.files.has(temporary), false);
+    assert.deepEqual(p.files.get(dir + '/game.bin'), bytes);
+  }
 });

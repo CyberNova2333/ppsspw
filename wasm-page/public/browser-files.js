@@ -33,7 +33,7 @@
     };
 
     function validatePath(path) {
-      if (typeof path !== "string" || !/^\/browser-games\/[a-zA-Z0-9._-]+$/.test(path)
+      if (typeof path !== "string" || !/^\/browser-games\/[^/\\\x00-\x1f\x7f]+$/.test(path)
           || path.endsWith("/.") || path.endsWith("/..")) {
         throw new Error("无效的游戏挂载路径");
       }
