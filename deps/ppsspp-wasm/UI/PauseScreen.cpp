@@ -168,7 +168,10 @@ void ScreenshotViewScreen::OnLoadState(UI::EventParams &e) {
 
 void ScreenshotViewScreen::OnUndoState(UI::EventParams &e) {
 	if (!NetworkWarnUserIfOnlineAndCantSavestate()) {
-		SaveState::UndoSaveSlot(saveStatePrefix_, slot_);
+		if (!SaveState::UndoSaveSlot(saveStatePrefix_, slot_)) {
+			AfterSaveStateAction(SaveState::Status::FAILURE, GetI18NCategory(I18NCat::SYSTEM)->T("Failed to save state. Error in the file system."));
+			return;
+		}
 		TriggerFinish(DR_YES);  // DR_YES signals that we need a refresh, but not to close the pause menu.
 	}
 }
@@ -419,7 +422,10 @@ void GamePauseScreen::CreateSavestateControls(UI::LinearLayout *leftColumnItems,
 		UI::Choice *saveUndoButton = buttonRow->Add(new Choice(pa->T("Undo last save"), ImageID("I_NAVIGATE_BACK"), new LinearLayoutParams(WRAP_CONTENT, WRAP_CONTENT)));
 		saveUndoButton->SetEnabled(SaveState::HasUndoLastSave(saveStatePrefix_));
 		saveUndoButton->OnClick.Add([this](UI::EventParams &e) {
-			SaveState::UndoLastSave(saveStatePrefix_);
+			if (!SaveState::UndoLastSave(saveStatePrefix_)) {
+				AfterSaveStateAction(SaveState::Status::FAILURE, GetI18NCategory(I18NCat::SYSTEM)->T("Failed to save state. Error in the file system."));
+				return;
+			}
 			RecreateViews();
 		});
 

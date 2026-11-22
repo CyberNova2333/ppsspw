@@ -327,6 +327,10 @@ static GPUDebugBuffer ApplyRotation(const GPUDebugBuffer &buf, DisplayRotation r
 static void SaveScreenshotAsync(GPUDebugBuffer &&buf, int w, int h, int maxRes);
 
 void ScheduleScreenshot(const Path &filename, ScreenshotFormat fmt, ScreenshotType type, int maxRes, std::function<void(ScreenshotResult)> &&callback) {
+	auto displaced = std::move(g_pendingScreenshot.callback);
+	if (displaced) System_RunOnMainThread([callback = std::move(displaced)]() {
+		callback(ScreenshotResult::Superseded);
+	});
 	g_pendingScreenshot = {};
 	g_pendingScreenshot.path = filename;
 	g_pendingScreenshot.format = fmt;

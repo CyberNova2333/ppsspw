@@ -1612,6 +1612,7 @@ void Config::PostLoadCleanup() {
 
 	// Clamp save state slot count to somewhat sane limits.
 	g_Config.iSaveStateSlotCount = std::clamp(g_Config.iSaveStateSlotCount, 1, 100);
+	g_Config.iCurrentStateSlot = std::clamp(g_Config.iCurrentStateSlot, 0, g_Config.iSaveStateSlotCount - 1);
 }
 
 void Config::PreSaveCleanup() {

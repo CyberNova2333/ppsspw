@@ -16,6 +16,8 @@
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
 #include <algorithm>
+#include <atomic>
+#include <memory>
 #include <vector>
 #include <thread>
 #include <mutex>
@@ -116,7 +118,123 @@ struct Operation {
 
 static std::vector<Operation> g_pendingOperations;
 
-int g_screenshotFailures;
+// The encoder and slot writer can finish in either order. Only a committed
+// slot may publish its thumbnail, and a later save/undo invalidates older work.
+static std::mutex slotSaveMutex;
+static std::atomic<uint64_t> slotSaveSerial{0};
+static std::map<std::string, uint64_t> pendingSlotSaves;
+// Each destination is empty before a rename. Until Commit(), all completed
+// moves can therefore be reversed without overwriting either generation.
+class SlotFileTransaction {
+public:
+	explicit SlotFileTransaction(uint64_t serial) : serial_(serial) {}
+	Path Backup(const Path &path) const {
+		return path.WithExtraExtension(StringFromFormat(".%llu.previous.tmp", (unsigned long long)serial_));
+	}
+	bool Move(const Path &from, const Path &to) {
+		if (!File::Rename(from, to)) return false;
+		moves_.emplace_back(from, to);
+		return true;
+	}
+	bool Stash(const Path &path) {
+		if (!File::Exists(path)) return true;
+		const Path backup = Backup(path);
+		if (File::Exists(backup) || !Move(path, backup)) return false;
+		backups_.push_back(backup);
+		return true;
+	}
+	bool FinishExchange(const Path &undo, const Path &current, bool hadUndo) {
+		return (!File::Exists(current) || Move(current, undo)) &&
+			(!hadUndo || Move(Backup(undo), current));
+	}
+	void Commit() {
+		moves_.clear();
+		for (const auto &path : backups_) File::Delete(path, true);
+	}
+	~SlotFileTransaction() {
+		// Retry a transient rename once. A persistent error must leave the
+		// preceding moves and their .previous.tmp files intact for recovery.
+		if (!Rollback() && !Rollback())
+			ERROR_LOG(Log::SaveState, "Slot rollback incomplete at %s", moves_.back().first.c_str());
+	}
+private:
+	bool Rollback() {
+		while (!moves_.empty()) {
+			const auto &move = moves_.back();
+			if (File::Exists(move.first) || !File::Rename(move.second, move.first))
+				return false;
+			moves_.pop_back();
+		}
+		return true;
+	}
+	uint64_t serial_;
+	std::vector<std::pair<Path, Path>> moves_;
+	std::vector<Path> backups_;
+};
+
+struct PendingSlotSave {
+	PendingSlotSave(std::string_view prefix, int slot, Callback callback)
+		: prefix(prefix), slot(slot), callback(std::move(callback)), serial(++slotSaveSerial),
+		  body(GenerateSaveSlotPath(prefix, slot, STATE_EXTENSION)),
+		  shot(GenerateSaveSlotPath(prefix, slot, SCREENSHOT_EXTENSION)),
+		  stagedBody(body.WithExtraExtension(StringFromFormat(".%llu.tmp", (unsigned long long)serial))),
+		  stagedShot(shot.WithExtraExtension(StringFromFormat(".%llu.tmp", (unsigned long long)serial))) {}
+	~PendingSlotSave() {
+		File::Delete(stagedBody, true);
+		File::Delete(stagedShot, true);
+	}
+
+	// Every occupied destination is moved aside first. Reverse the completed
+	// renames on error, including any current files already moved into undo.
+	bool Publish() {
+		const Path undoBody = GenerateSaveSlotPath(prefix, slot, UNDO_STATE_EXTENSION);
+		const Path undoShot = GenerateSaveSlotPath(prefix, slot, UNDO_SCREENSHOT_EXTENSION);
+		SlotFileTransaction txn(serial);
+		const bool undo = g_Config.bEnableStateUndo;
+		const bool hasBody = File::Exists(body);
+		const bool hasShot = File::Exists(shot);
+		if (!txn.Stash(body) || !txn.Stash(shot) ||
+			(undo && (!txn.Stash(undoBody) || !txn.Stash(undoShot))) ||
+			(undo && hasBody && (!txn.Move(txn.Backup(body), undoBody) || (hasShot && !txn.Move(txn.Backup(shot), undoShot)))) ||
+			!txn.Move(stagedBody, body) || (captured && !txn.Move(stagedShot, shot))) return false;
+		txn.Commit();
+		if (undo) {
+			g_Config.sStateUndoLastSaveGame = prefix;
+			g_Config.iStateUndoLastSaveSlot = slot;
+			g_Config.Save("Saving config for savestate last save undo");
+		}
+		return true;
+	}
+
+	void Finish(std::unique_lock<std::mutex> &lock) {
+		if (!bodyReady || (!shotReady && status != Status::FAILURE) || finished) return;
+		finished = true;
+		auto it = pendingSlotSaves.find(shot.ToString());
+		bool current = it != pendingSlotSaves.end() && it->second == serial;
+		if (current) pendingSlotSaves.erase(it);
+		if (status != Status::FAILURE) {
+			if (!current || !Publish()) {
+				status = Status::FAILURE;
+				message = GetI18NCategory(I18NCat::SYSTEM)->T("Failed to save state. Error in the file system.");
+			} else if (!captured) {
+				status = Status::WARNING;
+				message += " ";
+				message += GetI18NCategory(I18NCat::SYSTEM)->T("Save state thumbnail unavailable");
+			}
+		}
+		lock.unlock();
+		if (callback) callback(status, message);
+	}
+
+	std::string prefix;
+	int slot;
+	Callback callback;
+	uint64_t serial;
+	Path body, shot, stagedBody, stagedShot;
+	bool bodyReady = false, shotReady = false, captured = false, finished = false;
+	Status status = Status::FAILURE;
+	std::string message;
+};
 
 	CChunkFileReader::Error SaveToRam(std::vector<u8> &data) {
 		SaveStart state;
@@ -363,42 +481,25 @@ int g_screenshotFailures;
 		File::Delete(fn, true);
 	}
 
-	static void RenameIfExists(const Path &from, const Path &to) {
-		if (File::Exists(from)) {
-			File::Rename(from, to);
-		}
-	}
-
-	static void SwapIfExists(const Path &from, const Path &to) {
-		Path temp = from.WithExtraExtension(".tmp");
-		if (File::Exists(from)) {
-			File::Rename(from, temp);
-			File::Rename(to, from);
-			File::Rename(temp, to);
-		}
-	}
-
-	static void ScheduleSaveScreenshot(const Path &path) {
-		std::lock_guard<std::mutex> guard(mutex);
-		g_screenshotFailures = 0;
-
-		// Savestate thumbnails don't need to be bigger.
-		constexpr int maxResMultiplier = 2;
-		ScheduleScreenshot(path, ScreenshotFormat::JPG, ScreenshotType::Display, maxResMultiplier, [path](ScreenshotResult result) {
-			switch (result) {
-			case ScreenshotResult::ScreenshotNotPossible:
-				// Try again soon, for a short while.
-				WARN_LOG(Log::SaveState, "Failed to take a screenshot for the savestate! (%s) The savestate will lack an icon.", path.c_str());
-				if (coreState != CORE_STEPPING_CPU && g_screenshotFailures++ < SCREENSHOT_FAILURE_RETRIES) {
-					// Requeue for next frame (if we were stepping, no point, will just spam errors quickly).
-					ScheduleSaveScreenshot(path);
-				}
-				break;
-			case ScreenshotResult::FailedToWriteFile:
-			case ScreenshotResult::Success:
-				g_screenshotFailures = 0;
-				break;
+	static void ScheduleSaveScreenshot(const std::shared_ptr<PendingSlotSave> &thumbnail, int attempt = 0) {
+		{
+			std::unique_lock<std::mutex> guard(slotSaveMutex);
+			auto it = pendingSlotSaves.find(thumbnail->shot.ToString());
+			if (it == pendingSlotSaves.end() || it->second != thumbnail->serial) {
+				thumbnail->shotReady = true;
+				thumbnail->Finish(guard);
+				return;
 			}
+		}
+		ScheduleScreenshot(thumbnail->stagedShot, ScreenshotFormat::JPG, ScreenshotType::Display, 2, [thumbnail, attempt](ScreenshotResult result) {
+			if (result == ScreenshotResult::ScreenshotNotPossible && coreState != CORE_STEPPING_CPU && attempt < SCREENSHOT_FAILURE_RETRIES) {
+				System_RunOnMainThread([thumbnail, attempt]() { ScheduleSaveScreenshot(thumbnail, attempt + 1); });
+				return;
+			}
+			std::unique_lock<std::mutex> guard(slotSaveMutex);
+			thumbnail->shotReady = true;
+			thumbnail->captured = result == ScreenshotResult::Success;
+			thumbnail->Finish(guard);
 		});
 	}
 
@@ -413,25 +514,33 @@ int g_screenshotFailures;
 			if (g_Config.bEnableStateUndo) {
 				Path backup = GetSysDirectory(DIRECTORY_SAVESTATE) / LOAD_UNDO_NAME;
 				
-				std::string prefix(gamePrefix);
-				auto saveCallback = [prefix, fn, backup, slot, callback](Status status, std::string_view message) {
-					if (status != Status::FAILURE) {
-						DeleteIfExists(backup);
-						File::Rename(backup.WithExtraExtension(".tmp"), backup);
-						g_Config.sStateLoadUndoGame = prefix;
-						g_Config.Save("Saving config for savestate last load undo");
-					} else {
-						ERROR_LOG(Log::SaveState, "Saving load undo state failed: %.*s", (int)message.size(), message.data());
-					}
-					Load(fn, slot, callback);
+				const uint64_t serial = ++slotSaveSerial;
+				const Path staged = backup.WithExtraExtension(StringFromFormat(".%llu.tmp", (unsigned long long)serial));
+				auto saveCallback = [prefix = std::string(gamePrefix), fn, backup, staged, serial, slot, callback](Status saved, std::string_view) {
+					Load(fn, slot, [prefix, backup, staged, serial, saved, callback](Status result, std::string_view message) {
+						bool published = false;
+						if (result != Status::FAILURE && saved != Status::FAILURE) {
+							SlotFileTransaction txn(serial);
+							published = txn.Stash(backup) && txn.Move(staged, backup);
+							if (published) {
+								txn.Commit();
+								g_Config.sStateLoadUndoGame = prefix;
+								g_Config.Save("Saving config for savestate last load undo");
+							}
+						}
+						File::Delete(staged, true);
+						if (!callback) return;
+						if (result == Status::FAILURE || published) {
+							callback(result, message);
+						} else {
+							std::string warning(message);
+							warning += " ";
+							warning += GetI18NCategory(I18NCat::SYSTEM)->T("Could not create an undo point for this load.");
+							callback(Status::WARNING, warning);
+						}
+					});
 				};
-
-				if (!backup.empty()) {
-					Save(backup.WithExtraExtension(".tmp"), LOAD_UNDO_SLOT, saveCallback);
-				} else {
-					ERROR_LOG(Log::SaveState, "Saving load undo state failed. Error in the file system.");
-					Load(fn, slot, callback);
-				}
+				Save(staged, LOAD_UNDO_SLOT, saveCallback);
 			} else {
 				Load(fn, slot, callback);
 			}
@@ -474,43 +583,23 @@ int g_screenshotFailures;
 			return;
 		}
 
-		Path fn = GenerateSaveSlotPath(gamePrefix, slot, STATE_EXTENSION);
-		Path fnUndo = GenerateSaveSlotPath(gamePrefix, slot, UNDO_STATE_EXTENSION);
-		if (!fn.empty()) {
-			Path shot = GenerateSaveSlotPath(gamePrefix, slot, SCREENSHOT_EXTENSION);
-
-			std::string prefix(gamePrefix);
-			auto renameCallback = [fn, fnUndo, prefix, slot, callback](Status status, std::string_view message) {
-				if (status != Status::FAILURE) {
-					if (g_Config.bEnableStateUndo) {
-						DeleteIfExists(fnUndo);
-						RenameIfExists(fn, fnUndo);
-						g_Config.sStateUndoLastSaveGame = prefix;
-						g_Config.iStateUndoLastSaveSlot = slot;
-						g_Config.Save("Saving config for savestate last save undo");
-					} else {
-						DeleteIfExists(fn);
-					}
-					File::Rename(fn.WithExtraExtension(".tmp"), fn);
-				}
-				if (callback) {
-					callback(status, message);
-				}
-			};
-			// Let's also create a screenshot.
-			if (g_Config.bEnableStateUndo) {
-				Path shotUndo = GenerateSaveSlotPath(gamePrefix, slot, UNDO_SCREENSHOT_EXTENSION);
-				DeleteIfExists(shotUndo);
-				RenameIfExists(shot, shotUndo);
-			}
-			ScheduleSaveScreenshot(shot);
-			Save(fn.WithExtraExtension(".tmp"), slot, renameCallback);
-		} else {
-			if (callback) {
-				auto sy = GetI18NCategory(I18NCat::SYSTEM);
-				callback(Status::FAILURE, sy->T("Failed to save state. Error in the file system."));
-			}
+		auto pending = std::make_shared<PendingSlotSave>(gamePrefix, slot, callback);
+		if (pending->body.empty()) {
+			if (callback) callback(Status::FAILURE, GetI18NCategory(I18NCat::SYSTEM)->T("Failed to save state. Error in the file system."));
+			return;
 		}
+		{
+			std::lock_guard<std::mutex> guard(slotSaveMutex);
+			pendingSlotSaves[pending->shot.ToString()] = pending->serial;
+		}
+		ScheduleSaveScreenshot(pending);
+		Save(pending->stagedBody, slot, [pending](Status status, std::string_view message) {
+			std::unique_lock<std::mutex> guard(slotSaveMutex);
+			pending->bodyReady = true;
+			pending->status = status;
+			pending->message = message;
+			pending->Finish(guard);
+		});
 		Rescan(gamePrefix);
 	}
 
@@ -521,14 +610,21 @@ int g_screenshotFailures;
 
 		Path fnUndo = GenerateSaveSlotPath(gamePrefix, slot, UNDO_STATE_EXTENSION);
 
-		// Do nothing if there's no undo.
+		std::lock_guard<std::mutex> guard(slotSaveMutex);
 		if (File::Exists(fnUndo)) {
-			Path fn = GenerateSaveSlotPath(gamePrefix, slot, STATE_EXTENSION);
-			Path shot = GenerateSaveSlotPath(gamePrefix, slot, SCREENSHOT_EXTENSION);
-			Path shotUndo = GenerateSaveSlotPath(gamePrefix, slot, UNDO_SCREENSHOT_EXTENSION);
-			// Swap them so they can undo again to redo.  Mistakes happen.
-			SwapIfExists(shotUndo, shot);
-			SwapIfExists(fnUndo, fn);
+			const Path fn = GenerateSaveSlotPath(gamePrefix, slot, STATE_EXTENSION);
+			const Path shot = GenerateSaveSlotPath(gamePrefix, slot, SCREENSHOT_EXTENSION);
+			const Path shotUndo = GenerateSaveSlotPath(gamePrefix, slot, UNDO_SCREENSHOT_EXTENSION);
+			pendingSlotSaves.erase(shot.ToString());
+			SlotFileTransaction txn(++slotSaveSerial);
+			// Keep the staged undo body visible to the browser's save scanner
+			// across both exchanges, including the interval between thumbnail
+			// and body publication and the entire rollback on a failed rename.
+			const bool hadUndoShot = File::Exists(shotUndo);
+			if (!txn.Stash(fnUndo) || !txn.Stash(shotUndo) ||
+				!txn.FinishExchange(shotUndo, shot, hadUndoShot) || !txn.FinishExchange(fnUndo, fn, true)) return false;
+			txn.Commit();
+			Rescan(gamePrefix);
 			return true;
 		}
 
@@ -540,6 +636,8 @@ int g_screenshotFailures;
 		Path fn = GenerateSaveSlotPath(gamePrefix, slot, STATE_EXTENSION);
 		Path shot = GenerateSaveSlotPath(gamePrefix, slot, SCREENSHOT_EXTENSION);
 
+		std::lock_guard<std::mutex> guard(slotSaveMutex);
+		pendingSlotSaves.erase(shot.ToString());
 		if (File::Exists(fn)) {
 			DeleteIfExists(fn);
 			DeleteIfExists(shot);
@@ -979,6 +1077,10 @@ int g_screenshotFailures;
 	}
 
 	void Shutdown() {
+		{
+			std::lock_guard<std::mutex> guard(slotSaveMutex);
+			pendingSlotSaves.clear();
+		}
 		std::lock_guard<std::mutex> guard(mutex);
 		rewindStates.Clear();
 	}

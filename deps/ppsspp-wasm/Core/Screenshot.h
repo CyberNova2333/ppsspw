@@ -43,6 +43,7 @@ enum class ScreenshotType {
 };
 
 enum class ScreenshotResult {
+	Superseded,
 	ScreenshotNotPossible,
 	FailedToWriteFile,
 	Success,

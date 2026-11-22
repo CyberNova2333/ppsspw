@@ -3232,6 +3232,7 @@ if(TargetBin)
 	endif()
 	target_link_libraries(${TargetBin} ${LinkCommon} Common)
 	if(EMSCRIPTEN)
+		target_sources(${TargetBin} PRIVATE SDL/WasmStateSlots.cpp)
 		set_property(TARGET ${TargetBin} APPEND PROPERTY LINK_DEPENDS "${CMAKE_SOURCE_DIR}/SDL/BrowserFileLibrary.js")
 		if(WASM_PRELOAD_ASSETS)
 			set_property(TARGET ${TargetBin} APPEND PROPERTY LINK_DEPENDS
