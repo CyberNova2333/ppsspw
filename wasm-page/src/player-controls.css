@@ -269,6 +269,21 @@ body.touch-gamepad-visible #fpsBadge { display: none !important; }
   }
 }
 
+@media (orientation: landscape) and (max-width: 450px) and (max-height: 360px) {
+  body.touch-gamepad-visible .touch-pad-left,
+  body.touch-gamepad-visible .touch-pad-right { display: contents; }
+  body.touch-gamepad-visible .touch-pad-shoulder { width: 74px; height: 46px; top: max(4px, env(safe-area-inset-top)); transform: none; }
+  body.touch-gamepad-visible .touch-pad-left .touch-pad-shoulder { left: max(4px, env(safe-area-inset-left)); }
+  body.touch-gamepad-visible .touch-pad-right .touch-pad-shoulder { left: auto; right: max(4px, env(safe-area-inset-right)); }
+  body.touch-gamepad-visible .touch-pad-system {
+    top: max(4px, env(safe-area-inset-top)); bottom: auto;
+    left: calc(max(4px, env(safe-area-inset-left)) + 78px); right: calc(max(4px, env(safe-area-inset-right)) + 78px);
+    justify-content: space-between; transform: none;
+  }
+  body.touch-gamepad-visible .touch-pad-system button { width: 62px; height: 44px; }
+  body.touch-gamepad-visible .touch-pad-dpad, body.touch-gamepad-visible .touch-pad-actions { bottom: max(6px, env(safe-area-inset-bottom)); }
+  body.touch-gamepad-visible .touch-pad-stick { left: 50%; bottom: max(4px, env(safe-area-inset-bottom)); }
+}
 @media (prefers-reduced-motion: reduce) {
   #sidePanel .tab,
   #sidePanel .tab span,
@@ -324,12 +339,7 @@ body.touch-gamepad-visible #fpsBadge { display: none !important; }
   .touch-pad-dpad { left: max(10px, env(safe-area-inset-left)); bottom: max(96px, calc(env(safe-area-inset-bottom) + 88px)); }
   .touch-pad-actions { right: max(10px, env(safe-area-inset-right)); bottom: max(96px, calc(env(safe-area-inset-bottom) + 88px)); }
   .touch-pad-stick { left: max(76px, calc(env(safe-area-inset-left) + 66px)); bottom: max(8px, env(safe-area-inset-bottom)); }
-  body.touch-gamepad-visible .touch-pad-left .touch-pad-shoulder { left: calc(50% - 48px); top: max(8px, env(safe-area-inset-top)); }
-  body.touch-gamepad-visible .touch-pad-right .touch-pad-shoulder { left: calc(50% + 48px); top: max(8px, env(safe-area-inset-top)); }
-  .body-main:fullscreen .touch-pad-left .touch-pad-shoulder,
-  .body-main:-webkit-full-screen .touch-pad-left .touch-pad-shoulder { left: calc(50% - 80px); }
-  .body-main:fullscreen .touch-pad-right .touch-pad-shoulder,
-  .body-main:-webkit-full-screen .touch-pad-right .touch-pad-shoulder { left: calc(50% + 80px); }
+
 }
 @media (orientation: landscape) and (max-height: 290px) {
   /* An extra-short window cannot fit a stick below the d-pad: put it beside it. */
@@ -337,6 +347,36 @@ body.touch-gamepad-visible #fpsBadge { display: none !important; }
   .touch-pad-stick { left: max(184px, calc(env(safe-area-inset-left) + 174px)); }
   .touch-pad-system { top: max(58px, calc(env(safe-area-inset-top) + 50px)); bottom: auto; }
   .touch-gamepad .touch-pad-system button { width: 52px; }
+}
+/* Keep the middle of the landscape view clear for the game and fullscreen menu. */
+@media (orientation: landscape) {
+  .touch-gamepad { opacity: var(--pad-opacity, .7); }
+}
+@media (orientation: landscape) and (min-width: 451px) {
+  body.touch-gamepad-visible .touch-pad-left,
+  body.touch-gamepad-visible .touch-pad-right { display: contents; }
+  .touch-gamepad {
+    --pad-left: max(10px, env(safe-area-inset-left));
+    --pad-right: max(10px, env(safe-area-inset-right));
+    --pad-top: max(6px, env(safe-area-inset-top));
+  }
+  body.touch-gamepad-visible .touch-pad-shoulder {
+    top: var(--pad-top); width: 88px; height: 48px; transform: none;
+  }
+  body.touch-gamepad-visible .touch-pad-left .touch-pad-shoulder { left: var(--pad-left); }
+  body.touch-gamepad-visible .touch-pad-right .touch-pad-shoulder { left: auto; right: var(--pad-right); }
+  body.touch-gamepad-visible .touch-pad-system {
+    top: var(--pad-top); bottom: auto; left: calc(var(--pad-left) + 92px); right: calc(var(--pad-right) + 92px);
+    justify-content: space-between; transform: none;
+  }
+  body.touch-gamepad-visible .touch-pad-system button { width: 72px; height: 44px; }
+  .touch-pad-dpad { left: var(--pad-left); }
+  .touch-pad-actions { right: var(--pad-right); }
+  .touch-pad-stick { left: calc(var(--pad-left) + var(--pad-cluster-size) / 2); }
+}
+@media (orientation: landscape) and (min-width: 451px) and (max-height: 360px) {
+  .touch-pad-dpad, .touch-pad-actions { bottom: max(6px, env(safe-area-inset-bottom)); }
+  .touch-pad-stick { left: calc(var(--pad-left) + var(--pad-cluster-size) + var(--pad-stick-size) / 2 + 4px); }
 }
 @media (max-width: 319px) {
   body { min-width: 0; }
@@ -402,3 +442,119 @@ body.touch-gamepad-visible #fpsBadge { display: none !important; }
 @media (prefers-reduced-motion: reduce) {
   .touch-gamepad button::before { transition: none; }
 }
+
+#compactThemeSetting[hidden], #stateSlotPreview[hidden], #stateSlotPreview img[hidden] { display: none; }
+#compactThemeSetting, #stateSlotPreview { display: flex; align-items: center; gap: 12px; }
+#stateSlotPreview { margin-block: 8px; color: var(--muted); }
+#stateSlotPreview img { object-fit: contain; border-radius: 4px; }
+.state-slots select { margin-inline-start: 8px; }
+.state-slots .player-actions { margin-top: 8px; }
+#stateSlotStatus { margin: 8px 0 0; }
+.fullscreen-actions { max-height: calc(var(--app-h, 100dvh) - 56px); overflow-y: auto; }
+
+.idle-actions #idleStartBtn { min-height: 44px; }
+.idle-actions #idleStartBtn > span:not([hidden]) { display: inline-flex; align-items: center; }
+.idle-subtitle { overflow-wrap: anywhere; }
+#libraryPanel #startBtn { width: auto; max-width: none; padding-inline: 10px; }
+.pad-opacity-field { display: flex; align-items: center; gap: 8px; }
+.pad-opacity-field input { width: clamp(72px, 18vw, 128px); accent-color: var(--accent); }
+.pad-opacity-field output { min-width: 4ch; text-align: end; font-variant-numeric: tabular-nums; }
+
+#sidePanel .library-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 168px), 1fr)); }
+.game-card-body { container-type: inline-size; }
+.game-card-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.game-card-actions [data-action="play"] { grid-column: 1 / -1; }
+#sidePanel .game-card-actions button { min-height: 44px; }
+#sidePanel .game-card-actions button.icon-only { width: 100%; min-width: 0; }
+@container (min-width: 235px) {
+  .game-card-actions { grid-template-columns: minmax(0, 1fr) repeat(3, 44px); }
+  .game-card-actions [data-action="play"] { grid-column: auto; }
+}
+
+/* The custom deck uses the same physical key sizes as the editor's scaled preview. */
+.touch-gamepad > .pad-placement {
+  position: absolute; bottom: auto; right: auto; margin: 0; min-width: 0; min-height: 0;
+}
+.touch-gamepad > button.pad-placement {
+  display: grid; place-items: center; border-radius: 14px; font: 650 14px/1 system-ui, sans-serif;
+}
+.touch-gamepad > .pad-placement.touch-pad-dpad {
+  display: grid; grid-template: repeat(3,1fr) / repeat(3,1fr);
+}
+.touch-gamepad > .pad-placement.touch-pad-dpad button {
+  width: 100%; height: 100%; min-width: 0; min-height: 0;
+}
+.pad-preset-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+#padPreset, .pad-inspector input, .pad-inspector select { min-width: 0; max-width: 100%; }
+#padPreset { max-width: 62%; }
+#padPresetStatus:empty { display: none; }
+#padEditor {
+  color-scheme: inherit; color: var(--text); background: var(--surface);
+  padding: 0; margin: auto; border: 1px solid var(--border2); border-radius: 14px;
+  width: min(940px, calc(100vw - 24px)); height: min(600px, calc(100dvh - 24px));
+  max-width: 100vw; max-height: 100dvh; box-sizing: border-box;
+}
+#padEditor[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+#padEditor::backdrop { background: rgba(8,14,24,.72); }
+.pad-editor-head, .pad-editor-foot {
+  display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border);
+}
+.pad-editor-head h2 { margin: 0 auto 0 0; font-size: 18px; }
+.pad-editor-foot { justify-content: flex-end; border: 0; border-top: 1px solid var(--border); }
+#padEditorStatus { margin-right: auto; font-size: 12px; }
+.pad-editor-body { display: grid; grid-template-columns: minmax(0,1fr) minmax(185px,29%); min-height: 0; }
+.pad-editor-workspace {
+  display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 16px;
+  background: var(--surface2);
+}
+.pad-editor-workspace p { margin: 9px 0 0; font-size: 12px; color: var(--muted); }
+.pad-board-frame { position: relative; flex: 1; min-height: 0; }
+.pad-preview {
+  position: absolute; left: 50%; top: 50%; overflow: hidden; transform-origin: center;
+  border-radius: 9px; outline: 1px solid #52657a; background-color: #182433;
+  background-image: radial-gradient(#475566 1px, transparent 1px); background-size: 16px 16px;
+}
+.pad-edit-key {
+  position: absolute; box-sizing: border-box; touch-action: none; user-select: none; cursor: grab;
+  color: #f0f6fc; background: #29394b; border: 1px solid #8494a7; border-radius: 14px;
+  font: 650 16px/1 system-ui,sans-serif; padding: 0; overflow: hidden;
+}
+.pad-edit-key[data-kind="stick"], .pad-edit-key[data-kind="dpad"] { border-radius: 50%; }
+.pad-edit-key[aria-pressed="true"] { background: #195ba2; box-shadow: inset 0 0 0 2px #9ad1ff; }
+.pad-edit-key:active { cursor: grabbing; }
+.pad-inspector { padding: 14px; overflow: auto; overscroll-behavior: contain; }
+.pad-inspector label { display: block; color: var(--muted); font-size: 12px; }
+.pad-inspector input:not([type="range"]), .pad-inspector select {
+  display: block; margin-top: 4px; box-sizing: border-box; width: 100%; padding: 6px 8px;
+  border: 1px solid var(--border2); border-radius: 6px; background: var(--surface2); color: var(--text);
+  font: inherit; font-size: 14px;
+}
+.pad-inspector input[type="range"] { display: block; width: 100%; margin: 8px 0; accent-color: var(--accent); }
+.pad-inspector fieldset { display: grid; gap: 12px; min-width: 0; margin: 12px 0 0; padding: 12px 0 0; border: 0; border-top: 1px solid var(--border); }
+.pad-tools { display: grid; gap: 8px; margin-top: 10px; }
+.pad-coordinates { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+#padSizeValue { float: right; font-variant-numeric: tabular-nums; }
+#padEditor [hidden] { display: none; }
+@media (max-width: 540px) and (orientation: portrait) {
+  #padEditor { height: calc(100dvh - 12px); width: calc(100vw - 12px); }
+  .pad-editor-body { display: block; overflow: auto; overscroll-behavior: contain; }
+  .pad-editor-workspace { box-sizing: border-box; height: clamp(200px, 41dvh, 340px); padding: 10px; }
+  .pad-inspector { overflow: visible; }
+}
+@media (max-height: 420px) {
+  #padEditor { width: 100vw; height: 100dvh; border-radius: 0; }
+  .pad-editor-head, .pad-editor-foot { padding: 4px 10px; }
+  .pad-editor-workspace { padding: 8px; }
+}
+.pad-edit-key[data-kind="stick"]::after {
+  content: ''; display: block; margin: auto; width: 50%; height: 50%; border-radius: 50%;
+  background: repeating-radial-gradient(circle,#41536a 0 2px,#344356 3px 4px); border: 1px solid #8a9aaf;
+}
+.pad-edit-key[data-kind="dpad"] { display: grid; grid-template: repeat(3,1fr) / repeat(3,1fr); }
+.pad-edit-key[data-kind="dpad"] span {
+  display: grid; place-items: center; margin: 1px; border-radius: 22%; background: #384a60; pointer-events: none;
+}
+.pad-arrow-up { grid-area: 1 / 2; }
+.pad-arrow-left { grid-area: 2 / 1; }
+.pad-arrow-right { grid-area: 2 / 3; }
+.pad-arrow-down { grid-area: 3 / 2; }

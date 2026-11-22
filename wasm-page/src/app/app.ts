@@ -19,7 +19,19 @@ export class AppComponent {
       this.destroyRef.onDestroy(mountInterfaceMotion());
 
       const container = document.getElementById('ppsspw-theme-switch');
-      if (container) {
+      const compactSetting = document.getElementById('compactThemeSetting');
+      if (container && compactSetting) {
+        const compact = matchMedia('(max-width: 700px), (pointer: coarse) and (max-height: 560px), (pointer: coarse) and (max-width: 920px)');
+        const toolbar = container.parentElement!;
+        const menu = document.getElementById('panelToggleBtn');
+        const placeSwitch = () => {
+          compactSetting.hidden = !compact.matches;
+          if (compact.matches) compactSetting.append(container);
+          else toolbar.insertBefore(container, menu);
+        };
+        placeSwitch();
+        compact.addEventListener('change', placeSwitch);
+        this.destroyRef.onDestroy(() => compact.removeEventListener('change', placeSwitch));
         const dns = (window as unknown as { DayNightSwitch?: { mount: (el: HTMLElement, opts: unknown) => () => void } }).DayNightSwitch;
         if (dns) {
           const unmount = dns.mount(container, {

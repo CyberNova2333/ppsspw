@@ -387,12 +387,10 @@ select.btn option { background: var(--surface2); }
 }
 /* Panels overlay the stage so opening settings never resizes the game. */
 .fullscreen-toolbar { display: none; }
-.body-main:fullscreen,
-.body-main:-webkit-full-screen {
+body.browser-fullscreen .body-main {
   width: 100%; height: 100%;
 }
-.body-main:fullscreen .fullscreen-toolbar,
-.body-main:-webkit-full-screen .fullscreen-toolbar {
+body.browser-fullscreen .body-main .fullscreen-toolbar {
   position: absolute; top: max(6px, env(safe-area-inset-top));
   left: 50%; transform: translateX(-50%); z-index: 190;
   display: flex; flex-direction: column; align-items: center; gap: 6px;
@@ -423,7 +421,7 @@ select.btn option { background: var(--surface2); }
   padding: 0; border: 0; border-radius: 0; background: rgba(9,9,11,.16);
 }
 .fullscreen-actions[hidden], .fullscreen-menu-backdrop[hidden] { display: none; }
-body.panel-open .body-main .fullscreen-toolbar { display: none; }
+body.panel-open.browser-fullscreen .body-main .fullscreen-toolbar { display: none; }
 
 
 /* ── Stage (canvas area) ─────────────────────────────── */
@@ -447,12 +445,10 @@ body.panel-open .body-main .fullscreen-toolbar { display: none; }
   user-select: none;
   -webkit-touch-callout: none;
 }
-:fullscreen,
-:-webkit-full-screen {
+:is(:fullscreen, :-webkit-full-screen) {
   background: #09090b;
 }
-.stage:fullscreen,
-.stage:-webkit-full-screen {
+.stage:is(:fullscreen, :-webkit-full-screen) {
   width: var(--viewport-w) !important;
   height: var(--app-h) !important;
   padding: 0 !important;
@@ -469,11 +465,9 @@ body.browser-fullscreen #fpsBadge,
 body.browser-fullscreen #stageMini {
   display: none !important;
 }
-.stage:fullscreen canvas,
-.stage:-webkit-full-screen canvas,
+.stage:is(:fullscreen, :-webkit-full-screen) canvas,
 body.browser-fullscreen canvas,
-canvas:fullscreen,
-canvas:-webkit-full-screen {
+canvas:is(:fullscreen, :-webkit-full-screen) {
   width: min(var(--viewport-w), calc(var(--app-h) * 16 / 9)) !important;
   height: min(var(--app-h), calc(var(--viewport-w) * 9 / 16)) !important;
   max-width: var(--viewport-w) !important;

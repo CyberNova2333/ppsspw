@@ -146,18 +146,33 @@ test('drag replacement preserves another finger and its pending quick tap on the
   assertHeld(state, []);
 });
 
-test('re-pressing a pending button cancels its old release while another finger holds it', () => {
+test('lifting a duplicate physical press does not prolong the direction on a subsequent drag', () => {
   const { clock, state } = fixture();
-  state.setButtons(1, ['cross']);
-  clock.advance(10);
-  state.release(1);
-  clock.advance(10);
-  state.setButtons(2, ['cross']);
-  assert.equal(clock.pending, 0);
-  clock.advance(100);
-  assertHeld(state, ['cross']);
+  state.setButtons(1, ['up']);
+  clock.advance(4);
+  state.setButtons(2, ['up']);
+  clock.advance(4);
   state.release(2);
-  assertHeld(state, []);
+  clock.advance(4);
+  state.setButtons(1, ['down'], { replaceImmediately: true });
+  assertHeld(state, ['down']);
+  clock.advance(48);
+  assertHeld(state, ['down']);
+});
+
+test('two quick taps expose two complete pulses with a release between them', () => {
+  const { clock, state } = fixture();
+  const levels = [];
+  state.subscribe(pad => levels.push(pad.buttons[BUTTONS.cross].pressed));
+  for (const source of [1, 2]) {
+    state.setButtons(source, ['cross']);
+    clock.advance(8);
+    state.release(source);
+    clock.advance(8);
+  }
+  clock.advance(200);
+  assert.deepEqual(levels, [true, false, true, false]);
+  assert.equal(clock.pending, 0);
 });
 
 test('reset immediately clears held keys, latched taps, axes and their scheduled releases', () => {
@@ -318,7 +333,7 @@ test('subscriptions report state changes with monotonic timestamps and can unsub
   assert.equal(snapshots.length, 3);
 });
 
-function mountedFixture({ withLayoutObservers = true } = {}) {
+function mountedFixture({ withLayoutObservers = true, stickEnabled = true } = {}) {
   const { clock, state } = fixture();
   function eventTarget() {
     const listeners = new Map();
@@ -386,7 +401,7 @@ function mountedFixture({ withLayoutObservers = true } = {}) {
   const dpad = node({ 'data-pad-dpad': '' }, { left: 0, top: 0, width: 120, height: 120 }, element);
   const up = node({ 'data-pad-button': 'up' }, { left: 40, top: 0, width: 40, height: 40 }, dpad);
   const down = node({ 'data-pad-button': 'down' }, { left: 40, top: 80, width: 40, height: 40 }, dpad);
-  const stick = node({ 'data-pad-stick': '' }, { left: 200, top: 200, width: 100, height: 100 }, element);
+  const stick = stickEnabled ? node({ 'data-pad-stick': '' }, { left: 200, top: 200, width: 100, height: 100 }, element) : null;
   const circle = node({ 'data-pad-button': 'circle' }, { left: 350, top: 0, width: 50, height: 50 }, element);
   const cross = node({ 'data-pad-button': 'cross' }, { left: 350, top: 60, width: 50, height: 50 }, element);
   document.elementFromPoint = (x, y) => [...nodes].reverse().find(candidate => {
@@ -603,4 +618,59 @@ test('layout cancellation works without optional viewport/observer APIs and dest
   f.window.fire('resize');
   assertHeld(f.state, ['cross'], 'destroyed listeners must not modify shared state');
   f.state.reset();
+});
+
+test('custom keyboard bindings share ownership and release on slide, capture loss and remount', () => {
+  const f = mountedFixture({ stickEnabled: false });
+  f.window.KeyboardEvent = class {
+    constructor(type, init) { Object.assign(this, { type }, init); }
+  };
+  const events = [];
+  f.canvas.dispatchEvent = event => events.push([event.type, event.code, event.keyCode]);
+  f.cross.dataset.padButton = f.circle.dataset.padButton = 'key:KeyZ';
+  f.pointer('pointerdown', f.circle, 1, 375, 25);
+  f.pointer('pointerdown', f.cross, 2, 375, 85);
+  f.pointer('pointerup', f.circle, 1, 375, 25);
+  assert.deepEqual(events, [['keydown', 'KeyZ', 90]]);
+  f.pointer('pointermove', f.cross, 2, 250, 100);
+  assert.deepEqual(events.at(-1), ['keyup', 'KeyZ', 90]);
+  f.pointer('pointermove', f.cross, 2, 375, 85);
+  f.pointer('lostpointercapture', f.cross, 2, 375, 85);
+  assert.equal(events.length, 4);
+  f.pointer('pointerdown', f.cross, 3, 375, 85);
+  f.controller.destroy();
+  assert.deepEqual(events.slice(-2), [['keydown', 'KeyZ', 90], ['keyup', 'KeyZ', 90]]);
+  assertHeld(f.state, []);
+});
+
+test('a sustained burst has no deferred press after the final finger lifts', () => {
+  const { clock, state } = fixture(), transitions = [];
+  state.subscribe(() => transitions.push([clock.now(), state.gamepad.buttons[BUTTONS.cross].pressed]));
+  let lastRelease;
+  for (let pointer = 0; pointer < 12; pointer++) {
+    state.setButtons(pointer, ['cross']);
+    clock.advance(20);
+    state.release(pointer);
+    lastRelease = clock.now();
+    clock.advance(40);
+  }
+  clock.advance(1000);
+  assert.ok(transitions.filter(([, down]) => down).length >= 10);
+  assert.ok(transitions.every(([t, down]) => !down || t <= lastRelease));
+  assert.ok(transitions.at(-1)[0] - lastRelease <= 60);
+  assert.equal(transitions.at(-1)[1], false);
+});
+
+test('repeated double taps with a longer gap cannot accumulate an unbounded queue', () => {
+  const { clock, state } = fixture(), presses = [];
+  state.subscribe(() => { if (state.gamepad.buttons[BUTTONS.cross].pressed) presses.push(clock.now()); });
+  for (let i = 0; i < 30; i++) {
+    state.setButtons(1, ['cross']); clock.advance(4); state.release(1); clock.advance(2);
+    state.setButtons(1, ['cross']); clock.advance(4); state.release(1); clock.advance(94);
+  }
+  const stopped = clock.now();
+  clock.advance(150);
+  assert.equal(clock.pending, 0);
+  assert.ok(presses.filter(t => t > stopped).length <= 1);
+  assert.equal(state.gamepad.buttons[BUTTONS.cross].pressed, false);
 });

@@ -23,10 +23,6 @@ export function mountInterfaceMotion(): () => void {
       ),
     );
     if (targets.length) {
-      for (const el of targets) {
-        el.style.opacity = "0";
-        el.style.transform = "translateY(10px)";
-      }
       animate(targets, {
         opacity: [0, 1],
         y: [10, 0],

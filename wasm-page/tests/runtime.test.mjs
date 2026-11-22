@@ -12,7 +12,7 @@ const source = readFileSync(new URL('../public/ppsspp-runtime.js', import.meta.u
 const ast = ts.createSourceFile('runtime.js', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
 function load(names, globals = {}, declarations = '') {
   const code = ast.statements.filter(n => ts.isFunctionDeclaration(n) && names.includes(n.name.text)).map(n => n.getText(ast)).join('\n');
-  const context = vm.createContext({ Blob, TextDecoder, TextEncoder, Uint8Array, DataView, Map, Set, console, ...globals });
+  const context = vm.createContext({ navigator: {}, pendingSlotGroups: new Set(), Blob, TextDecoder, TextEncoder, Uint8Array, DataView, Map, Set, console, ...globals });
   vm.runInContext(declarations + '\n' + code, context);
   return context;
 }
@@ -108,9 +108,9 @@ function saveRestoreFixture(initial) {
     },
     removeEntry: async name => { if (!map.delete(name)) throw missing(); },
   });
-  const ctx = load(['loadPersistedFiles', 'selectPersistEntries', 'normalizePersistPath', 'persistConflictKey', 'detectMemstickDir',
+  const ctx = load(['persistFingerprint', 'loadPersistedFiles', 'selectPersistEntries', 'normalizePersistPath', 'persistConflictKey', 'saveGroup', 'detectMemstickDir',
     'archiveLegacyPersistFile', 'beginSaveMigration', 'rollbackSaveMigration', 'writeOpfsHandle'], {
-    PERSIST_ROOTS: roots, OPFS_PERSIST_DIR: 'persist', _persistedFileState: state,
+    PERSIST_ROOTS: roots, OPFS_PERSIST_DIR: 'persist', _persistedFileState: state, reserveSaveGroups: async () => new Set(),
     opfsWalk: async () => [...storage.keys()].map(path => ({ path })),
     opfsRestoreEntries: async () => {
       const entries = [...storage.keys()].map(path => {
@@ -699,9 +699,9 @@ test('import stores the File/Blob directly and never enables startup preload', a
   const blob = new Blob(['not an ISO']);
   blob.arrayBuffer = () => { throw new Error('whole-file allocation'); };
   let stored;
-  const ctx = load(['opfsPutGame', 'writeOpfsHandle'], {
+  const ctx = load(['gameFileName', 'storeLibraryFile', 'opfsPutGame', 'writeOpfsHandle'], {
     PpssppGameStorage: { withExclusive: action => action() },
-    OPFS_GAMES_DIR: 'games',
+    confirm: () => true, OPFS_GAMES_DIR: 'games',
     opfsParent: async () => ({ name: 'game.cso', dir: { getFileHandle: async () => ({ createWritable: async () => ({ write: async value => { stored = value; }, close: async () => {} }) }) } }),
     writeGameMetadata: async () => {}, log: () => {},
     setPreloadFavorite: () => { throw new Error('implicit preload'); },
@@ -782,7 +782,7 @@ test('concurrent persistence requests run in sequence even after a failure', asy
   const events = [];
   let count = 0;
   const ctx = load(['persistFiles'], {
-    log: () => {}, persistFilesNow: async () => {
+    withSaveStorage: action => action(), log: () => {}, persistFilesNow: async () => {
       const index = ++count; events.push(`start${index}`);
       await new Promise(r => setTimeout(r, 5)); events.push(`end${index}`);
       if (index === 1) throw new Error('quota');
@@ -795,8 +795,8 @@ test('concurrent persistence requests run in sequence even after a failure', asy
 test('failed OPFS deletion remains dirty so a later sync retries it', async () => {
   const state = new Map([['/save', '1:1'], ['/deleted', '2:1']]);
   let fail = true;
-  const ctx = load(['persistFilesNow'], {
-    hasOPFS: () => true, detectMemstickDir: () => '/root', fsStatDir: () => new Map([['/save', { size: 1, mtime: 1 }]]),
+  const ctx = load(['persistFingerprint', 'persistFilesNow', 'saveGroup'], {
+    reserveSaveGroups: async () => new Set(), hasOPFS: () => true, detectMemstickDir: () => '/root', fsStatDir: () => new Map([['/save', { size: 1, mtime: 1 }]]),
     _persistedFileState: state, log: () => {}, updateStorageInfo: () => {},
     opfsDelete: async () => { if (fail) throw new Error('denied'); },
   }, 'let _detectedMemstick, _lastPersistTime;');
@@ -810,6 +810,7 @@ test('failed OPFS deletion remains dirty so a later sync retries it', async () =
 test('settings recovery backs up configs and preserves saves and controller mappings', async () => {
   const deleted = [], backups = [];
   const ctx = load(['resetEmulatorSettings'], {
+    withSaveStorage: action => action(),
     started: false, runtimeFailed: false, runtimeReady: false, confirm: () => true, persistQueue: Promise.resolve(), OPFS_PERSIST_DIR: 'persist',
     opfsWalk: async () => ['ppsspp.ini', 'GAME123.ini', 'controls.ini'].map(name => ({ path: '/root/PSP/SYSTEM/' + name })).concat([{ path: '/root/PSP/SAVEDATA/GAME/DATA.BIN' }]),
     opfsRead: async () => new Uint8Array([1]), opfsPut: async path => backups.push(path), opfsDelete: async path => deleted.push(path),
@@ -851,7 +852,7 @@ test('denied localStorage preserves tab preferences and removal semantics', () =
 test('failed preload never releases the dependency and starts the core without its files', async () => {
   const failures = [], removed = [];
   const noop = () => {};
-  const ctx = load(['start', 'configureEmulatorKeyboard'], {
+  const ctx = load(['waitForOfflineController', 'start', 'configureEmulatorKeyboard'], {
     probeWebGLFeaturesWithPref: availableStartupCapabilities,
     PpssppGameStorage: { acquireShared: async () => {} },
     ENV: {},
@@ -898,7 +899,7 @@ test('direct game launch also runs library automount before releasing startup', 
     ['fsMenuToggle', { setAttribute: (_name, value) => { menuExpanded = value === 'true'; } }],
     ['fsMenuActions', menu], ['fsMenuBackdrop', backdrop],
   ]);
-  const ctx = load(['start', 'configureEmulatorKeyboard', 'setPanelOpen', 'setFullscreenMenuOpen'], {
+  const ctx = load(['waitForOfflineController', 'start', 'configureEmulatorKeyboard', 'setPanelOpen', 'setFullscreenMenuOpen'], {
     probeWebGLFeaturesWithPref: availableStartupCapabilities,
     PpssppGameStorage: { acquireShared: async () => {} },
     ENV: {}, loadNetworkConfig: () => ({ enabled: false }),
@@ -911,6 +912,7 @@ test('direct game launch also runs library automount before releasing startup', 
     selectBuildDir: async () => {}, AudioContext: class { async resume() { assert.equal(focused, true); } }, installScriptProcessorPolyfill: async () => {},
     preferences: { getItem: () => null, setItem() {} }, BUILD_DIR: '/build/', BUILD_STAMP: 'test',
     addRunDependency: noop, removeRunDependency: () => events.push('ready'),
+    withSaveStorage: action => action(), readSaveRevisions: async () => new Map(),
     preloadAssets: async () => {}, loadPersistedFiles: async () => {}, forceGamesDirectoryConfig: async () => {},
     playerSettingsQueue: Promise.resolve(), restorePlayerSettings: async () => {},
     loadPlayerSettings: () => ({ resolution: 1, touch: false, showFps: false }),
@@ -973,7 +975,7 @@ test('startup reports missing browser capabilities before initializing audio or 
     [{ webgl2: false, simd: false, crossOriginIsolated: false, sharedArrayBuffer: false }, /WebGL2.*SIMD.*跨源隔离.*共享内存/],
   ]) {
     const messages = [], capabilities = { ...availableStartupCapabilities(), ...changes };
-    const ctx = load(['start', 'reloadForCrossOriginIsolation'], {
+    const ctx = load(['waitForOfflineController', 'start', 'reloadForCrossOriginIsolation'], {
       started: false, selectedGame: { name: 'game.iso' }, selectedStoredGame: null,
       validateGameSelection: () => true, canvas: {}, gpuSelectEl: null,
       probeWebGLFeaturesWithPref: () => capabilities,
@@ -1076,7 +1078,8 @@ test('game downloads stream through OPFS with backpressure instead of accumulati
     createWritable: async () => new WritableStream({ write(chunk) { written.push(...chunk); }, close() { closed = true; } }),
     getFile: async () => new Blob([new Uint8Array(written)]),
   };
-  const ctx = load(['storeGameResponse'], {
+  const ctx = load(['gameFileName', 'storeLibraryFile', 'storeGameResponse'], {
+    confirm: () => true, PpssppGameStorage: { withExclusive: action => action() },
     TransformStream, performance, OPFS_GAMES_DIR: 'games', showLoading() {}, formatBytes: String, writeGameMetadata: async () => {}, log() {},
     opfsParent: async () => ({ name: 'game.cso', dir: { getFileHandle: async () => handle } }),
   });
@@ -1088,7 +1091,8 @@ test('game downloads stream through OPFS with backpressure instead of accumulati
 
 test('an interrupted game download aborts the OPFS transaction', async () => {
   let aborted = false;
-  const ctx = load(['storeGameResponse'], {
+  const ctx = load(['gameFileName', 'storeLibraryFile', 'storeGameResponse'], {
+    confirm: () => true, PpssppGameStorage: { withExclusive: action => action() },
     TransformStream, performance, OPFS_GAMES_DIR: 'games',
     opfsParent: async () => ({ name: 'game.iso', dir: { getFileHandle: async () => ({ createWritable: async () => new WritableStream({ abort() { aborted = true; } }) }) } }),
   });
@@ -1099,7 +1103,8 @@ test('an interrupted game download aborts the OPFS transaction', async () => {
 
 test('a packaged cache revision always selects its matching core, even beside an older local release', async () => {
   const checked = [], selected = [];
-  const ctx = load(['selectBuildDir'], {
+  const ctx = load(['selectBuildDir', 'cachedCoreRevision'], {
+    preferences: {setItem() {}}, PLAYER_CACHE_NAME: 'test-shell',
     fetch: async () => ({ ok: true, json: async () => ({ revision: 'a'.repeat(64) }) }),
     hasBuildFile: async (dir, name) => { checked.push(dir); return true; },
     setBuildDir: dir => selected.push(dir), log() {}, BUILD_DIR: 'build-wasm/', BUILD_STAMP: 'timestamp',
@@ -1111,7 +1116,8 @@ test('a packaged cache revision always selects its matching core, even beside an
 });
 
 test('startup rejects a partial core instead of loading mismatched JS/WASM/data', async () => {
-  const ctx = load(['selectBuildDir'], {
+  const ctx = load(['selectBuildDir', 'cachedCoreRevision'], {
+    preferences: {setItem() {}}, PLAYER_CACHE_NAME: 'test-shell',
     fetch: async () => ({ ok: false }), hasBuildFile: async (dir, name) => name !== 'PPSSPPSDL.wasm',
     setBuildDir() { throw new Error('must not select a partial build'); }, log() {},
   });
@@ -1255,7 +1261,7 @@ test('settings changed during play are durable without mutating or restarting th
     window: { FS: { writeFile: () => assert.fail('must not change running core settings') } },
   }, 'let playerSettingsQueue = Promise.resolve(), playerSettingsChanged = false;');
   await ctx.savePlayerSettings();
-  assert.deepEqual(durable, { resolution: 2, showFps: true, touch: false });
+  assert.deepEqual(durable, { padOpacity: 70, resolution: 2, showFps: true, touch: false });
   assert.equal(writes.size, 0, 'launcher changes must not compete with native INI persistence');
   assert.match(controls.get('player-settings-status').textContent, /下次启动生效/);
   assert.equal(settings.get('player'), JSON.stringify(durable));
@@ -1292,7 +1298,8 @@ test('settings write failures are visible and a later queued save still commits 
 test('manual sync reports failed writes and retries them without claiming success', async () => {
   const state = new Map(), messages = [];
   let fail = true;
-  const ctx = load(['persistFilesNow', 'syncPlayerFiles'], {
+  const ctx = load(['persistFingerprint', 'persistFilesNow', 'syncPlayerFiles', 'saveGroup'], {
+    reserveSaveGroups: async () => new Set(),
     runtimeReady: true, window: { FS: { readFile: () => new Uint8Array([1]) } },
     hasOPFS: () => true, detectMemstickDir: () => '/root',
     fsStatDir: () => new Map([['/root/save', { size: 1, mtime: 1 }]]),
@@ -1701,21 +1708,30 @@ test('failed legacy backup blocks startup and keeps the source until a retry arc
   assert.equal(fixture.storage.has(legacy), false);
 });
 
-test('save list normalizes OPFS paths and prefers live/current data without duplicate legacy cards', async () => {
+test('save list merges live and legacy metadata without reading a state or save body', async () => {
   const roots = ['/home/web_user/.config/ppsspp', '/root/.config/ppsspp'];
-  const path = roots[0] + '/PSP/SAVEDATA/TEST00001A/DATA.BIN';
-  const ctx = load(['buildSaveFileMap', 'selectPersistEntries', 'normalizePersistPath', 'persistConflictKey', 'detectMemstickDir'], {
-    PERSIST_ROOTS: roots, window: { FS: {} },
-    opfsWalk: async () => [
-      { path: path.slice(1), data: new Uint8Array([1]) },
-      { path: path.replace(roots[0], roots[1]).slice(1), data: new Uint8Array([2]) },
-    ],
-    fsWalkDir: () => [{ path, data: new Uint8Array([3]) }],
+  const path = roots[0] + '/PSP/PPSSPP_STATE/TEST00001_1.00_0.ppst';
+  const legacy = roots[1] + '/PSP/SAVEDATA/LEGACY/ICON0.PNG';
+  const ctx = load(['persistFingerprint', 'buildSaveFileMap', 'selectPersistEntries', 'normalizePersistPath', 'persistConflictKey', 'saveGroup', 'detectMemstickDir'], {
+    PERSIST_ROOTS: roots, OPFS_PERSIST_DIR: 'persist', _persistedFileState: new Map(), SAVE_SUBDIRS: [{ dir: 'PSP/SAVEDATA' }, { dir: 'PSP/PPSSPP_STATE' }], window: { FS: { readFile: assert.fail } },
+    opfsWalk: async (base, prefix, includeData) => {
+      assert.equal(base, 'persist'); assert.equal(includeData, false);
+      assert.match(prefix, /\/PSP\/(SAVEDATA|PPSSPP_STATE)$/);
+      return [
+        { path: path.slice(1), size: 8000000, mtime: 1 },
+        { path: path.replace(roots[0], roots[1]), size: 20, mtime: 0 },
+        { path: legacy.slice(1), size: 222, mtime: 2 },
+      ].filter(file => file.path.replace(/^\//, '').startsWith(prefix + '/'));
+    },
+    fsStatDir: () => new Map([[path, { size: 8000999, mtime: 3 }]]),
   });
   const map = await ctx.buildSaveFileMap();
-  assert.equal(map.size, 1);
-  assert.equal(map.get(path).data[0], 3);
-  assert.equal(map.get(path).fromOPFS, false);
+  assert.equal(map.size, 2);
+  assert.deepEqual(map.get(path), { size: 8000999, mtime: 3 });
+  assert.equal(map.get(legacy).mtime, 2);
+  ctx.fsStatDir = () => new Map([[path, { size: 8000000, mtime: 80 }]]);
+  ctx._persistedFileState.set(path, '8000000:80');
+  assert.equal((await ctx.buildSaveFileMap()).get(path).mtime, 1, 'keep the durable date after startup restore');
 });
 
 test('imported root-based backup reaches the canonical core directory without overwriting an existing slot', async () => {
@@ -1724,11 +1740,11 @@ test('imported root-based backup reaches the canonical core directory without ov
   const legacy = roots[1] + '/PSP/SAVEDATA/TEST00001A/';
   const missing = roots[1] + '/PSP/SAVEDATA/TEST00001B/DATA.BIN';
   const writes = new Map(), messages = [];
-  const ctx = load(['importSavesBundleNow', 'selectPersistEntries', 'normalizePersistPath', 'persistConflictKey', 'detectMemstickDir'], {
+  const ctx = load(['isBackupSavePath', 'importSavesBundleNow', 'selectPersistEntries', 'normalizePersistPath', 'persistConflictKey', 'saveGroup', 'detectMemstickDir'], {
     PERSIST_ROOTS: roots, OPFS_PERSIST_DIR: 'persist', window: { FS: { writeFile: (p, d) => writes.set(p, d) } },
     opfsWalk: async () => [{ path: current.slice(1) + 'PARAM.SFO' }],
     fsStatDir: () => new Map(), base64ToBytes: value => new Uint8Array([Number(value)]),
-    opfsPut: async (path, bytes) => writes.set(path, bytes), fsMkdirP() {}, log() {},
+    commitSaveImport: async entries => entries.forEach(({ path, bytes }) => writes.set(path, bytes)), log() {},
     showToast: text => messages.push(text), refreshSavesTab() {}, updateStorageInfo() {},
   });
   assert.equal(await ctx.importSavesBundleNow({ files: [
@@ -1741,7 +1757,7 @@ test('imported root-based backup reaches the canonical core directory without ov
 test('a malformed later backup entry cannot partially overwrite existing saves', async () => {
   const roots = ['/home/web_user/.config/ppsspp', '/root/.config/ppsspp'];
   const current = roots[0] + '/PSP/SAVEDATA/A/';
-  const ctx = load(['importSavesBundleNow', 'selectPersistEntries', 'normalizePersistPath', 'persistConflictKey'], {
+  const ctx = load(['isBackupSavePath', 'importSavesBundleNow', 'selectPersistEntries', 'normalizePersistPath', 'persistConflictKey', 'saveGroup'], {
     PERSIST_ROOTS: roots, OPFS_PERSIST_DIR: 'persist', window: {},
     opfsWalk: async () => [{ path: current + 'PARAM.SFO' }],
     base64ToBytes: value => { if (value === 'invalid') throw new Error('invalid base64'); return new Uint8Array([1]); },
@@ -1767,7 +1783,7 @@ test('an unreadable later native folder file cannot partially overwrite existing
 
 test('unsupported archive selection never starts the core or enters game import paths', async () => {
   const messages = [];
-  const ctx = load(['start', 'validateGameSelection', 'gameFileValidationError', 'addGameToLibrary', 'loadGameAtRuntime', 'playOrMountStoredGame'], {
+  const ctx = load(['waitForOfflineController', 'start', 'validateGameSelection', 'gameFileValidationError', 'addGameToLibrary', 'loadGameAtRuntime', 'playOrMountStoredGame'], {
     GAME_FILE_EXT_RE: /\.(iso|cso|chd|pbp|elf|prx)$/i,
     started: false, selectedGame: { name: 'game.zip' }, selectedStoredGame: null,
     setStatus: text => messages.push(text), showToast: text => messages.push(text),
@@ -1802,7 +1818,7 @@ test('library writes, deletion and complete cache clearing are blocked by anothe
   const { locks } = storageLocks();
   const release = await globalThis.PpssppGameStorage.acquireShared(locks);
   const messages = [];
-  const ctx = load(['opfsPutGame', 'opfsClearAll', 'deleteStoredFile'], {
+  const ctx = load(['gameFileName', 'storeLibraryFile', 'opfsPutGame', 'opfsClearAll', 'deleteStoredFile'], {
     PpssppGameStorage: { withExclusive: action => globalThis.PpssppGameStorage.withExclusive(action, locks) },
     VIRTUAL_GAME_DIR: '/browser-games', confirm: () => true,
     opfsRoot: () => assert.fail('storage changed'), opfsParent: () => assert.fail('game overwritten'),
@@ -1819,14 +1835,15 @@ test('library writes, deletion and complete cache clearing are blocked by anothe
 test('idle clearing includes downloaded games and reports deletion failures', async () => {
   const removed = [];
   const ctx = load(['opfsClearAll'], {
-    PpssppGameStorage: { withExclusive: action => action() }, playerSettingsQueue: Promise.resolve(),
+    withSaveStorage: action => action(),
+    PpssppGameStorage: { withExclusive: action => action(), clearDownloads: () => removed.push('origin/game-downloads') }, playerSettingsQueue: Promise.resolve(),
     OPFS_PERSIST_DIR: 'persist', OPFS_GAMES_DIR: 'games', OPFS_GAME_META_DIR: 'meta',
     PLAYER_SETTINGS_KEY: 'settings', PRELOAD_FAVORITES_KEY: 'favorites', PRELOAD_FAVORITES_MIGRATED_KEY: 'migrated',
     opfsRoot: async () => ({ removeEntry: async name => removed.push(name), getDirectoryHandle: async () => {} }),
-    preferences: { removeItem() {} }, refreshPlayerSettingsUI() {},
+    preferences: { removeItem() {} }, refreshPlayerSettingsUI() {}, LAST_PLAYED_KEY: 'last', updateIdleOverlay() {},
   });
   await ctx.opfsClearAll();
-  assert.deepEqual(removed, ['persist', 'games', 'meta', 'game-downloads', 'legacy-backups', 'player']);
+  assert.deepEqual(removed, ['persist', 'games', 'meta', 'game-downloads', 'legacy-backups', 'player', 'origin/game-downloads']);
   ctx.opfsRoot = async () => ({ removeEntry: async () => { throw new DOMException('denied', 'NotAllowedError'); } });
   await assert.rejects(ctx.opfsClearAll(), { name: 'NotAllowedError' });
 });
@@ -1836,7 +1853,7 @@ test('a storage maintenance lease prevents startup and leaves the launch action 
   const messages = [], toasts = [], modes = [];
   const audio = [];
   let retryFocused = false;
-  const ctx = load(['start'], {
+  const ctx = load(['waitForOfflineController', 'start'], {
     probeWebGLFeaturesWithPref: availableStartupCapabilities,
     started: false, selectedGame: { name: 'game.iso' }, selectedStoredGame: null,
     validateGameSelection: () => true, canvas: { focus() {} }, SharedArrayBuffer,
@@ -1845,6 +1862,7 @@ test('a storage maintenance lease prevents startup and leaves the launch action 
     document: { body: { classList: { add() {}, remove() {} } } },
     setTimeout: () => 1, clearTimeout() {}, log() {}, setStartButtonMode: mode => modes.push(mode),
     setPanelOpen: open => assert.equal(open, false, 'a failed launch must not reopen the settings panel'), setFullscreenMenuOpen() {},
+    byId: () => null,
     startBtn: { focus(options) {
       assert.equal(modes.at(-1), 'ready', 'enable the retry action before focusing it');
       assert.equal(options.preventScroll, true);
@@ -1870,7 +1888,7 @@ test('selected and runtime local games remain File references without implicit c
   const file = new Blob(['game']); file.name = 'game.iso';
   file.arrayBuffer = () => assert.fail('full file read');
   const mounted = [], messages = [];
-  const ctx = load(['preloadGame', 'loadGameAtRuntime'], {
+  const ctx = load(['gameFileName', 'preloadGame', 'loadGameAtRuntime'], {
     selectedGame: file, selectedStoredGame: null, VIRTUAL_GAME_DIR: '/browser-games', window: { FS: {} },
     validateGameSelection: () => true, setStatus() {}, showLoading() {}, log() {}, formatBytes: String,
     mountBrowserGame: (_FS, source, name) => { assert.equal(source, file); mounted.push(name); return '/browser-games/' + name; },
@@ -1907,4 +1925,608 @@ test('game read failures show the recovery panel once and retain the first actio
   ctx.handleBrowserGameReadError(event);
   assert.equal(statuses.length, 1);
   assert.equal(loadingHidden, 1);
+});
+
+test('an explicit state save forces the selected slot to disk even with an unchanged size and mtime', async () => {
+  const path = '/PSP/PPSSPP_STATE/game_1.ppst';
+  const fingerprint = new Map([[path, '3:1']]);
+  const writes = [];
+  const fs = { readFile: name => { assert.equal(name, path); return Uint8Array.of(3, 2, 1); } };
+  const ctx = load(['persistFingerprint', 'persistFilesNow', 'persistStateSlot', 'saveGroup', 'dirname'], {
+    reserveSaveGroups: async () => new Set(),
+    hasOPFS: () => true, detectMemstickDir: () => '/PSP',
+    fsStatDir: () => new Map([[path, { size: 3, mtime: 1 }]]),
+    _persistedFileState: fingerprint, opfsPut: async (name, data) => writes.push([name, ...data]),
+    log() {}, updateStorageInfo() {},
+  }, 'let _detectedMemstick, _lastPersistTime;');
+  ctx.commitSaveImport = async entries => { for (const entry of entries) await ctx.opfsPut(entry.path, entry.bytes); };
+  await ctx.persistStateSlot(fs, path);
+  assert.deepEqual(writes, [[path, 3, 2, 1]]);
+  ctx.opfsPut = async () => { throw new Error('quota'); };
+  await assert.rejects(ctx.persistStateSlot(fs, path), /本机写入未完成/);
+  assert.equal(fingerprint.get(path), '3:1');
+  assert.equal(ctx.pendingSlotGroups.has(ctx.saveGroup(path)), true);
+  await assert.rejects(ctx.persistStateSlot(fs, path + '.missing'), /本机写入未完成/);
+});
+
+test('the refresh permission appears only after the core callback and completed local write', async () => {
+  const info = { path: '/slot.ppst', slot: 1, warning: '' };
+  const status = {}, messages = [], native = Promise.withResolvers(), disk = Promise.withResolvers();
+  const ctx = load(['runStateSlotAction', 'persistStateSlot', 'saveGroup'], {
+    restoredSaveRevisions: new Map(),
+    withSaveStorage: action => action(), reserveSaveGroups: async () => new Set(),
+    selectedStateSlot: info, slotBusy: false, window: { FS: { analyzePath: () => ({ exists: false }) } }, slotHasData: () => false,
+    slotAction: { saveEmpty: 1, replace: 2, load: 3 },
+    byId: () => status, requestStateSlot: (op, slot, path) => {
+      assert.deepEqual([op, slot, path], [1, 1, info.path]); return native.promise;
+    },
+    persistFilesNow: () => disk.promise, showStateSlot: async () => {}, updateStateSlotButtons() {}, refreshSavesTab() {},
+    showToast: text => messages.push(text),
+  });
+  const save = ctx.runStateSlotAction(true);
+  assert.match(status.textContent, /正在保存/);
+  await ctx.runStateSlotAction(true);
+  native.resolve(info);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(status.textContent, /正在写入本机/);
+  assert.equal(messages.length, 0);
+  disk.resolve({ written: 1, failed: 0 });
+  await save;
+  assert.match(messages[0], /第 2 槽.*可以刷新/);
+  ctx.persistFilesNow = async () => ({ failed: 1 });
+  await ctx.runStateSlotAction(true);
+  assert.doesNotMatch(messages.at(-1), /可以刷新/);
+  assert.match(status.textContent, /写入未完成/);
+  ctx.window.FS.analyzePath = () => ({exists: true});
+  ctx.slotHasData = () => true;
+  ctx.confirm = () => false;
+  ctx.requestStateSlot = () => assert.fail('cancelled overwrite must not reach the core');
+  await ctx.runStateSlotAction(true);
+});
+
+test('the home action follows the last successful launch and handles a removed library game', async () => {
+  let value = null, available = true;
+  const actions = [];
+  const ctx = load(['runIdleAction', 'rememberLaunch', 'readLastPlayed', 'markLibraryGameMissing'], {
+    LAST_PLAYED_KEY: 'last', GAME_FILE_EXT_RE: /\.iso$/i,
+    preferences: { getItem: () => value, setItem: (_, text) => { value = text; } },
+    started: false, selectedGame: null, selectedStoredGame: null, selectedDownload: false,
+    lastPlayed: null, choosingPreviousFile: false,
+    fileInput: { click: () => actions.push('choose') }, start: () => actions.push('start'),
+    setPanelOpen() {}, activatePanelTab: name => actions.push(name), updateIdleOverlay() {},
+    opfsGetGameFile: async () => { if (!available) throw new DOMException('removed', 'NotFoundError'); return { size: 120 }; },
+    playOrMountStoredGame: name => actions.push(name),
+  });
+  await ctx.runIdleAction();
+  assert.equal(ctx.choosingPreviousFile, false);
+  ctx.selectedGame = { name: 'map.iso', size: 120 }; ctx.rememberLaunch(); ctx.selectedGame = null;
+  ctx.lastPlayed = ctx.readLastPlayed();
+  await ctx.runIdleAction();
+  assert.equal(ctx.choosingPreviousFile, true);
+  ctx.selectedStoredGame = 'stored.iso'; ctx.rememberLaunch(); ctx.selectedStoredGame = null;
+  await ctx.runIdleAction();
+  available = false;
+  await ctx.runIdleAction();
+  assert.equal(ctx.readLastPlayed().source, 'file');
+  ctx.selectedGame = { name: 'online.iso' }; ctx.selectedDownload = true;
+  ctx.rememberLaunch(); ctx.selectedGame = null; await ctx.runIdleAction();
+  assert.deepEqual(actions, ['choose', 'choose', 'stored.iso', 'online']);
+  value = '{"name":"../other.iso","source":"library"}';
+  assert.equal(ctx.readLastPlayed(), null);
+});
+
+test('exporting one savedata folder reads only that folder and uses the live file for a duplicate path', async () => {
+  const read = [], slot = '/root/PSP/SAVEDATA/ONE'; let bundle;
+  const ctx = load(['downloadSaveSlot', 'snapshotSaveDirectory'], {
+    OPFS_PERSIST_DIR: 'persist', detectMemstickDir: () => '/root', isBackupSavePath: () => true,
+    window: { FS: { readFile: path => { read.push(path); return Uint8Array.of(5); } } },
+    opfsWalk: async (...args) => {
+      assert.deepEqual(args, ['persist', slot.slice(1), false]);
+      assert.fail('a running slot must never fall back to its old disk files');
+    },
+    fsStatDir: () => new Map([[slot + '/DATA.BIN', {}], [slot + '/EXTRA.BIN', {}]]),
+    bytesToBase64: bytes => Buffer.from(bytes).toString('base64'),
+    triggerDownload: blob => { bundle = blob; }, showToast() {}, log() {},
+  });
+  await ctx.downloadSaveSlot(slot, 'ONE');
+  assert.deepEqual(read, [slot + '/DATA.BIN', slot + '/EXTRA.BIN']);
+  assert.equal(JSON.parse(await bundle.text()).files.length, 2);
+});
+
+test('a failed library import removes its empty entry and preserves a previously imported game', async () => {
+  const stored = new Map([['existing.iso', 42]]);
+  const dir = {
+    async getFileHandle(name, options) {
+      if (!stored.has(name)) {
+        if (!options?.create) throw new DOMException('missing', 'NotFoundError');
+        stored.set(name, 0);
+      }
+      return { name };
+    },
+    async removeEntry(name) { stored.delete(name); },
+  };
+  const ctx = load(['gameFileName', 'storeLibraryFile', 'opfsPutGame'], {
+    confirm: () => true, PpssppGameStorage: { withExclusive: action => action() }, OPFS_GAMES_DIR: 'games',
+    opfsParent: async name => ({ dir, name }), writeOpfsHandle: async () => { throw new DOMException('full', 'QuotaExceededError'); },
+    writeGameMetadata: () => assert.fail('failed imports must not replace game metadata'),
+  });
+  for (const name of ['new.iso', 'existing.iso']) {
+    await assert.rejects(ctx.opfsPutGame(name, new Blob(['game'])), { name: 'QuotaExceededError' });
+  }
+  assert.deepEqual([...stored], [['existing.iso', 42]]);
+});
+
+test('a nonempty library renders launchable cards and recognizes the same imported temporary image', async () => {
+  const nodes = Object.fromEntries(['libraryGrid', 'libraryEmpty', 'libraryCount'].map(id => [id, { style: {} }]));
+  const last = { name: 'map.iso', size: 123, modified: 17, source: 'file' };
+  const ctx = load(['refreshLibrary', 'prettyGameName', 'stripGameExtension'], {
+    GAME_FILE_EXT_RE: /\.iso$/i,
+    document: { getElementById: id => nodes[id] }, clearLibraryCoverURLs() {},
+    OPFS_GAMES_DIR: 'games', opfsWalk: async () => [{ path: 'map.iso', size: 123 }, { path: 'incomplete.iso', size: 0 }],
+    prunePreloadFavorites: () => [], window: {}, started: false, lastPlayed: last,
+    ensureGameMetadata: async name => name === 'map.iso' ? { original: last, title: 'Map' } : {},
+    readGameCoverURL: async () => '', formatBytes: String, esc: String, svgIcon: () => '',
+    updateIdleOverlay() {}, LAST_PLAYED_KEY: 'last', preferences: { setItem() {} },
+  });
+  await ctx.refreshLibrary();
+  assert.equal(nodes.libraryGrid.style.display, 'grid', nodes.libraryEmpty.textContent);
+  assert.match(nodes.libraryGrid.innerHTML, /data-game="map\.iso">开始游戏/);
+  assert.match(nodes.libraryGrid.innerHTML, /data-game="incomplete\.iso" disabled>请重新添加/);
+  assert.equal(ctx.lastPlayed.source, 'library');
+});
+
+test('a partial directory scan preserves every durable file and retries a real deletion on the next full scan', async () => {
+  const durable = new Set(['/root/slot/data', '/root/other', '/root/deleted']);
+  const state = new Map([...durable].map(path => [path, '2:1']));
+  let failure;
+  const fs = {
+    readdir(path) {
+      if (failure === path) throw Error('temporarily unavailable');
+      return path === '/root' ? ['slot', 'other'] : ['data'];
+    },
+    stat(path) {
+      if (failure === path) throw Error('temporarily unavailable');
+      return { mode: path === '/root/slot' ? 'dir' : 'file', size: 2, mtime: 1 };
+    },
+    isDir: mode => mode === 'dir', isFile: mode => mode === 'file',
+  };
+  const ctx = load(['persistFingerprint', 'persistFilesNow', 'fsStatDir', 'saveGroup'], {
+    hasOPFS: () => true, detectMemstickDir: () => '/root', _persistedFileState: state,
+    reserveSaveGroups: async () => new Set(), opfsDelete: async path => durable.delete(path),
+    opfsPut: assert.fail, log() {}, updateStorageInfo() {},
+  }, 'let _detectedMemstick, _lastPersistTime;');
+  for (failure of ['/root/slot', '/root/slot/data', '/root']) {
+    const result = await ctx.persistFilesNow(fs, 'auto');
+    assert.equal(result.failed, 1);
+    assert.equal(result.removed, 0);
+    assert.equal(durable.size, 3);
+    assert.equal(state.size, 3);
+  }
+  failure = null;
+  assert.equal((await ctx.persistFilesNow(fs, 'auto')).removed, 1);
+  assert.deepEqual([...durable], ['/root/slot/data', '/root/other']);
+});
+
+test('a stale save group rejects writes and deletes while unrelated slots can still be reserved', async () => {
+  const root = '/home/web_user/.config/ppsspp/PSP/';
+  let versions = '[]';
+  const file = { getFile: async () => new Blob([versions]) };
+  function tab() {
+    return load(['saveGroup', 'reserveSaveGroups', 'readSaveRevisions', 'saveConflict'], {
+      restoredSaveRevisions: new Map(), opfsDir: async () => ({ getFileHandle: async () => file }),
+      writeOpfsHandle: async (_, data) => { versions = data; },
+    });
+  }
+  const a = tab(), b = tab();
+  const slot = root + 'PPSSPP_STATE/GAME_1.00_0', native = root + 'SAVEDATA/GAME/';
+  await a.reserveSaveGroups([slot + '.ppst', native + 'DATA.BIN']);
+  for (const path of [slot + '.jpg', slot + '.undo.ppst', slot + '.ppst.tmp', native + 'PARAM.SFO']) {
+    await assert.rejects(b.reserveSaveGroups([path]), /另一标签页/);
+    await assert.rejects(b.reserveSaveGroups([path], { checkOnly: true }), /另一标签页/);
+  }
+  const other = root + 'PPSSPP_STATE/GAME_1.00_1';
+  const blocked = await b.reserveSaveGroups([slot + '.jpg', other + '.ppst'], { skipConflicts: true });
+  assert.deepEqual([...blocked], [slot]);
+  assert.deepEqual(JSON.parse(versions), [[slot, 1], [native.slice(0, -1), 1], [other, 1]]);
+  await a.reserveSaveGroups([slot + '.ppst']);
+  await assert.rejects(a.reserveSaveGroups([other + '.jpg']), /另一标签页/);
+});
+
+test('offline startup requires all three exact keys from one packaged revision', async () => {
+  const here = 'https://example.test/player/', a = 'a'.repeat(64), b = 'b'.repeat(64);
+  const urls = [];
+  const add = (name, version) => urls.push({url: here + 'build-wasm/PPSSPPSDL.' + name + '?v=' + version});
+  const ctx = load(['cachedCoreRevision', 'selectBuildDir'], {
+    preferences: {getItem: () => ''}, PLAYER_CACHE_NAME: 'test-shell',
+    URL, location: {href: here}, caches: {open: async () => ({keys: async () => urls})},
+    fetch: async () => { throw Error('offline'); }, hasBuildFile: async () => false,
+    setBuildDir: dir => assert.equal(dir, 'build-wasm/'), BUILD_STAMP: 'initial',
+  });
+  add('js', a); add('wasm', a); add('data', b);
+  await assert.rejects(ctx.selectBuildDir(), /资源不完整/);
+  add('data', a);
+  await ctx.selectBuildDir();
+  assert.equal(ctx.BUILD_STAMP, a);
+  add('js', b); add('wasm', b);
+  await ctx.selectBuildDir();
+  assert.equal(ctx.BUILD_STAMP, b);
+  ctx.preferences.getItem = () => a;
+  await ctx.selectBuildDir();
+  assert.equal(ctx.BUILD_STAMP, a);
+});
+
+test('shareable saves and optional legacy settings use separate file lists', () => {
+  const root = '/home/web_user/.config/ppsspp';
+  const ctx = load(['normalizePersistPath', 'isBackupSavePath', 'isBackupSetting'], {PERSIST_ROOTS: [root]});
+  for (const name of ['SAVEDATA/一/DATA.BIN', 'PPSSPP_STATE/a.undo.ppst', 'PPSSPP_STATE/a.jpg'])
+    assert.ok(ctx.isBackupSavePath(root + '/PSP/' + name));
+  for (const name of ['SYSTEM/private.txt', 'SYSTEM/controls.ini', 'PPSSPP_STATE/a.jpg.1.tmp'])
+    assert.equal(ctx.isBackupSavePath(root + '/PSP/' + name), false);
+  assert.equal(ctx.isBackupSetting(root + '/PSP/SYSTEM/controls.ini'), true);
+  assert.equal(ctx.isBackupSetting(root + '/PSP/SYSTEM/private.txt'), false);
+});
+
+test('legacy previews and undo files follow the source of the whole state slot', () => {
+  const root = '/current', legacy = '/old';
+  const ctx = load(['selectPersistEntries', 'normalizePersistPath', 'persistConflictKey', 'saveGroup'], { PERSIST_ROOTS: [root, legacy] });
+  const slot = '/PSP/PPSSPP_STATE/test_1', other = '/PSP/PPSSPP_STATE/test_2';
+  const entries = [slot + '.ppst', slot + '.jpg', slot + '.undo.ppst', slot + '.undo.jpg', other + '.ppst'].map(path => ({path: legacy + path}));
+  const selected = ctx.selectPersistEntries(entries, [root + slot + '.ppst']);
+  assert.deepEqual(Array.from(selected.entries, e => e.path), [root + other + '.ppst']);
+  assert.equal(selected.skipped, 4);
+});
+
+test('hidden storage refreshes do no I/O and changes during enumeration coalesce', async () => {
+  let visible = false, scans = 0;
+  const first = Promise.withResolvers();
+  const ctx = load(['updateStorageInfo'], {
+    storagePanelVisible: () => visible,
+    renderStorageInfo: async () => { if (++scans === 1) await first.promise; },
+  }, 'let storageRefresh = null, storageInfoDirty = true;');
+  await ctx.updateStorageInfo();
+  assert.equal(scans, 0);
+  visible = true;
+  const pending = ctx.updateStorageInfo();
+  for (let i = 0; i < 10; i++) assert.equal(ctx.updateStorageInfo(), pending);
+  assert.equal(scans, 1);
+  first.resolve();
+  await pending;
+  assert.equal(scans, 2);
+});
+
+test('registration rejection and an existing controller release startup immediately', async () => {
+  const listeners = new Set();
+  let canceled = 0;
+  const sw = { addEventListener: (_, cb) => listeners.add(cb), removeEventListener: (_, cb) => listeners.delete(cb) };
+  const ctx = load(['waitForOfflineController'], {
+    navigator: { serviceWorker: sw }, offlineRegistration: Promise.resolve(null),
+    setTimeout: () => 1, clearTimeout: () => canceled++,
+  });
+  await ctx.waitForOfflineController();
+  assert.equal(canceled, 1);
+  assert.equal(listeners.size, 0);
+  sw.controller = {};
+  await ctx.waitForOfflineController();
+  assert.equal(canceled, 1);
+});
+
+test('a stale cold list cannot delete a new generation and a fresh list can authorize deletion', async () => {
+  const slot = '/root/PSP/SAVEDATA/GAME', path = slot + '/A';
+  const disk = new Map([[slot, 2]]);
+  const ctx = load(['saveGroup', 'reserveSaveGroups', 'saveConflict'], {
+    restoredSaveRevisions: null, window: {}, readSaveRevisions: async () => new Map(disk),
+  });
+  await assert.rejects(ctx.reserveSaveGroups([path], { checkOnly: true, displayed: new Map([[slot, 1]]) }), /重新读取/);
+  await ctx.reserveSaveGroups([path], { checkOnly: true, displayed: new Map(disk) });
+  ctx.window.FS = {};
+  ctx.restoredSaveRevisions = new Map([[slot, 1]]);
+  await assert.rejects(ctx.reserveSaveGroups([path], { checkOnly: true, displayed: new Map(disk) }), /另一标签页/);
+});
+
+test('a sparse exported slot replaces only represented groups while loose backup files overlay', async () => {
+  const root = '/root', slot = root + '/PSP/PPSSPP_STATE/map_0', other = slot + '1.ppst';
+  const files = [{ path: slot + '.ppst', data: 'A' }];
+  let changes;
+  const ctx = load(['importSavesBundleNow', 'isBackupSavePath', 'selectPersistEntries', 'normalizePersistPath', 'persistConflictKey', 'saveGroup'], {
+    PERSIST_ROOTS: [root], window: {}, OPFS_PERSIST_DIR: 'persist',
+    opfsWalk: async () => [slot + '.jpg', slot + '.undo.ppst', other].map(path => ({ path })),
+    base64ToBytes: () => Uint8Array.of(1), commitSaveImport: async entries => { changes = Array.from(entries); },
+    refreshSavesTab() {}, updateStorageInfo() {}, log() {}, showToast() {},
+  });
+  await ctx.importSavesBundleNow({ version: 1, ppssppMemstick: root, files }, 'export');
+  assert.deepEqual(changes.filter(e => e.bytes === null).map(e => e.path), [slot + '.jpg', slot + '.undo.ppst']);
+  await ctx.importSavesBundleNow({ files }, 'partial');
+  assert.deepEqual(changes.map(e => e.path), [slot + '.ppst']);
+});
+
+test('dirty instant slots share one directory scan and revision transaction', async () => {
+  const root = '/root', base = root + '/PSP/PPSSPP_STATE/';
+  const paths = Array.from({ length: 64 }, (_, i) => [base + i + '.ppst', base + i + '.jpg']).flat();
+  let scans = 0, transactions = 0;
+  const state = new Map(), fs = { readFile: () => Uint8Array.of(1) };
+  const ctx = load(['persistFingerprint', 'persistFilesNow', 'saveGroup'], {
+    hasOPFS: () => true, detectMemstickDir: () => root, _persistedFileState: state,
+    fsStatDir: () => { scans++; return new Map(paths.map(path => [path, { size: 1, mtime: 1 }])); },
+    reserveSaveGroups: async () => new Set(), commitSaveImport: async entries => {
+      transactions++;
+      assert.equal(entries.length, 128);
+    },
+    log() {}, updateStorageInfo() {},
+  }, 'let _detectedMemstick, _lastPersistTime;');
+  assert.equal((await ctx.persistFilesNow(fs, 'batch')).written, 128);
+  assert.equal(scans, 1);
+  assert.equal(transactions, 1);
+  assert.equal(state.size, 128);
+});
+
+test('an optional icon error leaves the first offline shell installed; a critical fetch is retried', async () => {
+  const handlers = new Map(), critical = [], optional = [];
+  let activated = false;
+  const cache = {
+    async addAll(requests) {
+      critical.push(requests.map(r => r.url));
+      if (critical.length === 1) throw new TypeError('transient network error');
+    },
+    async add(request) { optional.push(request.url); throw new TypeError('icon unavailable'); },
+  };
+  const scope = 'https://example.test/player/';
+  const ctx = serviceWorker({ caches: { open: async () => cache }, self: {
+    registration: { scope }, addEventListener: (type, handler) => handlers.set(type, handler),
+    skipWaiting: async () => { activated = true; },
+  } });
+  vm.runInContext("SHELL_FILES.push('./icons/optional.png')", ctx);
+  let installing;
+  handlers.get('install')({ waitUntil: task => { installing = task; } });
+  await installing;
+  assert.equal(activated, true);
+  assert.equal(critical.length, 2);
+  assert.ok(critical[1].includes(scope + 'index.html'));
+  assert.ok(!critical[1].includes(scope + 'icons/optional.png'));
+  assert.ok(optional.includes(scope + 'icons/optional.png'));
+});
+
+test('core cache keeps an offline fallback until the new release is complete and all old clients leave', async () => {
+  const a = 'a'.repeat(64), b = 'b'.repeat(64), scope = 'https://example.test/player/';
+  const files = new Map(), request = (v, type) => new Request(scope + 'build-wasm/PPSSPPSDL.' + type + '?v=' + v);
+  const add = (v, type) => { const r = request(v, type); files.set(r.url, r); };
+  for (const type of ['js', 'wasm', 'data']) add(a, type);
+  add(b, 'js');
+  add('c'.repeat(64), 'wasm'); // Abandoned incomplete upgrade.
+  const metadata = () => Response.json({ revision: b });
+  let active = [a, b];
+  const cache = { keys: async () => [...files.values()], match: metadata, put: async () => {},
+    delete: async r => files.delete(r.url) };
+  const ctx = serviceWorker({ caches: { keys: async () => [], open: async () => cache }, fetch: metadata, MessageChannel, setTimeout, clearTimeout,
+    self: { registration: { scope }, addEventListener() {},
+      clients: { matchAll: async () => active.map(revision => ({ url: scope,
+        postMessage: (_, [port]) => { port.postMessage(revision); port.close(); } })) } } });
+  await ctx.collectCoreRevisions();
+  assert.equal(files.size, 4);
+  add(b, 'wasm'); add(b, 'data');
+  await ctx.collectCoreRevisions();
+  assert.equal(files.size, 6);
+  active = [b];
+  const players = ctx.self.clients.matchAll;
+  ctx.self.clients.matchAll = async () => [...await players(), { url: scope + 'UPSTREAM-LICENSE.txt',
+    postMessage() { throw Error('text documents cannot report a core'); } }];
+  await ctx.collectCoreRevisions();
+  assert.deepEqual([...files.keys()].sort(), ['js', 'wasm', 'data'].map(t => request(b, t).url).sort());
+});
+
+test('a later batch sees new previews and removals while the preceding batch was on disk', async () => {
+  const base = '/root/PSP/PPSSPP_STATE/', a = base + 'a.ppst', b = base + 'b.ppst';
+  const old = base + 'b.undo.jpg', fresh = base + 'b.jpg';
+  const stat = (size, mtime) => ({ size, mtime });
+  const live = new Map([[a, stat(10 * 1024 ** 2, 1)], [b, stat(10 * 1024 ** 2, 1)], [old, stat(1, 1)]]);
+  const state = new Map([[old, '1:1']]), transactions = [];
+  const ctx = load(['persistFingerprint', 'persistFilesNow', 'saveGroup', 'dirname'], {
+    hasOPFS: () => true, detectMemstickDir: () => '/root', _persistedFileState: state,
+    fsStatDir: (_fs, _dir, _strict, _optional, _pending, flatGroups) =>
+      new Map([...live].filter(([path]) => !flatGroups || flatGroups.has(ctx.saveGroup(path)))),
+    reserveSaveGroups: async () => new Set(), commitSaveImport: async entries => {
+      transactions.push(Array.from(entries, e => [e.path, e.bytes?.[0] ?? null]));
+      live.delete(old);
+      live.set(fresh, stat(1, 2));
+    },
+    log() {}, updateStorageInfo() {},
+  }, 'let _detectedMemstick, _lastPersistTime;');
+  const result = await ctx.persistFilesNow({ readFile: path => {
+    assert.ok(live.has(path)); return Uint8Array.of(path === fresh ? 2 : 1);
+  } }, 'multi-batch');
+  assert.deepEqual(transactions, [[[a, 1]], [[b, 1], [old, null], [fresh, 2]]]);
+  assert.equal(result.failed, 0);
+  assert.equal(state.has(old), false);
+});
+
+test('a failed file rolls back its group while another dirty slot still reaches disk', async () => {
+  const a = '/root/PSP/PPSSPP_STATE/a.ppst', b = a.replace('a.ppst', 'b.ppst');
+  const state = new Map(), attempts = [];
+  const ctx = load(['persistFingerprint', 'persistFilesNow', 'saveGroup'], {
+    hasOPFS: () => true, detectMemstickDir: () => '/root', _persistedFileState: state,
+    fsStatDir: () => new Map([a,b].map(path => [path, { size: 1, mtime: 1 }])),
+    reserveSaveGroups: async () => new Set(), commitSaveImport: async entries => {
+      attempts.push(Array.from(entries, e => e.path));
+      if (entries.some(e => e.path === a)) throw Object.assign(new Error('file unavailable'), { saveFilePath: a });
+    },
+    log() {}, updateStorageInfo() {},
+  }, 'let _detectedMemstick, _lastPersistTime;');
+  const result = await ctx.persistFilesNow({ readFile: () => Uint8Array.of(1) }, 'mixed');
+  assert.deepEqual(attempts, [[a, b], [b]]);
+  assert.equal(result.failed, 1);
+  assert.equal(result.written, 1);
+  assert.ok(!state.has(a) && state.has(b));
+});
+
+test('exchanged MEMFS nodes with equal size and mtime persist in their new slots', async () => {
+  const slot = '/root/PSP/PPSSPP_STATE/map_0', body = slot + '.ppst', undo = slot + '.undo.ppst';
+  const state = new Map([[body, '1:100:7'], [undo, '1:100:8']]), writes = new Map();
+  const stats = new Map([[body, { size: 1, mtime: 100, ino: 8 }], [undo, { size: 1, mtime: 100, ino: 7 }]]);
+  const fs = { readFile: path => Uint8Array.of(stats.get(path).ino) };
+  const ctx = load(['persistFingerprint', 'persistFilesNow', 'saveGroup'], {
+    hasOPFS: () => true, detectMemstickDir: () => '/root', _persistedFileState: state, fsStatDir: () => stats,
+    reserveSaveGroups: async () => new Set(), commitSaveImport: async files => {
+      for (const { path, bytes } of files) writes.set(path, bytes[0]);
+    }, log() {}, updateStorageInfo() {},
+  }, 'let _detectedMemstick, _lastPersistTime;');
+  assert.equal((await ctx.persistFilesNow(fs, 'native-undo')).written, 2);
+  assert.deepEqual([...writes], [[body, 8], [undo, 7]]);
+  assert.equal((await ctx.persistFilesNow(fs, 'unchanged')).written, 0);
+});
+
+test('manual sync reports staging even when no canonical slot is dirty', async () => {
+  const base = '/root/PSP/PPSSPP_STATE/a', state = new Map(), toasts = [];
+  let staged = true;
+  const fs = { readFile: () => Uint8Array.of(2) };
+  const ctx = load(['persistFingerprint', 'persistFilesNow', 'syncPlayerFiles', 'saveGroup'], {
+    window: { FS: fs }, runtimeReady: true, hasOPFS: () => true,
+    detectMemstickDir: () => '/root', _persistedFileState: state,
+    fsStatDir: (_fs, _root, _strict, _optional, pending) => {
+      if (staged) pending.add(base);
+      return new Map(state.size ? [[base + '.ppst', { size: 1, mtime: 2 }]] : []);
+    },
+    reserveSaveGroups: async () => new Set(), commitSaveImport: async () => {},
+    showToast: text => toasts.push(text), refreshSavesTab() {}, updateStorageInfo() {}, log() {},
+  }, 'let _detectedMemstick, _lastPersistTime;');
+  ctx.persistFiles = (fs, label) => ctx.persistFilesNow(fs, label);
+  await ctx.syncPlayerFiles();
+  assert.match(toasts.pop(), /同步未完成/);
+  state.set(base + '.ppst', '1:1');
+  await ctx.syncPlayerFiles();
+  assert.match(toasts.pop(), /同步未完成/);
+  staged = false;
+  await ctx.syncPlayerFiles();
+  assert.match(toasts.pop(), /已同步到本机/);
+  assert.equal(state.get(base + '.ppst'), '1:2');
+});
+
+test('a growing slot is measured again before capturing the next batch', async () => {
+  const mib = 1024 ** 2, live = new Map(), batches = [];
+  for (const [i, name] of [...'abcde'].entries())
+    live.set('/root/PSP/PPSSPP_STATE/' + name + '.ppst', { size: i ? 100 : 17 * mib, mtime: 1 });
+  const ctx = load(['persistFingerprint', 'persistFilesNow', 'saveGroup', 'dirname'], {
+    hasOPFS: () => true, detectMemstickDir: () => '/root', _persistedFileState: new Map(),
+    fsStatDir: () => new Map(live), reserveSaveGroups: async () => new Set(),
+    commitSaveImport: async entries => {
+      batches.push(entries.reduce((sum, e) => sum + e.bytes.length, 0));
+      for (const p of [...live.keys()].slice(1)) live.set(p, { size: 6 * mib, mtime: 2 });
+    },
+    log() {}, updateStorageInfo() {},
+  }, 'let _detectedMemstick, _lastPersistTime;');
+  const result = await ctx.persistFilesNow({ readFile: p => ({ length: live.get(p).size }) }, 'growth');
+  assert.equal(result.written, 5);
+  assert.deepEqual(batches, [17 * mib, 12 * mib, 12 * mib]);
+});
+
+test('quota exhaustion stops the batch and retains every dirty slot for retry', async () => {
+  const files = new Map(), attempts = [];
+  for (let i = 0; i < 16; i++) files.set('/root/PSP/PPSSPP_STATE/' + i + '.ppst', { size: 2, mtime: 1 });
+  let full = true;
+  const ctx = load(['persistFingerprint', 'persistFilesNow', 'saveGroup'], {
+    hasOPFS: () => true, detectMemstickDir: () => '/root', _persistedFileState: new Map(),
+    fsStatDir: () => files, reserveSaveGroups: async () => new Set(),
+    commitSaveImport: async entries => {
+      attempts.push(entries.length);
+      if (full) throw Object.assign(new DOMException('full', 'QuotaExceededError'), { saveFilePath: entries[0].path });
+    },
+    log() {}, updateStorageInfo() {},
+  }, 'let _detectedMemstick, _lastPersistTime;');
+  const fs = { readFile: () => Uint8Array.of(1, 2) };
+  assert.equal((await ctx.persistFilesNow(fs, 'full')).failed, 16);
+  assert.equal(ctx.pendingSlotGroups.size, 16);
+  full = false;
+  assert.equal((await ctx.persistFilesNow(fs, 'retry')).written, 16);
+  assert.equal(ctx.pendingSlotGroups.size, 0);
+  assert.deepEqual(attempts, [16, 16]);
+});
+
+test('a cache-name upgrade keeps the offline generation until the new core is complete and its predecessor is unused', async () => {
+  const scope = 'https://example.test/player/', first = 'a'.repeat(64), next = 'b'.repeat(64);
+  const metadata = () => Response.json({revision: next});
+  const cache = (version, parts) => {
+    const requests = parts.map(part => new Request(scope + 'build-wasm/PPSSPPSDL.' + part + '?v=' + version));
+    return { requests, keys: async () => requests, match: metadata, put: async () => {} };
+  };
+  const old = cache(first, ['js', 'wasm', 'data']), fresh = cache(next, []);
+  let usingOld = true;
+  const names = new Map();
+  const ctx = serviceWorker({ fetch: metadata, MessageChannel, setTimeout, clearTimeout,
+    caches: {keys: async () => [...names.keys()], open: async name => names.get(name), delete: async name => names.delete(name)},
+    self: {registration: {scope}, addEventListener() {}, clients: { matchAll: async () => [{
+      url: scope + 'index.html?resume',
+      postMessage: (_, [port]) => {
+        port.postMessage(usingOld ? {cache: previousName, revision: first} : {cache: currentName, revision: next});
+        port.close();
+      },
+    }] }},
+  });
+  const currentName = vm.runInContext('CACHE_VERSION', ctx);
+  const previousName = currentName.replace(/\d+$/, digits => Number(digits) - 1);
+  names.set(previousName, old);
+  names.set(currentName, fresh);
+  await ctx.collectCoreRevisions();
+  assert.ok(names.has(previousName));
+  fresh.requests.push(...cache(next, ['js']).requests);
+  await ctx.collectCoreRevisions();
+  assert.ok(names.has(previousName));
+  fresh.requests.push(...cache(next, ['wasm', 'data']).requests);
+  await ctx.collectCoreRevisions();
+  assert.ok(names.has(previousName));
+  usingOld = false;
+  await ctx.collectCoreRevisions();
+  assert.deepEqual([...names.keys()], [currentName]);
+});
+
+test('a large slot quota failure still lets a smaller writable slot commit and stops after one isolated quota error', async () => {
+  const big = '/root/PSP/PPSSPP_STATE/big.ppst', small = '/root/PSP/PPSSPP_STATE/small.ppst';
+  const tiny = '/root/PSP/PPSSPP_STATE/tiny.ppst';
+  const live = new Map([[big, { size: 64, mtime: 1 }], [small, { size: 4, mtime: 1 }], [tiny, { size: 2, mtime: 1 }]]);
+  const state = new Map(), attempts = [];
+  let allowSmall = true;
+  const ctx = load(['persistFingerprint', 'persistFilesNow', 'saveGroup'], {
+    hasOPFS: () => true, detectMemstickDir: () => '/root', _persistedFileState: state,
+    fsStatDir: () => live, reserveSaveGroups: async () => new Set(),
+    commitSaveImport: async entries => {
+      attempts.push(Array.from(entries, e => e.path));
+      const blocked = entries.find(e => e.path === big || !allowSmall);
+      if (blocked) throw Object.assign(new DOMException('full', 'QuotaExceededError'), { saveFilePath: blocked.path });
+    },
+    log() {}, updateStorageInfo() {},
+  }, 'let _detectedMemstick, _lastPersistTime;');
+  const fs = { readFile: p => new Uint8Array(live.get(p).size) };
+  const first = await ctx.persistFilesNow(fs, 'mixed-quota');
+  assert.equal(first.written, 2);
+  assert.equal(first.failed, 1);
+  assert.ok(!state.has(big) && state.has(small) && state.has(tiny));
+  assert.deepEqual(attempts, [[big, small, tiny], [small], [tiny]]);
+
+  // When storage is genuinely exhausted even for smaller slots, stop after a single isolated probe.
+  allowSmall = false;
+  state.clear();
+  attempts.length = 0;
+  const second = await ctx.persistFilesNow(fs, 'full-quota');
+  assert.equal(second.written, 0);
+  assert.equal(second.failed, 3);
+  assert.deepEqual(attempts, [[big, small, tiny], [small]]);
+});
+
+test('cachedCoreRevision and olderPlayerCaches sort generations numerically and ignore newer caches', async () => {
+  const scope = 'https://example.test/player/', olderRev = '1'.repeat(64), recentRev = '2'.repeat(64), futureRev = '3'.repeat(64);
+  const mkCache = rev => {
+    const reqs = ['js', 'wasm', 'data'].map(ext => new Request(scope + 'build-wasm/PPSSPPSDL.' + ext + '?v=' + rev));
+    return { keys: async () => reqs };
+  };
+  const store = new Map([
+    ['ppsspp-player-v21', mkCache(recentRev)],
+    ['ppsspp-player-v9', mkCache(olderRev)],
+    ['ppsspp-player-v22', { keys: async () => [] }],
+    ['ppsspp-player-v99', mkCache(futureRev)],
+  ]);
+  const caches = { keys: async () => [...store.keys()], open: async name => store.get(name) };
+  const runtime = load(['cachedCoreRevision'], {
+    PLAYER_CACHE_NAME: 'ppsspp-player-v22', URL, location: { href: scope }, caches,
+    preferences: { getItem: () => null },
+  });
+  assert.equal(await runtime.cachedCoreRevision(), recentRev);
+  const sw = serviceWorker({ caches, self: { registration: { scope }, addEventListener() {} } });
+  assert.deepEqual(await sw.olderPlayerCaches(), ['ppsspp-player-v21', 'ppsspp-player-v9']);
 });

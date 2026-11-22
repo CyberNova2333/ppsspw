@@ -16,6 +16,8 @@ const preferences = (() => {
 
 /* ── Constants ──────────────────────────────────────────────────── */
 let BUILD_DIR          = "build-wasm/";
+// The runtime script URL carries the shell version selected by the Angular loader.
+const PLAYER_CACHE_NAME = new URL(document.currentScript?.src || location.href).searchParams.get("v");
 let BUILD_STAMP        = String(Date.now());
 let performanceLaunchSettings = null;
 let performanceBuildInfo = null;
@@ -363,9 +365,45 @@ async function hasBuildFile(dir, name) {
     const r = await fetch(dir + name + "?v=" + BUILD_STAMP, { method: "HEAD", cache: "no-store" });
     return r.ok;
   } catch(e) {
-    try { return !!(await caches.match(new URL(dir + name, location.href).href, { ignoreSearch: true })); }
+    try {
+      if (!PLAYER_CACHE_NAME) return false;
+      const cache = await caches.open(PLAYER_CACHE_NAME);
+      return !!await cache.match(new URL(dir + name + "?v=" + BUILD_STAMP, location.href));
+    }
     catch (_) { return false; }
   }
+}
+
+async function cachedCoreRevision() {
+  try {
+    if (!PLAYER_CACHE_NAME) return "";
+    const prefix = new URL("build-wasm/PPSSPPSDL.", location.href).href;
+    const last = preferences.getItem("ppsspp-cached-core");
+    async function completeRevision(name) {
+      const cache = await caches.open(name);
+      const revisions = new Map();
+      for (const request of await cache.keys()) {
+        if (!request.url.startsWith(prefix)) continue;
+        const match = request.url.slice(prefix.length).match(/^(js|wasm|data)\?v=([a-f0-9]{64})$/);
+        if (!match) continue;
+        if (!revisions.has(match[2])) revisions.set(match[2], new Set());
+        revisions.get(match[2]).add(match[1]);
+      }
+      if (revisions.get(last)?.size === 3) return last;
+      return [...revisions].reverse().find(([, files]) => files.size === 3)?.[0] || "";
+    }
+    const current = await completeRevision(PLAYER_CACHE_NAME);
+    if (current) return current;
+    const generation = /^ppsspp-player-v\d+$/.test(PLAYER_CACHE_NAME) ? Number(PLAYER_CACHE_NAME.split("-v").pop()) : Infinity;
+    const older = (await caches.keys())
+      .filter(name => /^ppsspp-player-v\d+$/.test(name) && Number(name.split("-v").pop()) < generation)
+      .sort((a, b) => Number(b.split("-v").pop()) - Number(a.split("-v").pop()));
+    for (const name of older) {
+      const revision = await completeRevision(name);
+      if (revision) return revision;
+    }
+    return "";
+  } catch (_) { return ""; }
 }
 
 async function selectBuildDir() {
@@ -389,7 +427,15 @@ async function selectBuildDir() {
     const available = await Promise.all(["PPSSPPSDL.js", "PPSSPPSDL.wasm", "PPSSPPSDL.data"].map(name => hasBuildFile(dir, name)));
     if (!available.every(Boolean)) continue;
     setBuildDir(dir);
+    if (packagedRevision) preferences.setItem("ppsspp-cached-core", packagedRevision);
     log("Using emulator build: " + BUILD_DIR, "ok");
+    return;
+  }
+  const cached = await cachedCoreRevision();
+  if (cached) {
+    if (cached !== packagedRevision) performanceBuildInfo = null;
+    BUILD_STAMP = cached;
+    setBuildDir("build-wasm/");
     return;
   }
   throw new Error("模拟器资源不完整，请重新载入页面；若仍失败，请在错误详情中导出诊断。");
@@ -446,7 +492,7 @@ let gamepadBridgeInstalled = false, gamepadBridgeCurrent = null, gamepadBridgeMo
 let gamepadBridgeRawIndex = -1;
 const stageEl         = document.querySelector(".stage");
 const fileInput       = byId("gameFile");
-const fileLabel       = byId("fileLabel");
+const fileLabel       = byId("idleChooseBtn");
 const runtimeGameLabel = byId("runtimeIsoLabel") || byId("runtimeGameLabel");
 const runtimeGameInput = byId("runtimeIsoFile") || byId("runtimeGameFile");
 const startBtn        = byId("startBtn");
@@ -494,6 +540,8 @@ const networkSaveBtn      = byId("networkSaveBtn");
 const networkActivityEl   = byId("networkActivity");
 
 // Panel toggle (hidden by default; restore from localStorage)
+let storageRefresh = null;
+let storageInfoDirty = true;
 const PANEL_KEY = "ppsspp_panel_open";
 function setPanelOpen(open, focus = true) {
   document.body.classList.toggle("panel-open", open);
@@ -502,6 +550,8 @@ function setPanelOpen(open, focus = true) {
   if (stage) stage.inert = open;
   preferences.setItem(PANEL_KEY, open ? "1" : "0");
   if (open) checkNetworkWhenVisible();
+  if (open && storagePanelVisible()) void updateStorageInfo();
+  if (open && byId("tabSaves")?.classList.contains("active")) { void refreshSavesTab(); void refreshStateSlot(); }
   for (const id of ["panelToggleBtn", "fsPanelBtn"]) byId(id)?.setAttribute("aria-expanded", String(open));
   if (focus) {
     const target = open ? byId("panelCloseBtn") : fullscreenElement() ? byId("fsMenuToggle") : panelToggleBtn;
@@ -510,7 +560,7 @@ function setPanelOpen(open, focus = true) {
   updateTouchControls();
 }
 // A saved desktop drawer should not cover the game on the next mobile visit.
-setPanelOpen(!isMobileExperience() && preferences.getItem(PANEL_KEY) === "1", false);
+setPanelOpen(!isMobileExperience() && !window.matchMedia?.("(max-width: 700px)")?.matches && preferences.getItem(PANEL_KEY) === "1", false);
 on(panelToggleBtn, "click", () => {
   setPanelOpen(!document.body.classList.contains("panel-open"));
 });
@@ -567,7 +617,34 @@ if (!LOCAL_ONLY) setInterval(checkNetworkWhenVisible, 30000);
 /* ── State ──────────────────────────────────────────────────────── */
 let selectedGame = null;
 let selectedStoredGame = null;
-let selectedGameCached = false;
+let selectedDownload = false;
+const LAST_PLAYED_KEY = "ppsspp-last-played-v1";
+let lastPlayed = readLastPlayed();
+let choosingPreviousFile = false;
+
+function readLastPlayed() {
+  try {
+    const item = JSON.parse(preferences.getItem(LAST_PLAYED_KEY));
+    if (item && ["library", "file", "download"].includes(item.source) &&
+        typeof item.name === "string" && !/[\/\\]/.test(item.name) && GAME_FILE_EXT_RE.test(item.name)) return item;
+  } catch (_) {}
+  return null;
+}
+
+function rememberLaunch() {
+  const name = selectedStoredGame || selectedGame?.name;
+  if (!name) return;
+  const source = selectedStoredGame ? "library" : selectedDownload ? "download" : "file";
+  lastPlayed = { name, source, size: selectedGame?.size, modified: selectedGame?.lastModified };
+  preferences.setItem(LAST_PLAYED_KEY, JSON.stringify(lastPlayed));
+}
+
+function markLibraryGameMissing(name) {
+  if (lastPlayed?.source !== "library" || lastPlayed.name !== name) return;
+  lastPlayed = { name, source: "file" };
+  preferences.setItem(LAST_PLAYED_KEY, JSON.stringify(lastPlayed));
+  updateIdleOverlay();
+}
 let started      = false;
 let runtimeReady = false;
 let runtimeFailed = false;
@@ -580,31 +657,49 @@ const audioDebug = {
 
 function updateIdleOverlay() {
   if (!idleOverlay || started) return;
-  let text = "选择本机的游戏文件开始游玩，也可以从游戏库启动已导入的游戏。";
-  if (selectedGame) text = "准备启动 " + selectedGame.name + ".";
-  else if (selectedStoredGame) text = "准备启动 " + selectedStoredGame + "（来自游戏库）。";
-  if (idleSubtitle) idleSubtitle.textContent = text;
+  const name = selectedGame?.name || selectedStoredGame;
+  const previous = lastPlayed;
+  const action = name ? "开始游玩" : previous ? "继续上次游戏" : "选择游戏";
+  const usesPicker = !name && (!previous || previous.source === "file");
+  byId("idleActionText").textContent = action;
+  byId("idleChooseIcon").hidden = !usesPicker;
+  byId("idlePlayIcon").hidden = usesPicker;
+  fileLabel.hidden = !name && !previous;
+  if (name) idleSubtitle.textContent = "已选择 " + name;
+  else if (!previous) idleSubtitle.textContent = "选择本机的 PSP 镜像，或从游戏库启动。";
+  else if (previous.source === "file") idleSubtitle.textContent = previous.name + " · 重新选择镜像，已写入本机的存档会保留。";
+  else if (previous.source === "download") idleSubtitle.textContent = previous.name + " · 在在线下载中重新载入清单，即可使用已完成的缓存。";
+  else idleSubtitle.textContent = previous.name + " · 来自本机游戏库";
 }
 updateIdleOverlay();
 
+async function runIdleAction() {
+  if (started) return;
+  if (selectedGame || selectedStoredGame) return start();
+  const previous = lastPlayed;
+  if (previous?.source === "library") {
+    try {
+      const image = await opfsGetGameFile(previous.name);
+      if (!image.size) { markLibraryGameMissing(previous.name); return; }
+    } catch (error) {
+      if (error.name === "NotFoundError") markLibraryGameMissing(previous.name);
+      else showToast("读取游戏库失败，请重试或选择本机镜像。");
+      return;
+    }
+    if (!started && !selectedGame && previous === lastPlayed) return playOrMountStoredGame(previous.name);
+  } else if (previous?.source === "download") {
+    setPanelOpen(true, false);
+    activatePanelTab("online", true);
+  } else {
+    choosingPreviousFile = !!previous;
+    fileInput.click();
+  }
+}
+
 function setStartButtonMode(mode) {
   if (!startBtn) return;
-  if (mode === "running") {
-    startBtn.disabled = true;
-    startBtn.style.display = "none";
-    startBtn.title = "模拟器正在运行";
-    startBtn.innerHTML = `${svgIcon("play")}<span class="btn-lbl"> 运行中</span>`;
-  } else if (mode === "loading") {
-    startBtn.disabled = true;
-    startBtn.style.display = "";
-    startBtn.title = "正在启动模拟器";
-    startBtn.innerHTML = `${svgIcon("play")}<span class="btn-lbl"> 启动游戏</span>`;
-  } else {
-    startBtn.disabled = false;
-    startBtn.style.display = "";
-    startBtn.title = "启动模拟器";
-    startBtn.innerHTML = `${svgIcon("play")}<span class="btn-lbl"> 启动游戏</span>`;
-  }
+  startBtn.disabled = mode === "running" || mode === "loading";
+  startBtn.hidden = mode === "running";
 }
 
 /* ── Toast ──────────────────────────────────────────────────────── */
@@ -626,6 +721,227 @@ let _detectedMemstick = null;
 let _lastPersistTime  = 0;
 // path → "size:mtime" fingerprint of the last successfully persisted state
 let _persistedFileState = new Map();
+const pendingSlotGroups = new Set();
+
+// The lock covers recovery, revision comparison and publication across tabs.
+let restoredSaveRevisions = null;
+let liveImportRecoveryFailed = false;
+function withSaveStorage(action) {
+  if (!navigator.locks?.request) throw new Error("当前浏览器无法协调本机存档写入。");
+  return navigator.locks.request("ppsspp-save-storage", async () => {
+    await recoverSaveImport();
+    if (liveImportRecoveryFailed) throw new Error("本机存档已回滚，请重新载入页面以恢复运行中的存档。");
+    return action();
+  });
+}
+
+function saveGroup(path) {
+  const native = path.match(/^(.*\/PSP\/SAVEDATA\/[^/]+)\//i);
+  if (native) return native[1];
+  if (/\/PSP\/PPSSPP_STATE\//i.test(path)) {
+    return path.replace(/(?:\.undo)?\.(?:jpg|ppst)(?:\.tmp)?$/i, "");
+  }
+  return null;
+}
+
+async function readSaveRevisions() {
+  try {
+    const dir = await opfsDir(["player"], false);
+    const file = await (await dir.getFileHandle("save-revisions.json")).getFile();
+    const text = await file.text();
+    if (!text) return new Map(); // An interrupted first creation can leave an empty file.
+    const pairs = JSON.parse(text);
+    if (!Array.isArray(pairs) || !pairs.every(pair => Array.isArray(pair) && pair.length === 2 &&
+        typeof pair[0] === "string" && Number.isSafeInteger(pair[1]) && pair[1] > 0)) {
+      throw new Error("存档版本记录无效，已停止写入。");
+    }
+    return new Map(pairs);
+  } catch (error) { if (error.name === "NotFoundError") return new Map(); throw error; }
+}
+
+function saveConflict() {
+  return new Error("另一标签页已更改此存档。请另选槽位保存当前进度，或重新载入页面读取本机版本。");
+}
+
+async function reserveSaveGroups(paths, { checkOnly = false, skipConflicts = false, disk, displayed } = {}) {
+  const groups = new Set(paths.map(saveGroup).filter(Boolean));
+  const conflicts = new Set();
+  if (!groups.size) return conflicts;
+  disk ??= await readSaveRevisions();
+  restoredSaveRevisions ??= new Map(disk);
+  for (const key of groups) {
+    if (displayed && disk.get(key) !== displayed.get(key)) {
+      throw new Error("另一标签页已更改此存档。列表将重新读取，请查看新版存档后再确认删除。");
+    }
+    if ((!displayed || window.FS) && disk.get(key) !== restoredSaveRevisions.get(key)) {
+      if (!skipConflicts) throw saveConflict();
+      conflicts.add(key);
+    }
+  }
+  if (checkOnly || conflicts.size === groups.size) return conflicts;
+  for (const key of groups) {
+    if (!conflicts.has(key)) disk.set(key, (disk.get(key) || 0) + 1);
+  }
+  // Publish while holding the same storage lock used by readers and recovery.
+  const dir = await opfsDir(["player"], true);
+  await writeOpfsHandle(await dir.getFileHandle("save-revisions.json", { create: true }), JSON.stringify([...disk]));
+  for (const key of groups) {
+    if (!conflicts.has(key)) restoredSaveRevisions.set(key, disk.get(key));
+  }
+  return conflicts;
+}
+
+async function existingSaveFile(path) {
+  try {
+    const { dir, name } = await opfsParent(path, false);
+    return await (await dir.getFileHandle(name)).getFile();
+  } catch (error) { if (error.name === "NotFoundError") return null; throw error; }
+}
+
+async function sameStoredContents(current, backup) {
+  if (!current || current.size !== backup.size) return false;
+  const chunk = 1024 * 1024;
+  for (let i = 0; i < current.size; i += chunk) {
+    const left = new Uint8Array(await current.slice(i, i + chunk).arrayBuffer());
+    const right = new Uint8Array(await backup.slice(i, i + chunk).arrayBuffer());
+    if (!left.every((value, index) => value === right[index])) return false;
+  }
+  return true;
+}
+
+// Until the marker is removed, numbered files hold the complete pre-import
+// images. Recovery itself is retryable, including after a second interruption.
+async function recoverSaveImport() {
+  let dir;
+  try { dir = await opfsDir(["player", "import-undo"], false); }
+  catch (error) { if (error.name === "NotFoundError") return; throw error; }
+  let manifest;
+  try { manifest = await (await dir.getFileHandle("pending.json")).getFile(); }
+  catch (error) { if (error.name !== "NotFoundError") throw error; }
+  const text = manifest && await manifest.text();
+  if (text) {
+    const record = JSON.parse(text);
+    const entries = Array.isArray(record) ? record : record.files;
+    if (!Array.isArray(entries)) throw new Error("存档导入恢复记录无效");
+    for (const { path, existed } of entries) {
+      if (normalizePersistPath(path).sourcePath !== path || typeof existed !== "boolean") throw new Error("存档导入恢复路径无效");
+    }
+    // Free space used by newly imported files before restoring old contents.
+    for (const { path, existed } of entries) {
+      if (!existed && await existingSaveFile(path)) await opfsDelete(path);
+    }
+    for (const [i, { path, existed }] of entries.entries()) {
+      if (!existed) continue;
+      const backup = await (await dir.getFileHandle(String(i))).getFile();
+      const current = await existingSaveFile(path);
+      if (await sameStoredContents(current, backup)) continue;
+      try { await opfsPut(path, backup); }
+      catch (error) {
+        if (error.name !== "QuotaExceededError" || !current) throw error;
+        // The rollback image and marker stay durable even if this retry fails.
+        await opfsDelete(path);
+        await opfsPut(path, backup);
+      }
+    }
+    if (record.previous || record.revisions) {
+      const disk = await readSaveRevisions();
+      const before = record.previous ? new Map(disk) : new Map(record.revisions);
+      for (const [key, value] of record.previous || []) {
+        if (value === null) before.delete(key);
+        else before.set(key, value);
+      }
+      if (JSON.stringify([...disk]) !== JSON.stringify([...before])) {
+        const player = await opfsDir(["player"], true);
+        await writeOpfsHandle(await player.getFileHandle("save-revisions.json", { create: true }), JSON.stringify([...before]));
+      }
+    }
+  }
+  if (manifest) await dir.removeEntry("pending.json");
+  const parent = await opfsDir(["player"], false);
+  await parent.removeEntry("import-undo", { recursive: true });
+}
+
+async function commitSaveImport(entries, FS, displayed) {
+  if (!entries.length) return;
+  const paths = entries.map(entry => entry.path);
+  if (new Set(paths).size !== paths.length) throw new Error("存档包包含重复的目标文件");
+  for (const path of paths) {
+    if (normalizePersistPath(path).sourcePath !== path) throw new Error("存档路径无效");
+  }
+  const disk = paths.some(saveGroup) ? await readSaveRevisions() : null;
+  await reserveSaveGroups(paths, { checkOnly: true, disk, displayed });
+  const dir = await opfsDir(["player", "import-undo"], true);
+  const manifest = [];
+  const keys = new Set(paths.map(saveGroup).filter(Boolean));
+  const previous = disk && [...keys].map(key => [key, disk.get(key) ?? null]);
+  const liveBefore = new Map();
+  const importedStats = new Map();
+  let writingPath;
+  try {
+    for (const [i, path] of paths.entries()) {
+      writingPath = path;
+      const file = await existingSaveFile(path);
+      if (file) await writeOpfsHandle(await dir.getFileHandle(String(i), { create: true }), file);
+      manifest.push({ path, existed: !!file });
+    }
+    writingPath = null;
+    await writeOpfsHandle(await dir.getFileHandle("pending.json", { create: true }), JSON.stringify({ files: manifest, previous }));
+    for (const { path, bytes } of entries) {
+      writingPath = path;
+      if (bytes !== null) await opfsPut(path, bytes);
+      else {
+        try { await opfsDelete(path); }
+        catch (error) { if (error.name !== "NotFoundError") throw error; }
+      }
+    }
+    writingPath = null;
+    if (FS) {
+      // Apply the entire live update synchronously after all disk writes.
+      for (const { path, bytes } of entries) {
+        liveBefore.set(path, FS.analyzePath(path).exists ? FS.readFile(path) : null);
+        if (bytes === null) {
+          if (liveBefore.get(path) !== null) FS.unlink(path);
+          importedStats.set(path, null);
+          continue;
+        }
+        fsMkdirP(FS, dirname(path));
+        FS.writeFile(path, bytes);
+        const stat = FS.stat(path);
+        importedStats.set(path, persistFingerprint(stat));
+      }
+    }
+    // Readers recover any pending import before comparing revisions. Publish
+    // the new revision only once all data is ready to commit.
+    await reserveSaveGroups(paths, { disk, displayed });
+    await dir.removeEntry("pending.json");
+  } catch (error) {
+    try {
+      for (const [path, bytes] of liveBefore) {
+        if (bytes) FS.writeFile(path, bytes);
+        else if (FS.analyzePath(path).exists) FS.unlink(path);
+      }
+    } catch (liveError) {
+      liveImportRecoveryFailed = true;
+      throw new Error("运行中的存档回滚失败，请重新载入页面。" + liveError.message);
+    } finally {
+      try { await recoverSaveImport(); }
+      catch (recoveryError) { recoveryError.saveRecoveryPending = true; throw recoveryError; }
+      for (const [key, value] of previous || []) {
+        if (value === null) restoredSaveRevisions.delete(key);
+        else restoredSaveRevisions.set(key, value);
+      }
+    }
+    if (writingPath) error.saveFilePath = writingPath;
+    throw error;
+  }
+  for (const [path, fp] of importedStats) {
+    if (fp === null) _persistedFileState.delete(path);
+    else _persistedFileState.set(path, fp);
+  }
+  // A leftover unmarked directory is safe to discard on the next operation.
+  try { await (await opfsDir(["player"], false)).removeEntry("import-undo", { recursive: true }); }
+  catch (error) { log("Import backup cleanup pending: " + error.message, "warn"); }
+}
 
 function hasOPFS() {
   return !!navigator.storage?.getDirectory;
@@ -687,13 +1003,18 @@ async function opfsDelete(path) {
 }
 
 async function opfsClearAll() {
-  return globalThis.PpssppGameStorage.withExclusive(async () => {
+  return globalThis.PpssppGameStorage.withExclusive(() => withSaveStorage(async () => {
     await playerSettingsQueue;
     const root = await opfsRoot();
     for (const name of [OPFS_PERSIST_DIR, OPFS_GAMES_DIR, OPFS_GAME_META_DIR, "game-downloads", "legacy-backups", "player"]) {
       try { await root.removeEntry(name, { recursive: true }); }
       catch (error) { if (error.name !== "NotFoundError") throw error; }
     }
+    await globalThis.PpssppGameStorage.clearDownloads();
+    await globalThis.PpssppPadPresets?.clear();
+    preferences.removeItem(LAST_PLAYED_KEY);
+    lastPlayed = null;
+    updateIdleOverlay();
     preferences.removeItem(PLAYER_SETTINGS_KEY);
     playerSettingsChanged = true;
     refreshPlayerSettingsUI();
@@ -702,25 +1023,27 @@ async function opfsClearAll() {
     await root.getDirectoryHandle(OPFS_PERSIST_DIR, { create: true });
     await root.getDirectoryHandle(OPFS_GAMES_DIR, { create: true });
     await root.getDirectoryHandle(OPFS_GAME_META_DIR, { create: true });
-  });
+    restoredSaveRevisions = new Map();
+  }));
 }
 
-async function opfsWalk(base = OPFS_PERSIST_DIR, prefix = "", includeData = true) {
+async function opfsWalk(base = OPFS_PERSIST_DIR, prefix = "", includeData = true, optional = true) {
   const files = [];
   let dir;
   try { dir = await opfsDir([base, ...opfsPathParts(prefix)], false); }
-  catch(e) { if (e.name === "NotFoundError") return files; throw e; }
+  catch(e) { if (optional && e.name === "NotFoundError") return files; throw e; }
 
   for await (const [name, handle] of dir.entries()) {
     const rel = prefix ? prefix + "/" + name : name;
     if (handle.kind === "directory") {
-      files.push(...await opfsWalk(base, rel, includeData));
+      files.push(...await opfsWalk(base, rel, includeData, false));
     } else {
       const file = await handle.getFile();
       const entry = {
         path: base === OPFS_PERSIST_DIR ? "/" + rel : rel,
         name,
         size: file.size,
+        mtime: file.lastModified,
       };
       if (includeData) entry.data = new Uint8Array(await file.arrayBuffer());
       files.push(entry);
@@ -747,16 +1070,43 @@ async function opfsRestoreEntries() {
   return files;
 }
 
-async function opfsPutGame(name, data) {
+function gameFileName(name) {
+  if (typeof name !== "string" || !name || name === "." || name === ".." || /[/\\\x00-\x1f\x7f]/.test(name))
+    throw new Error("游戏文件名无效");
+  return name;
+}
+
+async function storeLibraryFile(name, write) {
   return globalThis.PpssppGameStorage.withExclusive(async () => {
-    const safe = name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const safe = gameFileName(name);
     const { dir, name: fileName } = await opfsParent(safe, true, OPFS_GAMES_DIR);
-    const handle = await dir.getFileHandle(fileName, { create: true });
-    await writeOpfsHandle(handle, data);
-    try { await writeGameMetadata(safe, data); }
+    let handle;
+    let created = false;
+    try { handle = await dir.getFileHandle(fileName); }
+    catch (error) {
+      if (error.name !== "NotFoundError") throw error;
+      handle = await dir.getFileHandle(fileName, { create: true });
+      created = true;
+    }
+    if (!created && !confirm("游戏库已有同名文件，替换「" + safe + "」吗？")) throw new Error("已取消替换游戏文件");
+    let file;
+    try { file = await write(handle); }
+    catch (error) {
+      if (created) await dir.removeEntry(fileName);
+      throw error;
+    }
+    try { await writeGameMetadata(safe, file); }
     catch(e) { log("Library metadata failed for " + safe + ": " + e.message, "warn"); }
-    return safe;
+    return { name: safe, size: file.size };
   });
+}
+
+async function opfsPutGame(name, data) {
+  const stored = await storeLibraryFile(name, async handle => {
+    await writeOpfsHandle(handle, data);
+    return data;
+  });
+  return stored.name;
 }
 
 async function opfsReadGame(name) {
@@ -777,36 +1127,35 @@ async function opfsDeleteGame(name) {
   await deleteGameMetadata(name);
 }
 
-// Walk Emscripten FS recursively from root, return [{path, data}]
-function fsWalkDir(FS, root) {
-  const files = [];
-  function walk(dir) {
-    let entries; try { entries = FS.readdir(dir); } catch(e) { return; }
-    for (const name of entries) {
-      if (name === "." || name === "..") continue;
-      const full = dir + "/" + name;
-      let stat; try { stat = FS.stat(full); } catch(e) { continue; }
-      if      (FS.isDir(stat.mode))  walk(full);
-      else if (FS.isFile(stat.mode)) {
-        try { files.push({ path: full, data: FS.readFile(full) }); } catch(e) {}
-      }
-    }
-  }
-  walk(root);
-  return files;
+// MEMFS renames preserve a node's size and mtime. Its inode distinguishes
+// same-sized generations exchanged by native Undo after a page restore.
+function persistFingerprint(stat) {
+  return stat.size + ":" + Number(stat.mtime) + (stat.ino == null ? "" : ":" + stat.ino);
 }
 
 // Walk FS collecting stat info only — no data read, very cheap
-function fsStatDir(FS, root) {
+function fsStatDir(FS, root, strict = false, optionalRoot = false, pendingSlots, flatGroups) {
   const stats = new Map(); // path → {size, mtime}
   function walk(dir) {
-    let entries; try { entries = FS.readdir(dir); } catch(e) { return; }
+    let entries;
+    try { entries = FS.readdir(dir); }
+    catch (error) {
+      if (optionalRoot && dir === root && (error.errno === 44 || error.code === "ENOENT")) return;
+      if (strict) throw error;
+      return;
+    }
     for (const name of entries) {
       if (name === "." || name === "..") continue;
       const full = dir + "/" + name;
-      let st; try { st = FS.stat(full); } catch(e) { continue; }
+      if (/\/PSP\/PPSSPP_STATE\/[^/]+\.tmp$/i.test(full)) {
+        const staged = pendingSlots && full.match(/^(.*?)(?:\.undo)?\.(?:ppst|jpg)(?:\.\d+)?(?:\.previous)?\.tmp$/i);
+        if (staged) pendingSlots.add(staged[1]);
+        continue;
+      }
+      if (flatGroups && !flatGroups.has(saveGroup(full) || full)) continue;
+      let st; try { st = FS.stat(full); } catch(e) { if (strict) throw e; continue; }
       if      (FS.isDir(st.mode))  walk(full);
-      else if (FS.isFile(st.mode)) stats.set(full, { size: st.size, mtime: st.mtime });
+      else if (FS.isFile(st.mode)) stats.set(full, { size: st.size, mtime: st.mtime, ino: st.ino });
     }
   }
   walk(root);
@@ -837,10 +1186,7 @@ function normalizePersistPath(path) {
 }
 
 function persistConflictKey(path) {
-  // A savedata slot is a set of mutually-dependent files. Never mix files from
-  // an old-root slot with an already-existing current-root slot.
-  const slot = path.match(/^(.*\/PSP\/SAVEDATA\/[^/]+)\//i);
-  return slot ? slot[1] + "/" : path;
+  return saveGroup(path) || path;
 }
 
 function selectPersistEntries(entries, existingPaths = []) {
@@ -1098,6 +1444,7 @@ async function writeGameMetadata(name, data) {
     format: meta.format,
     coverType: meta.coverType,
     updated: Date.now(),
+    original: data instanceof File ? { name: data.name, size: data.size, modified: data.lastModified } : undefined,
   };
   await opfsMetaPut(name + ".json", new TextEncoder().encode(JSON.stringify(json)));
   if (meta.coverBytes) await opfsMetaPut(name + ".cover", meta.coverBytes);
@@ -1140,7 +1487,7 @@ function opfsFileCategory(path) {
 
 async function downloadOpfsFile(path) {
   try {
-    const data = await opfsRead(path);
+    const data = await withSaveStorage(() => opfsRead(path));
     const name = path.split("/").pop();
     const blob = new Blob([data], { type: "application/octet-stream" });
     const url  = URL.createObjectURL(blob);
@@ -1150,23 +1497,46 @@ async function downloadOpfsFile(path) {
   } catch(e) { showToast("操作未完成：" + e.message); }
 }
 
-async function deleteOpfsFile(path) {
+async function deleteOpfsFile(path, displayed = displayedStorageRevisions) {
   if (!confirm("从本机存储中删除：\n" + path.split("/").pop() + "?")) return;
-  try { await opfsDelete(path); } catch(e) {}
-  if (window.FS) { try { window.FS.unlink(path); } catch(e) {} }
+  try { await withSaveStorage(() => removeSaveFiles([path], displayed)); }
+  catch (error) { showToast("删除未完成。" + error.message); refreshSavesTab(); updateStorageInfo(); return; }
   showToast("已删除 " + path.split("/").pop());
   updateStorageInfo(); refreshSavesTab();
 }
 
-async function updateStorageInfo() {
+function storagePanelVisible() {
+  return document.body.classList.contains("panel-open") && byId("tabStorage")?.classList.contains("active");
+}
+
+function updateStorageInfo() {
+  storageInfoDirty = true;
+  if (!storagePanelVisible()) return;
+  if (!storageRefresh) {
+    storageRefresh = (async () => {
+      do {
+        storageInfoDirty = false;
+        await renderStorageInfo();
+      } while (storageInfoDirty && storagePanelVisible());
+      storageRefresh = null;
+    })();
+  }
+  return storageRefresh;
+}
+
+async function renderStorageInfo() {
   try {
-    const entries = await opfsWalk(OPFS_PERSIST_DIR, "", false);
+    const [entries, revisions] = await withSaveStorage(async () => [await opfsWalk(OPFS_PERSIST_DIR, "", false), await readSaveRevisions()]);
     const games   = await opfsWalk(OPFS_GAMES_DIR, "", false);
     const allFiles = [...entries, ...games.map(g => ({ ...g, path: VIRTUAL_GAME_DIR + "/" + g.path }))];
-    const bytes   = allFiles.reduce((s, e) => s + (e.data?.byteLength || e.size || 0), 0);
+    const downloads = await globalThis.PpssppGameStorage.downloadUsage();
+    if (!storagePanelVisible()) return;
+    displayedStorageRevisions = revisions;
+    const fileCount = allFiles.length + downloads.files;
+    const bytes   = downloads.bytes + allFiles.reduce((s, e) => s + (e.data?.byteLength || e.size || 0), 0);
     const el = id => document.getElementById(id);
-    el("iStorageFiles").textContent = String(allFiles.length);
-    el("iStorageFiles").className   = allFiles.length ? "info-val good" : "info-val";
+    el("iStorageFiles").textContent = String(fileCount);
+    el("iStorageFiles").className   = fileCount ? "info-val good" : "info-val";
     el("iStorageSize").textContent  = formatBytes(bytes);
     el("iLastSync").textContent     = _lastPersistTime
       ? new Date(_lastPersistTime).toLocaleTimeString() : "尚未同步";
@@ -1175,7 +1545,7 @@ async function updateStorageInfo() {
     // Render grouped file browser
     const listEl = document.getElementById("opfsFileList");
     if (listEl) {
-      if (!allFiles.length) {
+      if (!fileCount) {
         listEl.innerHTML = `<span class="empty-row">尚无本机存储文件。</span>`;
       } else {
         // Group by category
@@ -1201,12 +1571,13 @@ async function updateStorageInfo() {
             html += `<div class="opfs-file-name" title="${esc(path)}">${esc(name)}</div>`;
             html += `<div class="opfs-file-size">${formatBytes(size)}</div>`;
             html += `<div class="opfs-file-actions">`;
-            html += `<button title="导出" onclick="downloadStoredFile(${JSON.stringify(path)})">${svgIcon("download")}</button>`;
-            html += `<button class="del" title="删除" onclick="deleteStoredFile(${JSON.stringify(path)})">${svgIcon("trash")}</button>`;
+            html += `<button title="导出" data-storage-action="download" data-path="${esc(path)}">${svgIcon("download")}</button>`;
+            html += `<button class="del" title="删除" data-storage-action="delete" data-path="${esc(path)}">${svgIcon("trash")}</button>`;
             html += `</div>`;
             html += `</div>`;
           }
         }
+        if (downloads.files) html += `<div class="opfs-cat-header"><span>分块下载缓存 (${downloads.files})</span><span>${formatBytes(downloads.bytes)}</span></div>`;
         listEl.innerHTML = html;
       }
     }
@@ -1236,6 +1607,7 @@ async function deleteStoredFile(path) {
         await opfsDeleteGame(name);
         if (window.FS) { try { window.FS.unlink(path); } catch(e) {} }
       });
+      markLibraryGameMissing(name);
       setPreloadFavorite(name, false);
       refreshEmulatorGameBrowser("deleted " + name);
       showToast("已删除 " + name);
@@ -1272,11 +1644,8 @@ async function playOrMountStoredGame(name) {
   if (!started || !window.FS) {
     selectedStoredGame = name;
     selectedGame = null;
-    selectedGameCached = true;
-    if (fileLabel) fileLabel.title = name;
+    selectedDownload = false;
     updateIdleOverlay();
-    const textNode = fileLabel?.firstChild;
-    if (textNode && textNode.nodeType === 3) textNode.textContent = "\uD83D\uDCC2 " + name + " ";
     setStatus("正在启动 " + name, "run");
     showToast("正在启动 " + name + "…");
     start();
@@ -1321,7 +1690,7 @@ async function showGameInfo(name) {
     titleEl.textContent = title;
     coverEl.innerHTML = cover
       ? `<img src="${cover}" alt="${esc(title)} 封面">`
-      : `<div class="game-cover" style="height:100%;background:${gameAccent(name)}"><div class="game-cover-fallback">${esc(title.split(/\s+/).slice(0, 4).join(" "))}</div></div>`;
+      : `<div class="game-cover" style="height:100%"><div class="game-cover-fallback">${esc(title.split(/\s+/).slice(0, 4).join(" "))}</div></div>`;
     rowsEl.innerHTML = [
       ["文件", name],
       ["格式", meta.format || "未知"],
@@ -1457,14 +1826,6 @@ async function ensureGameMetadata(name) {
   }
 }
 
-function gameAccent(name) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-
-  const hue2 = (hue + 42) % 360;
-  return '#0a4a8a';
-}
-
 async function refreshLibrary() {
   const grid = document.getElementById("libraryGrid");
   const empty = document.getElementById("libraryEmpty");
@@ -1479,6 +1840,7 @@ async function refreshLibrary() {
   try {
     const games = await opfsWalk(OPFS_GAMES_DIR, "", false);
     games.sort((a, b) => a.path.localeCompare(b.path));
+    if (lastPlayed?.source === "library" && !games.some(game => game.path === lastPlayed.name && game.size > 0)) markLibraryGameMissing(lastPlayed.name);
     const preloadFavorites = new Set(prunePreloadFavorites(games.map(game => game.path)));
     if (count) count.textContent = games.length + " 个游戏";
 
@@ -1490,6 +1852,13 @@ async function refreshLibrary() {
     const cards = [];
     for (const game of games) {
       const meta = await ensureGameMetadata(game.path);
+      const original = meta.original;
+      if (!started && lastPlayed?.source === "file" && original && original.name === lastPlayed.name &&
+          original.size === lastPlayed.size && original.modified === lastPlayed.modified) {
+        lastPlayed = { source: "library", name: game.path };
+        preferences.setItem(LAST_PLAYED_KEY, JSON.stringify(lastPlayed));
+        updateIdleOverlay();
+      }
       const coverURL = await readGameCoverURL(game.path, meta.coverType);
       if (coverURL) _libraryCoverURLs.push(coverURL);
       const title = meta.title || prettyGameName(game.path);
@@ -1497,11 +1866,11 @@ async function refreshLibrary() {
       const mounted = !!window.FS?.analyzePath?.(VIRTUAL_GAME_DIR + "/" + game.path).exists;
       const preloads = preloadFavorites.has(game.path);
       const primary = started ? (mounted ? "已载入" : "载入") : "开始游戏";
-      const primaryDisabled = started && mounted ? " disabled" : "";
+      const primaryDisabled = !game.size || (started && mounted) ? " disabled" : "";
       const fallback = title.split(/\s+/).slice(0, 4).join(" ");
       cards.push(`
         <div class="game-card">
-          <div class="game-cover" style="background:${gameAccent(game.path)}">
+          <div class="game-cover">
             ${coverURL
               ? `<img src="${coverURL}" alt="${esc(title)} 封面" loading="lazy">`
               : `<div class="game-cover-fallback">${esc(fallback)}</div>`}
@@ -1510,7 +1879,7 @@ async function refreshLibrary() {
             <div class="game-card-title" title="${esc(title)}">${esc(title)}</div>
             <div class="game-card-meta" title="${esc(game.path)}">${esc(format)} · ${formatBytes(game.size || 0)}${preloads ? " · 启动时载入" : ""}</div>
             <div class="game-card-actions">
-              <button data-action="play" data-game="${esc(game.path)}"${primaryDisabled}>${primary}</button>
+              <button data-action="play" data-game="${esc(game.path)}"${primaryDisabled}>${game.size ? primary : "请重新添加"}</button>
               <button class="icon-only preload-toggle${preloads ? " active" : ""}" title="${preloads ? "取消启动时载入" : "启动时载入"}" aria-pressed="${preloads ? "true" : "false"}" data-action="favorite" data-game="${esc(game.path)}">${svgIcon("preload")}</button>
               <button class="icon-only" title="详情" data-action="info" data-game="${esc(game.path)}">${svgIcon("info")}</button>
               <button class="icon-only danger" title="删除" data-action="delete" data-game="${esc(game.path)}">${svgIcon("trash")}</button>
@@ -1540,7 +1909,7 @@ async function addGameToLibrary(file) {
     updateStorageInfo();
   } catch(e) {
     log("Library add failed: " + e.message, "err");
-    showToast("操作未完成：" + e.message);
+    showToast(e.name === "QuotaExceededError" ? "游戏库空间不足。可以从首页选择本机镜像直接游玩。" : "操作未完成：" + e.message);
   }
 }
 
@@ -1597,30 +1966,27 @@ async function readResponseBytes(response, label) {
 
 async function storeGameResponse(name, response) {
   if (!response.ok) throw new Error("Game download failed: HTTP " + response.status);
-  const safe = name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const { dir, name: fileName } = await opfsParent(safe, true, OPFS_GAMES_DIR);
-  const handle = await dir.getFileHandle(fileName, { create: true });
-  if (response.body) {
-    const writable = await handle.createWritable();
-    let received = 0, lastProgress = 0;
-    const total = Number(response.headers.get("content-length")) || 0;
-    const progress = new TransformStream({ transform(chunk, controller) {
-      received += chunk.byteLength;
-      if (performance.now() - lastProgress >= 200) {
-        showLoading("Downloading " + safe + "… " + formatBytes(received), total ? received / total : undefined);
-        lastProgress = performance.now();
-      }
-      controller.enqueue(chunk);
-    } });
-    // pipeTo applies backpressure and aborts the file transaction on failure.
-    await response.body.pipeThrough(progress).pipeTo(writable);
-  } else {
-    await writeOpfsHandle(handle, await response.blob());
-  }
-  const file = await handle.getFile();
-  try { await writeGameMetadata(safe, file); }
-  catch (e) { log("Library metadata failed for " + safe + ": " + e.message, "warn"); }
-  return { name: safe, size: file.size };
+  const safe = gameFileName(name);
+  return storeLibraryFile(safe, async handle => {
+    if (response.body) {
+      const writable = await handle.createWritable();
+      let received = 0, lastProgress = 0;
+      const total = Number(response.headers.get("content-length")) || 0;
+      const progress = new TransformStream({ transform(chunk, controller) {
+        received += chunk.byteLength;
+        if (performance.now() - lastProgress >= 200) {
+          showLoading("Downloading " + safe + "… " + formatBytes(received), total ? received / total : undefined);
+          lastProgress = performance.now();
+        }
+        controller.enqueue(chunk);
+      } });
+      // pipeTo applies backpressure and aborts the file transaction on failure.
+      await response.body.pipeThrough(progress).pipeTo(writable);
+    } else {
+      await writeOpfsHandle(handle, await response.blob());
+    }
+    return handle.getFile();
+  });
 }
 
 async function addGameURLToLibrary(url) {
@@ -1645,7 +2011,7 @@ async function addGameURLToLibrary(url) {
     const response = await fetch(parsed.href, { mode: "cors" });
     if (!response.ok) throw new Error("HTTP " + response.status + " " + response.statusText);
     const headerName = filenameFromContentDisposition(response.headers.get("content-disposition"));
-    const name = (headerName || fallbackName).replace(/[^a-zA-Z0-9._-]/g, "_");
+    const name = gameFileName(headerName || fallbackName);
     const stored = await storeGameResponse(name, response);
     const storedName = stored.name;
     hideLoading();
@@ -1667,17 +2033,6 @@ async function addGameURLToLibrary(url) {
   }
 }
 
-// Convert binary data to a data: URL for inline display
-function toDataURL(data, ext) {
-  try {
-    const mime = /png/i.test(ext) ? "image/png" : "image/jpeg";
-    const bytes = new Uint8Array(data);
-    let bin = "";
-    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-    return "data:" + mime + ";base64," + btoa(bin);
-  } catch(e) { return null; }
-}
-
 /* ── Saves Tab ──────────────────────────────────────────────────── */
 // PSP save paths:
 //   SAVEDATA    → <memstick>/PSP/SAVEDATA/<GAMEID_TITLE>/<files>   (subdir per game)
@@ -1687,38 +2042,27 @@ const SAVE_SUBDIRS = [
   { dir: "PSP/PPSSPP_STATE", flat: true,  label: "即时存档" },
 ];
 
-function readSaveSlotFiles(FS, slotDir) {
-  // returns [{name, path, size}] for all files inside a slot directory
-  const files = [];
-  let entries;
-  try { entries = FS.readdir(slotDir); } catch(e) { return files; }
-  for (const name of entries) {
-    if (name === "." || name === "..") continue;
-    const full = slotDir + "/" + name;
-    try {
-      const st = FS.stat(full);
-      if (FS.isFile(st.mode)) files.push({ name, path: full, size: st.size });
-    } catch(e) {}
-  }
-  return files;
-}
-
 // Build a unified file map from OPFS + live FS (FS takes priority as it's fresher)
 async function buildSaveFileMap() {
-  const opfsEntries = await opfsWalk();
-  const map = new Map(); // path → {path, data, size, fromOPFS}
-  const FS = window.FS;
-  const fsFiles = FS ? fsWalkDir(FS, detectMemstickDir(FS)) : [];
-  const selected = selectPersistEntries(opfsEntries, fsFiles.map(file => file.path));
-  for (const entry of selected.entries) {
-    // Before the first launch, an unmigrated legacy file is still downloaded
-    // from its original OPFS path. Once migrated its canonical copy wins.
-    const path = entry.sourcePath;
-    map.set(path, { ...entry, path, size: entry.data?.byteLength || entry.size || 0, fromOPFS: true });
+  const directories = PERSIST_ROOTS.flatMap(root => SAVE_SUBDIRS.map(({ dir }) => root + "/" + dir));
+  const entries = (await Promise.all(directories.map(path => opfsWalk(OPFS_PERSIST_DIR, path.slice(1), false)))).flat();
+  const fs = window.FS;
+  const live = new Map();
+  if (fs) {
+    for (const { dir } of SAVE_SUBDIRS) {
+      for (const [path, stat] of fsStatDir(fs, detectMemstickDir(fs) + "/" + dir)) live.set(path, stat);
+    }
   }
-  // Overlay with live FS (newer / authoritative), using the same absolute keys.
-  for (const { path, data } of fsFiles) {
-    map.set(path, { path, data, size: data?.byteLength || 0, fromOPFS: false });
+  const selected = selectPersistEntries(entries, live.keys());
+  const map = new Map();
+  for (const entry of selected.entries) {
+    // An unmigrated slot must still be opened at its original OPFS path.
+    map.set(entry.sourcePath, { size: entry.size, mtime: entry.mtime });
+  }
+  for (const [path, stat] of live) {
+    // Restoring a file gives MEMFS a fresh timestamp. Keep the disk timestamp
+    // while the live version still matches the one restored or synchronized.
+    if (!map.has(path) || _persistedFileState.get(path) !== persistFingerprint(stat)) map.set(path, stat);
   }
   return map;
 }
@@ -1751,7 +2095,7 @@ function groupSavesBySlot(fileMap) {
           const slotDir = PERSIST_ROOT + "/" + dir; // the dir itself is the "slot"
           const key     = dir + "\0" + game;
           if (!slots.has(key)) slots.set(key, { dir, label, flat: true, slotDir, game, files: [] });
-          slots.get(key).files.push({ name: rest, path, size: entry.size, data: entry.data });
+          slots.get(key).files.push({ name: rest, path, size: entry.size, mtime: Number(entry.mtime) || 0 });
         } else {
           // SAVEDATA: <game>/<filename>
           const slash = rest.indexOf("/");
@@ -1762,7 +2106,7 @@ function groupSavesBySlot(fileMap) {
           const slotDir = PERSIST_ROOT + "/" + dir + "/" + game;
           const key     = dir + "\0" + slotDir;
           if (!slots.has(key)) slots.set(key, { dir, label, flat: false, slotDir, game, files: [] });
-          slots.get(key).files.push({ name, path, size: entry.size, data: entry.data });
+          slots.get(key).files.push({ name, path, size: entry.size, mtime: Number(entry.mtime) || 0 });
         }
       }
     }
@@ -1770,26 +2114,69 @@ function groupSavesBySlot(fileMap) {
   return [...slots.values()];
 }
 
+let savesListRevision = 0;
+let displayedSaveRevisions = new Map();
+let displayedStorageRevisions = new Map();
+let saveThumbnailObserver;
+
+function observeSaveThumbnails(list) {
+  async function load(image) {
+    try {
+      const path = image.dataset.thumbPath;
+      const bytes = await readSaveFileData(path);
+      if (!image.isConnected) return;
+      const url = URL.createObjectURL(new Blob([bytes], { type: /\.png$/i.test(path) ? "image/png" : "image/jpeg" }));
+      try {
+        image.src = url;
+        await image.decode();
+      } finally { URL.revokeObjectURL(url); }
+    } catch (_) { image.hidden = true; }
+  }
+  const images = list.querySelectorAll("img[data-thumb-path]");
+  if (!images.length) return;
+  if (!window.IntersectionObserver) { images.forEach(load); return; }
+  saveThumbnailObserver = new IntersectionObserver((entries, observer) => {
+    for (const { target, isIntersecting } of entries) {
+      if (!isIntersecting) continue;
+      observer.unobserve(target);
+      void load(target);
+    }
+  });
+  images.forEach(image => saveThumbnailObserver.observe(image));
+}
+
+function saveListDate(timestamp) {
+  return timestamp ? " · " + new Date(timestamp).toLocaleString("zh-CN") : "";
+}
+
 async function refreshSavesTab() {
   const empty  = document.getElementById("savesEmpty");
   const list   = document.getElementById("savesList");
   const stats  = document.getElementById("savesStats");
-  if (!empty || !list) return;
+  if (!empty || !list || !document.body.classList.contains("panel-open") || byId("tabSaves").hidden) return;
+  const revision = ++savesListRevision;
+  saveThumbnailObserver?.disconnect();
 
   // Show spinner while loading
   empty.style.display = "block";
   empty.innerHTML = `<span class="saves-loading">正在读取存档…</span>`;
   list.style.display = "none";
 
-  let fileMap;
-  try { fileMap = await buildSaveFileMap(); }
-  catch(e) { empty.innerHTML = "读取存档失败：" + esc(e.message); return; }
+  let fileMap, revisions;
+  try { [fileMap, revisions] = await withSaveStorage(async () => [await buildSaveFileMap(), await readSaveRevisions()]); }
+  catch(e) {
+    if (revision === savesListRevision) empty.textContent = "读取存档失败：" + e.message;
+    return;
+  }
+  if (revision !== savesListRevision) return;
 
+  displayedSaveRevisions = revisions;
   const slots = groupSavesBySlot(fileMap);
   const fromFS  = !!window.FS;
   const source  = fromFS ? "当前游戏与本机存储" : "OPFS";
 
   if (!slots.length) {
+    list.replaceChildren();
     empty.style.display = "block";
     empty.innerHTML = "尚未找到存档。<br><small>请先在游戏内存档，再点击“同步存档到本机”。</small>";
     list.style.display = "none";
@@ -1820,23 +2207,21 @@ async function refreshSavesTab() {
       const thumbFile = byName("ICON0.PNG") || byName("PIC1.PNG") ||
                         files.find(f => /\.png$/i.test(f.name)) ||
                         files.find(f => /\.jpg$/i.test(f.name));
-      const thumbExt  = thumbFile ? (thumbFile.name.split(".").pop() || "png") : "";
-      const thumbURL  = thumbFile?.data ? toDataURL(thumbFile.data, thumbExt) : null;
+      const latest = files.reduce((time, file) => Math.max(time, file.mtime), 0);
 
       // Non-image files listed compactly
       const dataFiles = files.filter(f => !/\.(png|jpg|jpeg|bmp)$/i.test(f.name));
-      const allPaths  = files.map(f => f.path);
       const fileSummary = dataFiles.map(f => f.name).join(" · ");
 
       html += `<div class="save-card">`;
-      if (thumbURL) {
-        html += `<img class="save-card-thumb" src="${thumbURL}" alt="存档封面" loading="lazy">`;
+      if (thumbFile) {
+        html += `<img class="save-card-thumb" data-thumb-path="${esc(thumbFile.path)}" alt="存档封面">`;
       } else {
         html += `<div class="save-card-thumb-placeholder">${svgIcon("save", "lucide save-ph-icon")}</div>`;
       }
       html += `<div class="save-card-body">`;
       html += `<div class="save-card-name" title="${esc(slotDir)}">${esc(game)}</div>`;
-      html += `<div class="save-card-meta">${files.length} 个文件 &nbsp;·&nbsp; ${formatBytes(slotBytes)}</div>`;
+      html += `<div class="save-card-meta">${files.length} 个文件 &nbsp;·&nbsp; ${formatBytes(slotBytes)}${saveListDate(latest)}</div>`;
       if (fileSummary) html += `<div class="save-card-files" title="${esc(fileSummary)}">${esc(fileSummary)}</div>`;
       html += `</div>`;
       html += `<div class="save-card-actions">`;
@@ -1871,18 +2256,17 @@ async function refreshSavesTab() {
     for (const { dataFile, thumbFile, slotDir, game, flat } of stateByBase.values()) {
       const main = dataFile || thumbFile;
       if (!main) continue;
-      totalSlots++; totalBytes += main.size + (thumbFile?.size || 0);
-      const thumbURL = thumbFile?.data ? toDataURL(thumbFile.data, "jpg") : null;
+      totalSlots++; totalBytes += (dataFile?.size || 0) + (thumbFile?.size || 0);
       const allPaths = [main.path, ...(thumbFile && thumbFile !== main ? [thumbFile.path] : [])];
       const slotLabel = main.name.replace(/\.[^.]+$/, "");
 
       html += `<div class="save-state-row">`;
-      if (thumbURL) {
-        html += `<img class="save-state-thumb" src="${thumbURL}" alt="存档预览" loading="lazy">`;
+      if (thumbFile) {
+        html += `<img class="save-state-thumb" data-thumb-path="${esc(thumbFile.path)}" alt="存档预览">`;
       }
       html += `<div class="save-state-body">`;
       html += `<div class="save-state-name" title="${esc(main.path)}">${esc(slotLabel)}</div>`;
-      html += `<div class="save-state-meta">${formatBytes(main.size)}</div>`;
+      html += `<div class="save-state-meta">${formatBytes(main.size)}${saveListDate(main.mtime)}</div>`;
       html += `</div>`;
       html += `<div class="save-state-actions">`;
       if (dataFile) html += `<button title="导出" data-save-action="download-file" data-path="${esc(dataFile.path)}">${svgIcon("download")}</button>`;
@@ -1895,6 +2279,7 @@ async function refreshSavesTab() {
   empty.style.display = "none";
   list.style.display  = "block";
   list.innerHTML = html;
+  observeSaveThumbnails(list);
   if (stats) stats.textContent =
     totalSlots + " 个存档" +
     " · " + formatBytes(totalBytes) +
@@ -1919,28 +2304,9 @@ async function downloadSaveFile(path) {
 }
 
 async function downloadSaveSlot(slotDir, gameName) {
-  // Collect all OPFS entries for this slot
-  const all   = await opfsWalk();
-  const files = all.filter(e => e.path.startsWith(slotDir + "/"));
-  // Also grab any FS-only files not yet persisted
-  const FS = window.FS;
-  if (FS) {
-    const fsFiles = readSaveSlotFiles(FS, slotDir);
-    for (const { path } of fsFiles) {
-      if (!files.find(e => e.path === path)) {
-        try { files.push({ path, data: FS.readFile(path) }); } catch(e) {}
-      }
-    }
-  }
+  const files = (await snapshotSaveDirectory(slotDir)).map(({ path, data }) => ({ name: path.split("/").pop(), path, data }));
   if (!files.length) { showToast("此存档目录中没有文件"); return; }
-  const bundle = {
-    version: 1, exported: new Date().toISOString(),
-    slot: gameName, slotDir,
-    files: files.map(({ path, data }) => ({
-      name: path.split("/").pop(), path,
-      data: bytesToBase64(data)
-    }))
-  };
+  const bundle = { version: 1, exported: new Date().toISOString(), slot: gameName, slotDir, files };
   const blob = new Blob([JSON.stringify(bundle)], { type: "application/json" });
   triggerDownload(blob, "ppsspw-slot-" + gameName.replace(/[^a-zA-Z0-9_-]/g, "_") + ".ppsspp");
   log("Downloaded slot: " + gameName + " (" + files.length + " files)", "ok");
@@ -1954,22 +2320,12 @@ async function uploadSingleSaveSlotToDrive(slotDir, gameName) {
     setDriveActivity("Uploading slot " + gameName + "…", "run");
     if (window.FS) await persistFiles(window.FS, "drive-slot");
     await ensureDriveFolders(true);
-    const all = await opfsWalk();
-    const slotFiles = all.filter(e => e.path.startsWith(slotDir + "/"));
-    const FS = window.FS;
-    if (FS) {
-      const fsFiles = readSaveSlotFiles(FS, slotDir);
-      for (const { path } of fsFiles) {
-        if (!slotFiles.find(e => e.path === path)) {
-          try { slotFiles.push({ path, data: FS.readFile(path) }); } catch(e) {}
-        }
-      }
-    }
+    const slotFiles = await withSaveStorage(() => snapshotSaveDirectory(slotDir));
     if (!slotFiles.length) { showToast("此存档目录中没有文件"); setDriveActivity("Idle"); return; }
     const bundle = {
       version: 1, exported: new Date().toISOString(),
       slot: gameName, slotDir,
-      files: slotFiles.map(({ path, data }) => ({ name: path.split("/").pop(), path, data: bytesToBase64(data) }))
+      files: slotFiles.map(({ path, data }) => ({ name: path.split("/").pop(), path, data }))
     };
     const bytes = new TextEncoder().encode(JSON.stringify(bundle));
     const remoteName = "ppsspp-slot-" + gameName.replace(/[^a-zA-Z0-9_-]/g, "_") + ".ppsspp";
@@ -2045,46 +2401,50 @@ async function uploadSingleGameToDrive(gameName) {
   } finally { hideLoading(); }
 }
 
-async function deleteSaveFile(path) {
-  if (!confirm("删除文件：\n" + path.split("/").pop() + "?")) return;
-  // Remove from OPFS
-  try { await opfsDelete(path); } catch(e) {}
-  // Remove from FS if running
-  const FS = window.FS;
-  if (FS) { try { FS.unlink(path); } catch(e) {} }
-  showToast("已删除 " + path.split("/").pop());
-  refreshSavesTab(); updateStorageInfo();
+async function removeSaveFiles(paths, displayed) {
+  await commitSaveImport(paths.map(path => ({ path, bytes: null })), window.FS, displayed);
 }
 
-async function deleteSavePair(paths) {
-  const names = paths.map(p => p.split("/").pop()).join("\n");
-  if (!confirm("删除：\n" + names + "？\n\n删除后无法撤销。")) return;
-  const FS = window.FS;
-  for (const path of paths) {
-    try { await opfsDelete(path); } catch(e) {}
-    if (FS) { try { FS.unlink(path); } catch(e) {} }
+async function removeSaveDirectory(prefixes, removeRoots = true, displayed) {
+  const paths = new Set();
+  for (const prefix of prefixes) {
+    for (const entry of await opfsWalk(OPFS_PERSIST_DIR, prefix.slice(1), false)) paths.add(entry.path);
+    const fs = window.FS;
+    if (fs?.analyzePath(prefix).exists) {
+      for (const path of fsStatDir(fs, prefix, true).keys()) paths.add(path);
+    }
   }
+  if (!paths.size && removeRoots && displayed) {
+    await reserveSaveGroups(prefixes.map(prefix => prefix + "/"), { checkOnly: true, displayed });
+  }
+  await removeSaveFiles([...paths], displayed);
+  // Native save utilities also use the directory itself to detect a slot.
+  if (window.FS) {
+    const dirs = new Set(removeRoots ? prefixes : []);
+    for (const path of paths) {
+      let parent = dirname(path);
+      while (prefixes.some(prefix => parent.startsWith(prefix + "/"))) {
+        dirs.add(parent);
+        parent = dirname(parent);
+      }
+    }
+    for (const dir of [...dirs].sort((a, b) => b.length - a.length)) {
+      try { window.FS.rmdir(dir); } catch (_) { /* Already absent or still in use. */ }
+    }
+  }
+}
+
+async function deleteSavePair(paths, displayed = displayedSaveRevisions) {
+  const names = paths.map(p => p.split("/").pop()).join("\n");
+  if (!confirm("删除：" + names + "？\n\n删除后无法撤销。")) return;
+  await withSaveStorage(() => removeSaveFiles(paths, displayed));
   showToast("已删除 " + paths.map(p => p.split("/").pop()).join(", "));
   refreshSavesTab(); updateStorageInfo();
 }
 
-async function deleteSaveSlot(slotDir, gameName) {
+async function deleteSaveSlot(slotDir, gameName, displayed = displayedSaveRevisions) {
   if (!confirm("删除以下游戏的全部存档：\n" + gameName + "？\n\n删除后无法撤销。")) return;
-  // Delete all OPFS entries under this slot
-  const all   = await opfsWalk();
-  const paths = all.filter(e => e.path.startsWith(slotDir + "/")).map(e => e.path);
-  for (const path of paths) {
-    try { await opfsDelete(path); } catch(e) {}
-  }
-  // Also remove from live FS
-  const FS = window.FS;
-  if (FS) {
-    try {
-      const files = readSaveSlotFiles(FS, slotDir);
-      for (const { path } of files) { try { FS.unlink(path); } catch(e) {} }
-      try { FS.rmdir(slotDir); } catch(e) {}
-    } catch(e) {}
-  }
+  await withSaveStorage(() => removeSaveDirectory([slotDir], true, displayed));
   log("Deleted slot: " + gameName, "warn");
   showToast("已删除存档：" + gameName);
   refreshSavesTab(); updateStorageInfo();
@@ -2101,7 +2461,7 @@ function nativeSaveRelativePath(file) {
 
 function importNativeSaveFolder(files) {
   const selected = Array.from(files);
-  const task = persistQueue.then(() => importNativeSaveFolderNow(selected));
+  const task = persistQueue.then(() => withSaveStorage(() => importNativeSaveFolderNow(selected)));
   persistQueue = task.catch(() => {});
   return task;
 }
@@ -2113,25 +2473,19 @@ async function importNativeSaveFolderNow(files) {
     const root = window.FS ? detectMemstickDir(window.FS) : PERSIST_ROOTS[0];
     const prepared = [];
     for (const { file, relative } of paths) {
-      prepared.push({ relative, data: new Uint8Array(await file.arrayBuffer()) });
+      prepared.push({ path: root + "/PSP/SAVEDATA/" + relative, bytes: new Uint8Array(await file.arrayBuffer()) });
     }
-    for (const { relative, data } of prepared) {
-      const path = root + "/PSP/SAVEDATA/" + relative;
-      await opfsPut(path, data);
-      if (window.FS) {
-        fsMkdirP(window.FS, dirname(path));
-        window.FS.writeFile(path, data);
-      }
-    }
+    await commitSaveImport(prepared, window.FS);
     log("Imported native PSP save folder: " + paths.length + " files.", "ok");
     showToast("已导入 " + paths.length + " 个 PSP 存档文件。");
-    await refreshSavesTab();
-    await updateStorageInfo();
+    void refreshSavesTab();
+    void updateStorageInfo();
   } catch (e) { showToast("导入存档文件夹失败：" + e.message, 6000); }
 }
 on("nativeSaveFolderInput", "change", async event => {
-  await importNativeSaveFolder(event.target.files);
-  event.target.value = "";
+  try { await importNativeSaveFolder(event.target.files); }
+  catch (error) { showToast("导入存档文件夹失败：" + error.message, 6000); }
+  finally { event.target.value = ""; }
 });
 
 async function importSaveSlot(file) {
@@ -2160,7 +2514,11 @@ async function loadPersistedFiles(FS) {
     try {
       // Journal only absent canonical targets. If rollback itself fails, the
       // next startup retries it before conflict selection can see a half slot.
-      if (migrated.length) journal = await beginSaveMigration(migrated.map(entry => entry.path));
+      if (migrated.length) {
+        const targets = migrated.map(entry => entry.path);
+        await reserveSaveGroups(targets);
+        journal = await beginSaveMigration(targets);
+      }
       for (const entry of selected) {
         const { path, data, legacy } = entry;
         if (legacy) await opfsPut(path, data);
@@ -2193,9 +2551,9 @@ async function loadPersistedFiles(FS) {
     showToast("✓ 已恢复 " + selected.length + " 个存档与设置文件");
     // Seed dirty-tracking so the first auto-sync cycle is fully incremental
     _detectedMemstick = detectMemstickDir(FS);
-    const initStats = fsStatDir(FS, _detectedMemstick);
-    for (const [path, { size, mtime }] of initStats)
-      _persistedFileState.set(path, size + ":" + mtime);
+    const initStats = fsStatDir(FS, _detectedMemstick, true);
+    for (const [path, stat] of initStats)
+      _persistedFileState.set(path, persistFingerprint(stat));
   } catch(e) {
     log("Persistence: restore stopped: " + e.message, "err");
     const error = new Error("本机存档恢复未完成，已停止启动以保留原存档。请检查存储权限和空间后重新载入。" + "（" + e.message + "）");
@@ -2245,6 +2603,7 @@ function loadPlayerSettings() {
   let saved = {};
   try { saved = JSON.parse(preferences.getItem(PLAYER_SETTINGS_KEY) || "{}"); } catch (_) {}
   return {
+    padOpacity: Number.isFinite(saved?.padOpacity) ? Math.min(100, Math.max(25, saved.padOpacity)) : 70,
     resolution: [1, 2, 3].includes(Number(saved?.resolution)) ? Number(saved.resolution) : 1,
     showFps: saved?.showFps === true,
     touch: typeof saved?.touch === "boolean" ? saved.touch : isMobileExperience() || (navigator.maxTouchPoints || 0) > 0,
@@ -2277,7 +2636,16 @@ function refreshPlayerSettingsUI() {
   if (resolution) resolution.value = String(settings.resolution);
   if (fps) fps.checked = settings.showFps;
   if (touch) touch.checked = settings.touch;
+  const slider = byId("player-pad-opacity");
+  if (slider) slider.value = String(settings.padOpacity);
+  applyPadOpacity(settings.padOpacity);
   updateTouchControls();
+}
+
+function applyPadOpacity(percent) {
+  byId("touchGamepad")?.style.setProperty("--pad-opacity", String(percent / 100));
+  const output = byId("padOpacityValue");
+  if (output) output.value = percent + "%";
 }
 
 let playerSettingsQueue = Promise.resolve();
@@ -2311,6 +2679,7 @@ async function restorePlayerSettings() {
 
 function savePlayerSettings(event) {
   const settings = {
+    padOpacity: Number(byId("player-pad-opacity")?.value || 70),
     resolution: Number(byId("player-render-resolution")?.value || 1),
     showFps: !!byId("player-show-fps")?.checked,
     touch: !!byId("player-touch-controls")?.checked,
@@ -2346,12 +2715,178 @@ async function syncPlayerFiles() {
   try {
     const result = await persistFiles(window.FS, "manual");
     if (result?.unavailable) throw new Error("浏览器未开放本地存储权限");
+    if (result?.pendingSlots) throw new Error("核心正在写入存档，请保留页面，等待保存完成后重试。");
+    if (result?.incompleteScan) throw new Error("部分存档目录暂时无法读取，请保留页面并重试。");
+    if (result?.conflict) throw saveConflict();
     if (result?.failed) throw new Error("部分文件未能写入，请检查存储空间后重试");
     showToast("已同步到本机。此操作保存游戏已生成的存档，不会替代游戏内存档。", 6000);
     await refreshSavesTab();
   } catch (error) {
     log("Manual persistence failed: " + error.message, "err");
-    showToast("存档同步未完成，请保留当前页面并重试。可先导出存档备份。", 7000);
+    showToast("存档同步未完成。" + error.message, 7000);
+  }
+}
+
+// These values mirror SlotAction in SDL/WasmStateSlots.cpp.
+const slotAction = { inspect: 0, saveEmpty: 1, replace: 2, load: 3, inspectMenu: 4 };
+let nextSlotRequest = 0;
+const pendingSlotRequests = new Map();
+let selectedStateSlot = null;
+let slotBusy = false;
+let slotThumbnail = null;
+
+function requestStateSlot(action, slot, path = "") {
+  const mod = window.Module;
+  if (!runtimeReady || typeof mod?._ppssppWebStateSlot !== "function") {
+    throw new Error(runtimeReady ? "当前核心不支持网页按槽操作，请使用模拟器菜单。" : "请先进入游戏。");
+  }
+  const errors = {
+    unavailable: "请先进入游戏画面，再打开即时存档。",
+    changed: "当前游戏已切换，请重新选择槽位。",
+    occupied: "这个槽位已有存档，请确认后再覆盖。",
+    empty: "所选槽位还没有存档。",
+    restricted: "当前联机或成就模式限制此操作。",
+    failed: "核心未能完成存读档。",
+  };
+  return new Promise((resolve, reject) => {
+    const id = ++nextSlotRequest;
+    const timeout = setTimeout(() => {
+      pendingSlotRequests.delete(id);
+      reject(new Error("核心尚未确认操作结果，请保留页面，稍后重新查看槽位。"));
+    }, 60000);
+    pendingSlotRequests.set(id, (replyId, file, actualSlot, count, error, warning) => {
+      if (replyId !== id) return;
+      clearTimeout(timeout);
+      pendingSlotRequests.delete(id);
+      if (error) reject(new Error(warning || errors[error] || errors.failed));
+      else resolve({ path: file, slot: actualSlot, count, warning });
+    });
+    try {
+      mod.ccall("ppssppWebStateSlot", null, ["number", "number", "number", "string"], [id, action, slot, path]);
+    } catch (error) {
+      clearTimeout(timeout);
+      pendingSlotRequests.delete(id);
+      reject(error);
+    }
+  });
+}
+
+function slotHasData(path) {
+  return !!path && window.FS.analyzePath(path).exists && window.FS.stat(path).size > 0;
+}
+
+function updateStateSlotButtons() {
+  const ready = !!selectedStateSlot && runtimeReady;
+  byId("stateSlotSelect").disabled = slotBusy || !ready;
+  byId("stateSlotSave").disabled = slotBusy || !ready;
+  byId("stateSlotLoad").disabled = slotBusy || !ready || !slotHasData(selectedStateSlot.path);
+}
+
+async function showStateSlot(info) {
+  const fs = window.FS;
+  const select = byId("stateSlotSelect");
+  selectedStateSlot = info;
+  if (select.options.length !== info.count || select.options[0]?.value !== "0") {
+    select.replaceChildren(...Array.from({ length: info.count }, (_, n) => new Option("第 " + (n + 1) + " 槽", String(n))));
+  }
+  select.value = String(info.slot);
+  const preview = byId("stateSlotPreview");
+  const image = preview.querySelector("img");
+  image.hidden = true;
+  image.removeAttribute("src");
+  if (slotThumbnail) URL.revokeObjectURL(slotThumbnail);
+  slotThumbnail = null;
+  preview.hidden = false;
+  try { await reserveSaveGroups([info.path], { checkOnly: true }); }
+  catch (error) { preview.querySelector("span").textContent = error.message; return; }
+  let description = fs.analyzePath(info.path).exists ? "存档损坏（0 字节），可重新保存" : "空槽";
+  if (slotHasData(info.path)) {
+    description = "已有存档 · " + formatBytes(fs.stat(info.path).size);
+    const shot = info.path.replace(/\.ppst$/, ".jpg");
+    if (fs.analyzePath(shot).exists) {
+      slotThumbnail = URL.createObjectURL(new Blob([fs.readFile(shot)], { type: "image/jpeg" }));
+      image.src = slotThumbnail;
+      image.hidden = false;
+    }
+    try {
+      const { dir, name } = await opfsParent(info.path, false);
+      const file = await (await dir.getFileHandle(name)).getFile();
+      description += " · 本机写入于 " + new Date(file.lastModified).toLocaleString("zh-CN");
+    } catch (_) { /* A new in-memory slot can be visible before persistence. */ }
+  }
+  preview.querySelector("span").textContent = description;
+}
+
+async function refreshStateSlot() {
+  const select = byId("stateSlotSelect");
+  if (!select || slotBusy) return;
+  const slot = Number(select.value);
+  slotBusy = true;
+  updateStateSlotButtons();
+  try {
+    const requested = selectedStateSlot && Number.isInteger(slot) ? slot : -1;
+    let info;
+    try { info = await requestStateSlot(slotAction.inspect, requested); }
+    catch (error) {
+      if (requested !== -1 || window.Module?._ppssppWebOpenMenu || !window.Module?._ppssppWebStateSlot) throw error;
+      info = await requestStateSlot(slotAction.inspect, 0);
+    }
+    await withSaveStorage(() => showStateSlot(info));
+    byId("stateSlotStatus").textContent = "";
+  } catch (error) {
+    selectedStateSlot = null;
+    byId("stateSlotPreview").hidden = true;
+    byId("stateSlotStatus").textContent = error.message;
+  } finally {
+    slotBusy = false;
+    updateStateSlotButtons();
+  }
+}
+
+async function runStateSlotAction(save) {
+  if (!selectedStateSlot || slotBusy) return;
+  const { slot, path } = selectedStateSlot;
+  const label = "第 " + (slot + 1) + " 槽";
+  const occupied = window.FS.analyzePath(path).exists;
+  const expectedRevision = restoredSaveRevisions?.get(saveGroup(path));
+  if (save && occupied && !confirm((slotHasData(path) ? "覆盖" : "替换零字节损坏存档，重新保存到") + label + "吗？")) return;
+  slotBusy = true;
+  updateStateSlotButtons();
+  const status = byId("stateSlotStatus");
+  status.textContent = save ? "正在保存到" + label + "…" : "正在读取" + label + "…";
+  try {
+    let action = slotAction.load;
+    if (save) action = occupied ? slotAction.replace : slotAction.saveEmpty;
+    const info = await withSaveStorage(async () => {
+      if (restoredSaveRevisions?.get(saveGroup(path)) !== expectedRevision) throw new Error("此槽位刚刚发生变化，请重新查看后再保存。");
+      await reserveSaveGroups([path], { checkOnly: true });
+      const saved = await requestStateSlot(action, slot, path);
+      if (!save) return saved;
+      status.textContent = "正在写入本机，请保留页面…";
+      await persistStateSlot(window.FS, saved.path);
+      return saved;
+    });
+    if (save) void refreshSavesTab();
+    await withSaveStorage(() => showStateSlot(info));
+    const message = save ? label + "已保存到本机，可以刷新。" : "已读取" + label + "。";
+    status.textContent = message + info.warning;
+    showToast(status.textContent, 5000);
+    if (!save) returnToGameCanvas();
+  } catch (error) {
+    status.textContent = error.message;
+    showToast(error.message, 6000);
+  } finally {
+    slotBusy = false;
+    updateStateSlotButtons();
+  }
+}
+
+async function persistStateSlot(fs, path) {
+  const result = await persistFilesNow(fs, "state-slot", path);
+  if (result?.incompleteScan) throw new Error("部分存档目录暂时无法读取，请保留页面并重试。");
+  if (result?.conflict) throw saveConflict();
+  if (!result || result.unavailable || result.failed || !result.written) {
+    throw new Error("本机写入未完成，请保留页面，检查存储空间后重新同步。");
   }
 }
 
@@ -2363,15 +2898,26 @@ function returnToGameCanvas() {
   void unlockAudio();
 }
 
-function openCoreMenu() {
+async function openCoreMenu() {
   if (!runtimeReady || !canvas) { showToast("请先启动游戏。"); return; }
   returnToGameCanvas();
+  if (window.Module?._ppssppWebOpenMenu) {
+    try {
+      window.Module._ppssppWebOpenMenu();
+      for (let attempt = 0; attempt < 15; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 60));
+        if ((await requestStateSlot(slotAction.inspectMenu, -1)).slot === 1) { showToast("已打开模拟器菜单。"); return; }
+      }
+      showToast("核心尚未进入模拟器菜单。");
+    } catch (error) { showToast(error.message); }
+    return;
+  }
   for (const type of ["keydown", "keyup"]) {
     canvas.dispatchEvent(new KeyboardEvent(type, {
       key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true,
     }));
   }
-  showToast("已发送菜单键。请在模拟器菜单中选择继续游戏；这不是 PSP 的 START 键。", 5000);
+  showToast("旧核心已发送 Escape，请按当前按键映射确认是否打开菜单。", 5000);
 }
 
 function defaultNetworkServerHost() {
@@ -2704,71 +3250,213 @@ async function forceGamesDirectoryConfig(FS) {
 
 // Save config+saves from Emscripten FS to OPFS — incremental (only changed/deleted files)
 let persistQueue = Promise.resolve();
-function persistFiles(FS, label) {
-  const task = persistQueue.then(() => persistFilesNow(FS, label));
+function persistFiles(FS, label, requiredPath) {
+  const task = persistQueue.then(() => withSaveStorage(() => persistFilesNow(FS, label, requiredPath)));
   persistQueue = task.catch(e => log("Persistence failed: " + e.message, "warn"));
   return task;
 }
 
-async function persistFilesNow(FS, label) {
+async function persistFilesNow(FS, label, requiredPath) {
   if (!FS || !hasOPFS()) return { unavailable: true };
   _detectedMemstick = detectMemstickDir(FS);
-  const currentStats = fsStatDir(FS, _detectedMemstick);
-
-  if (!currentStats.size) {
-    log("Persistence" + (label ? " [" + label + "]" : "") + ": nothing at " + _detectedMemstick, "dim");
-    updateStorageInfo(); return { written: 0, removed: 0, failed: 0 };
+  const pending = new Set();
+  let stats;
+  try { stats = fsStatDir(FS, _detectedMemstick, true, false, pending); }
+  catch (error) {
+    log("Persistence scan incomplete: " + error.message, "warn");
+    return { written: 0, removed: 0, failed: 1, incompleteScan: true };
   }
 
-  // Collect files whose size or mtime has changed since last persist
-  const dirty = [];
-  for (const [path, { size, mtime }] of currentStats) {
-    const fp = size + ":" + mtime;
-    if (_persistedFileState.get(path) !== fp) dirty.push({ path, fp });
+  if (requiredPath && !stats.get(requiredPath)?.size) return { written: 0, removed: 0, failed: 1 };
+  const requiredGroup = requiredPath && (saveGroup(requiredPath) || requiredPath);
+  if (requiredPath) pendingSlotGroups.add(requiredGroup);
+  const groups = new Map();
+  const dirty = new Set();
+  for (const path of new Set([...stats.keys(), ..._persistedFileState.keys()])) {
+    const key = saveGroup(path) || path;
+    if (requiredPath && key !== requiredGroup) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(path);
+    const stat = stats.get(path);
+    if (!stat || pendingSlotGroups.has(key) || _persistedFileState.get(path) !== persistFingerprint(stat)) dirty.add(key);
   }
-
-  // Collect files that were persisted but no longer exist in FS
-  const deleted = [];
-  for (const path of _persistedFileState.keys()) {
-    if (!currentStats.has(path)) deleted.push(path);
-  }
-
-  if (!dirty.length && !deleted.length) {
-    log("Persistence [" + (label || "auto") + "]: up-to-date, nothing to sync.", "dim");
-    return { written: 0, removed: 0, failed: 0 };
-  }
-
-  let written = 0, removed = 0, failed = 0;
-  try {
-    for (const { path, fp } of dirty) {
-      try {
-        const data = FS.readFile(path);
-        await opfsPut(path, data);
-        _persistedFileState.set(path, fp);
-        written++;
-      } catch(e) { failed++; log("Persist write failed " + path + ": " + e.message, "warn"); }
+  if (!requiredPath) {
+    for (const key of [...pendingSlotGroups]) {
+      if (!groups.has(key)) pendingSlotGroups.delete(key);
     }
-    for (const path of deleted) {
-      try { await opfsDelete(path); }
-      catch(e) {
-        if (e.name !== "NotFoundError") {
-          log("Persist delete failed " + path + ": " + e.message, "warn");
-          failed++;
+  }
+  let pendingSlots = pending.size > 0;
+  if (!dirty.size) return { written: 0, removed: 0, failed: 0, pendingSlots };
+
+  let written = 0, removed = 0, failed = 0, conflict = false;
+  const snapshotBytes = entries => entries.reduce((sum, entry) => sum + (entry.bytes?.length || 0), 0);
+  let quotaLimit = Infinity, quotaProbes = 0;
+  const remaining = [...dirty];
+  // Capture related bytes in one JS turn. Bound temporary copies between disk
+  // commits; one large save is always kept together, even over this budget.
+  let cursor = 0;
+  while (cursor < remaining.length) {
+    const first = cursor;
+    let size = 0;
+    do {
+      const paths = groups.get(remaining[cursor]);
+      const next = paths.reduce((sum, path) => sum + (stats.get(path)?.size || 0), 0);
+      if (cursor > first && size + next > 16 * 1024 * 1024) break;
+      size += next;
+      cursor++;
+    } while (cursor < remaining.length);
+    let keys = remaining.slice(first, cursor);
+    const snapshots = new Map();
+    // After yielding to disk I/O, refresh only the directories in this batch.
+    // Instant slots share one flat directory, indexed once per batch.
+    if (first) {
+      pending.clear();
+      try {
+        const directories = new Map();
+        for (const key of keys) {
+          const path = groups.get(key)[0];
+          const flat = /\/PSP\/PPSSPP_STATE\/[^/]+$/i.test(path);
+          const dir = /\/PSP\/SAVEDATA\//i.test(path) ? key : dirname(path);
+          if (!directories.has(dir)) directories.set(dir, flat ? new Set() : null);
+          directories.get(dir)?.add(key);
+          for (const member of groups.get(key)) stats.delete(member);
+        }
+        const members = new Map(keys.map(key => [key, new Set(groups.get(key))]));
+        for (const [dir, flatGroups] of directories) {
+          for (const [path, stat] of fsStatDir(FS, dir, true, true, pending, flatGroups)) {
+            const key = saveGroup(path) || path;
+            if (!members.has(key)) continue;
+            members.get(key).add(path);
+            stats.set(path, stat);
+          }
+        }
+        for (const [key, paths] of members) groups.set(key, [...paths]);
+      } catch (error) { failed += keys.length; log("Persistence scan incomplete: " + error.message, "warn"); continue; }
+    }
+    // Directory contents can grow while the previous batch is on disk.
+    // Trim the candidate range before copying any freshly scanned bytes.
+    if (first) {
+      size = 0;
+      for (const [index, key] of keys.entries()) {
+        const next = groups.get(key).reduce((sum, path) => sum + (stats.get(path)?.size || 0), 0);
+        if (index && size + next > 16 * 1024 * 1024) {
+          cursor = first + index;
+          keys = keys.slice(0, index);
+          break;
+        }
+        size += next;
+      }
+    }
+    for (const key of keys) {
+      if (pending.has(key)) { pendingSlots = true; if (requiredPath) failed++; continue; }
+      if (quotaLimit < Infinity) {
+        const planned = groups.get(key).reduce((sum, path) => {
+          const stat = stats.get(path);
+          return sum + (stat && (pendingSlotGroups.has(key) || _persistedFileState.get(path) !== persistFingerprint(stat)) ? stat.size : 0);
+        }, 0);
+        if (planned >= quotaLimit) { pendingSlotGroups.add(key); failed++; continue; }
+      }
+      try {
+        const entries = [];
+        for (const path of groups.get(key)) {
+          const stat = stats.get(path);
+          if (!stat && !_persistedFileState.has(path)) continue;
+          const fp = stat ? persistFingerprint(stat) : null;
+          if (!pendingSlotGroups.has(key) && _persistedFileState.get(path) === fp) continue;
+          entries.push({ path, fp, bytes: stat ? FS.readFile(path) : null });
+        }
+        if (requiredPath && !entries.some(e => e.path === requiredPath && e.bytes?.length)) throw new Error("槽位正文暂时无法读取");
+        if (!entries.length) { pendingSlotGroups.delete(key); continue; }
+        if (quotaLimit < Infinity && snapshotBytes(entries) >= quotaLimit) { pendingSlotGroups.add(key); failed++; continue; }
+        snapshots.set(key, entries);
+      } catch (error) { failed++; log("Persist failed " + key + ": " + error.message, "warn"); }
+    }
+    const conflicts = await reserveSaveGroups([...snapshots.values()].map(files => files[0].path), { checkOnly: true, skipConflicts: true });
+    conflict ||= conflicts.size > 0;
+    failed += conflicts.size;
+    for (const key of conflicts) snapshots.delete(key);
+    const applied = (key, entries) => {
+      pendingSlotGroups.delete(key);
+      for (const entry of entries) {
+        if (entry.fp !== null) { _persistedFileState.set(entry.path, entry.fp); written++; }
+        else { _persistedFileState.delete(entry.path); removed++; }
+      }
+    };
+    for (const [key, entries] of snapshots) {
+      if (saveGroup(entries[0].path)) continue;
+      const entry = entries[0];
+      try {
+        if (entry.bytes !== null) await opfsPut(entry.path, entry.bytes);
+        else {
+          try { await opfsDelete(entry.path); }
+          catch (error) { if (error.name !== "NotFoundError") throw error; }
+        }
+        applied(key, entries);
+      } catch (error) { failed++; log("Persist failed " + key + ": " + error.message, "warn"); }
+      snapshots.delete(key);
+    }
+    let isolateSlots = quotaProbes > 0;
+    while (snapshots.size) {
+      const batch = isolateSlots ? [snapshots.entries().next().value] : [...snapshots];
+      try {
+        await commitSaveImport(batch.flatMap(([, entries]) => entries), null);
+        for (const [key, entries] of batch) {
+          applied(key, entries);
+          snapshots.delete(key);
+        }
+      } catch (error) {
+        log("Persist failed: " + error.message, "warn");
+        const key = error.saveFilePath && saveGroup(error.saveFilePath);
+        const quota = error.name === "QuotaExceededError";
+        const deferRemaining = () => {
+          for (const left of snapshots.keys()) pendingSlotGroups.add(left);
+          failed += snapshots.size;
+          snapshots.clear();
+          for (; cursor < remaining.length; cursor++) {
+            pendingSlotGroups.add(remaining[cursor]);
+            failed++;
+          }
+        };
+        if (error.saveRecoveryPending) {
+          deferRemaining();
+          break;
+        }
+        if (quota) {
+          const failedEntries = key && snapshots.get(key);
+          const failedBytes = failedEntries ? snapshotBytes(failedEntries) : 0;
+          quotaLimit = Math.min(quotaLimit, failedBytes);
+          if (quotaProbes > 0 || !failedBytes) {
+            deferRemaining();
+            break;
+          }
+          quotaProbes++;
+          for (const [candidate, entries] of [...snapshots]) {
+            if (candidate === key || snapshotBytes(entries) >= quotaLimit) {
+              snapshots.delete(candidate);
+              pendingSlotGroups.add(candidate);
+              failed++;
+            }
+          }
+          isolateSlots = true;
           continue;
         }
+        if (snapshots.delete(key)) {
+          pendingSlotGroups.add(key);
+          failed++;
+          // Each remaining slot gets its own transaction at most once.
+          isolateSlots = true;
+          continue;
+        }
+        for (const left of snapshots.keys()) pendingSlotGroups.add(left);
+        failed += snapshots.size;
+        break;
       }
-      _persistedFileState.delete(path);
-      removed++;
     }
-    if (!failed) _lastPersistTime = Date.now();
-    const parts = [];
-    if (written) parts.push(written + " written");
-    if (removed) parts.push(removed + " removed");
-    log("Persistence [" + (label || "manual") + "]: " + parts.join(", ") +
-        " of " + currentStats.size + " total files.", "ok");
-    updateStorageInfo();
-  } catch(e) { failed++; log("Persistence: OPFS write error: " + e.message, "warn"); }
-  return { written, removed, failed };
+  }
+  if (!failed && !pendingSlots) _lastPersistTime = Date.now();
+  log("Persistence [" + (label || "manual") + "]: " + written + " written, " + removed + " removed, " + failed + " failed.", failed ? "warn" : "ok");
+  updateStorageInfo();
+  return { written, removed, failed, conflict, pendingSlots };
 }
 
 function startAutoPersist() {
@@ -2828,7 +3516,7 @@ async function runDriveAutoSync() {
     setDriveActivity("Auto-sync: uploading saves…", "run");
     if (window.FS) await persistFiles(window.FS, "drive-auto");
     await ensureDriveFolders(true);
-    const bundle = await buildSavesBundle();
+    const bundle = await withSaveStorage(buildSavesBundle);
     if (bundle) {
       const bytes = new TextEncoder().encode(JSON.stringify(bundle));
       await uploadBlobToDrive(GOOGLE_DRIVE_SAVE_BUNDLE, googleDriveSavesId, bytes, "application/json", "Auto-sync saves");
@@ -2861,25 +3549,47 @@ function restartDriveAutoSyncTimer() {
 }
 
 /* ── Export / Import saves ──────────────────────────────────────── */
+function isBackupSavePath(path) {
+  const relative = normalizePersistPath(path).path.slice(PERSIST_ROOTS[0].length);
+  return /^\/PSP\/(?:SAVEDATA\/[^/]+\/.+|PPSSPP_STATE\/[^/]+\.(?:ppst|jpg))$/i.test(relative);
+}
+
+async function snapshotSaveDirectory(dir) {
+  const fs = window.FS;
+  if (fs && dir.startsWith(detectMemstickDir(fs) + "/")) {
+    const pending = new Set();
+    const stats = fsStatDir(fs, dir, true, true, pending);
+    if (pending.size) throw new Error("即时存档仍在写入，请稍后重试导出。");
+    return [...stats.keys()].filter(isBackupSavePath).map(path => ({ path, data: bytesToBase64(fs.readFile(path)) }));
+  }
+  const files = [];
+  for (const { path } of await opfsWalk(OPFS_PERSIST_DIR, dir.slice(1), false)) {
+    if (isBackupSavePath(path)) files.push({ path, data: bytesToBase64(await opfsRead(path)) });
+  }
+  return files;
+}
+
 async function buildSavesBundle() {
   const FS = window.FS;
-  const root  = FS ? detectMemstickDir(FS) : (_detectedMemstick || PERSIST_ROOTS[0]);
-  const files = FS ? fsWalkDir(FS, root) : await opfsWalk();
+  const root = FS ? detectMemstickDir(FS) : (_detectedMemstick || PERSIST_ROOTS[0]);
+  const files = [];
+  for (const base of FS ? [root] : PERSIST_ROOTS) {
+    for (const subdir of ["SAVEDATA", "PPSSPP_STATE"]) {
+      for (const file of await snapshotSaveDirectory(base + "/PSP/" + subdir)) files.push(file);
+    }
+  }
   if (!files.length) return null;
   return {
     version: 1,
     exported: new Date().toISOString(),
     ppssppMemstick: root,
-    files: files.map(({ path, data }) => ({
-      path,
-      data: bytesToBase64(data)
-    }))
+    files
   };
 }
 
 async function exportSaves() {
   try {
-  const bundle = await buildSavesBundle();
+  const bundle = await withSaveStorage(buildSavesBundle);
   if (!bundle) { showToast("暂无可以导出的存档。"); return; }
   const blob = new Blob([JSON.stringify(bundle)], { type: "application/json" });
   const url  = URL.createObjectURL(blob);
@@ -2895,31 +3605,41 @@ async function exportSaves() {
   }
 }
 
-function importSavesBundle(bundle, label) {
-  const task = persistQueue.then(() => importSavesBundleNow(bundle, label));
+function importSavesBundle(bundle, label, includeSettings = false) {
+  const task = persistQueue.then(() => withSaveStorage(() => importSavesBundleNow(bundle, label, includeSettings)));
   persistQueue = task.catch(() => {});
   return task;
 }
 
-async function importSavesBundleNow(bundle, label) {
+function isBackupSetting(path) {
+  return /^\/PSP\/SYSTEM\/(ppsspp|controls)\.ini$/i.test(normalizePersistPath(path).path.slice(PERSIST_ROOTS[0].length));
+}
+
+async function importSavesBundleNow(bundle, label, includeSettings = false) {
   const FS = window.FS;
   if (!Array.isArray(bundle?.files)) throw new Error("存档包格式不正确");
   const existing = (await opfsWalk(OPFS_PERSIST_DIR, "", false)).map(file => file.path);
-  if (FS) existing.push(...fsStatDir(FS, detectMemstickDir(FS)).keys());
-  const { entries, skipped } = selectPersistEntries(bundle.files, existing);
+  if (FS) existing.push(...fsStatDir(FS, detectMemstickDir(FS), true).keys());
+  const allowed = bundle.files.filter(entry => isBackupSavePath(entry.path) || (includeSettings && isBackupSetting(entry.path)));
+  const { entries, skipped } = selectPersistEntries(allowed, existing);
   // Decode the whole selected backup before replacing any existing file.
   const decoded = entries.map(entry => ({ ...entry, bytes: base64ToBytes(entry.data) }));
-  let count = 0;
-  for (const { path, bytes } of decoded) {
-    await opfsPut(path, bytes);
-    if (FS) {
-      fsMkdirP(FS, path.substring(0, path.lastIndexOf("/")));
-      FS.writeFile(path, bytes);
+  const count = decoded.length;
+  // Full version-1 exports identify their memstick or slot directory. Loose
+  // file bundles and native folder imports retain their additive semantics.
+  const wholeMemstick = bundle.version === 1 && PERSIST_ROOTS.includes(bundle.ppssppMemstick);
+  if (wholeMemstick || (bundle.version === 1 && typeof bundle.slotDir === "string")) {
+    const targets = new Set(decoded.map(entry => entry.path));
+    const groups = new Set(decoded.filter(entry => wholeMemstick || entry.sourcePath.startsWith(bundle.slotDir + "/"))
+      .map(entry => saveGroup(entry.path)).filter(Boolean));
+    for (const path of new Set(existing)) {
+      if (!targets.has(path) && isBackupSavePath(path) && groups.has(saveGroup(path))) decoded.push({ path, bytes: null });
     }
-    count++;
   }
+  await commitSaveImport(decoded, FS);
   log("已导入 " + count + " files from " + label, "ok");
-  showToast("✓ 已导入 " + count + " 个存档文件" + (skipped ? "；保留已有存档，跳过 " + skipped + " 个旧目录文件。" : ""), skipped ? 6500 : 3200);
+  const omitted = bundle.files.length - allowed.length;
+  showToast("✓ 已导入 " + count + " 个文件" + (omitted ? "，已略过 " + omitted + " 个非存档文件。" : "") + (skipped ? "；保留已有存档，跳过 " + skipped + " 个旧目录文件。" : ""), skipped ? 6500 : 3200);
   refreshSavesTab(); updateStorageInfo();
   return count;
 }
@@ -2927,7 +3647,9 @@ async function importSavesBundleNow(bundle, label) {
 async function importSaves(file) {
   try {
     const bundle = JSON.parse(await file.text());
-    await importSavesBundle(bundle, file.name);
+    const includeSettings = Array.isArray(bundle?.files) && bundle.files.some(entry => isBackupSetting(entry.path)) &&
+      confirm("此旧备份含模拟器设置或按键映射。是否一起恢复？取消将只恢复游戏进度。");
+    await importSavesBundle(bundle, file.name, includeSettings);
   } catch(e) { log("Import error: " + e.message, "err"); showToast("导入失败：" + e.message); }
 }
 
@@ -3409,7 +4131,7 @@ async function uploadSavesToDrive() {
     setDriveActivity("Preparing save bundle…", "run");
     if (window.FS) await persistFiles(window.FS, "drive");
     await ensureDriveFolders(true);
-    const bundle = await buildSavesBundle();
+    const bundle = await withSaveStorage(buildSavesBundle);
     if (!bundle) {
       setDriveActivity("No save data found to upload", "warn");
       showToast("No save data to upload.");
@@ -3549,7 +4271,7 @@ async function loadGameAtRuntime(file) {
   if (!validateGameSelection(file)) return;
   const FS = window.FS;
   if (!FS) { showToast("请先启动模拟器。"); return; }
-  const safe = file.name.replace(/[^a-zA-Z0-9._\-]/g, "_");
+  const safe = gameFileName(file.name);
   const path = VIRTUAL_GAME_DIR + "/" + safe;
   log("Loading game at runtime: " + file.name + " → " + path, "info");
   showToast("正在载入 " + file.name + "…");
@@ -4230,7 +4952,7 @@ function updateTouchControls() {
   const settings = loadPlayerSettings();
   const rawMode = gamepadBridgeRawIndex >= 0;
   const enabled = !!touchControlMount && gamepadBridgeInstalled && runtimeReady && !runtimeFailed
-    && settings.touch && !rawMode && !document.hidden
+    && settings.touch && !rawMode && !document.hidden && !byId("padEditor")?.open
     && !document.body.classList.contains("panel-open")
     && byId("fsMenuToggle")?.getAttribute("aria-expanded") !== "true";
   touchControlMount?.setEnabled(enabled);
@@ -4395,9 +5117,19 @@ function initializeTouchGamepad() {
     const element = byId("touchGamepad");
     if (!nativeGetGamepads || !api?.createState || !api?.mount || !element) throw new Error("当前页面未提供可用的屏幕手柄输入桥");
     touchControlState = api.createState({ now: () => performance.now(), index: 0 });
-    touchControlMount = api.mount({ element, canvas, state: touchControlState, onInteraction() {
+    const mountInputs = () => api.mount({ element, canvas, state: touchControlState, onInteraction() {
       canvas?.focus({ preventScroll: true });
       void unlockAudio();
+    } });
+    touchControlMount = mountInputs();
+    globalThis.PpssppPadPresets.mount({ element, notify: showToast, replaceLayout(nodes) {
+      touchControlMount.destroy();
+      element.replaceChildren(...nodes);
+      touchControlMount = mountInputs();
+      updateTouchControls();
+    }, onEditing(open) {
+      if (open) setFullscreenMenuOpen(false, false);
+      updateTouchControls();
     } });
     navigator.getGamepads = getSDLGamepads;
     if (navigator.getGamepads !== getSDLGamepads) throw new Error("浏览器不允许接入屏幕手柄");
@@ -4995,7 +5727,7 @@ async function preloadStoredGames(FS) {
   let ok = 0;
   let bytesMounted = 0;
   for (const name of favorites) {
-    if (selectedGame && name === selectedGame.name.replace(/[^a-zA-Z0-9._-]/g, "_")) continue;
+    if (selectedGame && name === gameFileName(selectedGame.name)) continue;
     const target = VIRTUAL_GAME_DIR + "/" + name;
     if (FS.analyzePath?.(target)?.exists) continue;
     try {
@@ -5029,7 +5761,7 @@ function mountBrowserGame(FS, file, safeName) {
 async function preloadGame(FS) {
   if (!selectedGame && !selectedStoredGame) return null;
   const sourceName = selectedGame ? selectedGame.name : selectedStoredGame;
-  const safe = sourceName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const safe = gameFileName(sourceName);
   setStatus("正在准备游戏：" + sourceName, "run");
   showLoading("正在准备游戏：" + sourceName);
   const file = selectedGame || await opfsGetGameFile(selectedStoredGame);
@@ -5058,8 +5790,10 @@ function activatePanelTab(tabName, focus = false) {
     candidate.classList.toggle("active", candidate === panel);
     candidate.hidden = candidate !== panel;
   });
+  if (name === "storage") void updateStorageInfo();
   if (name === "log") { flushLog(); renderLog(); }
   if (name === "library") refreshLibrary();
+  if (name === "saves") { void refreshSavesTab(); void refreshStateSlot(); }
   if (name === "drive") initDriveConfigUI();
   if (name === "network") { updateNetworkConfigUI(); checkNetworkWhenVisible(); }
 }
@@ -5178,17 +5912,20 @@ async function resetEmulatorSettings() {
   if (!confirm("重置模拟器设置吗？游戏、存档和手柄映射会保留，原设置也会备份。")) return;
   try {
     await persistQueue;
-    const entries = await opfsWalk(OPFS_PERSIST_DIR, "", false);
-    const configs = entries.filter(e => /\/PSP\/SYSTEM\/[^/]+\.ini$/i.test(e.path) && !/\/controls\.ini$/i.test(e.path));
-    for (const { path } of configs) {
-      await opfsPut(path + ".recovery-backup", await opfsRead(path));
-      await opfsDelete(path);
-      try { window.FS?.unlink(path); } catch (_) {}
-      _persistedFileState.delete(path);
-    }
+    const count = await withSaveStorage(async () => {
+      const entries = await opfsWalk(OPFS_PERSIST_DIR, "", false);
+      const configs = entries.filter(e => /\/PSP\/SYSTEM\/[^/]+\.ini$/i.test(e.path) && !/\/controls\.ini$/i.test(e.path));
+      for (const { path } of configs) {
+        await opfsPut(path + ".recovery-backup", await opfsRead(path));
+        await opfsDelete(path);
+        try { window.FS?.unlink(path); } catch (_) {}
+        _persistedFileState.delete(path);
+      }
+      return configs.length;
+    });
     await resetPlayerSettings();
     showToast("设置已重置。重新载入页面后将使用默认设置。", 6000);
-    log("Recovery: reset " + configs.length + " emulator settings file(s); saves retained.", "ok");
+    log("Recovery: reset " + count + " emulator settings file(s); saves retained.", "ok");
   } catch (e) { showToast("重置设置失败：" + e.message, 6000); }
 }
 on("diagnosticReportBtn", "click", exportDiagnosticReport);
@@ -5228,6 +5965,31 @@ canvas?.addEventListener("webglcontextlost", event => {
 });
 
 /* ── Launch ─────────────────────────────────────────────────────── */
+async function waitForOfflineController() {
+  const sw = navigator.serviceWorker;
+  if (!sw || sw.controller) return;
+  await new Promise(resolve => {
+    let worker, finished = false;
+    const done = () => {
+      finished = true;
+      sw.removeEventListener("controllerchange", done);
+      worker?.removeEventListener("statechange", changed);
+      clearTimeout(timer);
+      resolve();
+    };
+    const changed = () => { if (worker.state === "redundant") done(); };
+    const timer = setTimeout(done, 8000);
+    sw.addEventListener("controllerchange", done);
+    if (sw.controller) { done(); return; }
+    offlineRegistration.then(registration => {
+      if (finished) return;
+      worker = registration?.installing || registration?.waiting || registration?.active;
+      if (!worker || worker.state === "redundant" || sw.controller) { done(); return; }
+      worker.addEventListener("statechange", changed);
+    });
+  });
+}
+
 async function start() {
   if (started) return;
   if (!validateGameSelection(selectedGame || selectedStoredGame)) return;
@@ -5276,6 +6038,7 @@ async function start() {
     await installScriptProcessorPolyfill(preAudioCtx);
   } catch(e) { log("AUDIO: pre-init AudioContext failed: " + (e?.message || e), "warn"); }
 
+  await waitForOfflineController();
   try {
     // Keep game snapshots stable until this page closes or reloads. Failures
     // after mounting also keep the lease, since the core may retain references.
@@ -5292,7 +6055,7 @@ async function start() {
     preAudioCtx?.close().catch(() => {});
     setStatus(error.message, "err");
     showToast(error.message, 6000);
-    startBtn?.focus({ preventScroll: true });
+    (byId("idleStartBtn") || startBtn)?.focus({ preventScroll: true });
     return;
   }
 
@@ -5307,6 +6070,7 @@ async function start() {
   }
 
   window.Module = {
+    onWebStateSlot: (...args) => pendingSlotRequests.get(args[0])?.(...args),
     canvas,
     webglContextAttributes: {
       powerPreference: chosenPowerPref,
@@ -5346,11 +6110,14 @@ async function start() {
           // Restore persisted config and saves from OPFS
           setStatus("正在恢复本机存档…", "run");
           showLoading("正在恢复存档…");
-          await loadPersistedFiles(FS);
-          await playerSettingsQueue;
-          await restorePlayerSettings();
-          performanceLaunchSettings = loadPlayerSettings();
-          await forceGamesDirectoryConfig(FS);
+          await withSaveStorage(async () => {
+            restoredSaveRevisions = await readSaveRevisions();
+            await loadPersistedFiles(FS);
+            await playerSettingsQueue;
+            await restorePlayerSettings();
+            performanceLaunchSettings = loadPlayerSettings();
+            await forceGamesDirectoryConfig(FS);
+          });
           gameArg = await preloadGame(FS);
           await preloadStoredGames(FS);
           Module.arguments.length = 0;
@@ -5382,6 +6149,7 @@ async function start() {
       setStatus(gameArg ? "模拟器已启动" : "游戏库已就绪", "ok");
       hideLoading();
       setStartButtonMode("running");
+      if (gameArg) rememberLaunch();
       // Show runtime game loader button
       if (runtimeGameLabel) runtimeGameLabel.style.display = "";
       // Start auto-persist loop (every 30s)
@@ -5497,26 +6265,29 @@ function installTouchMouseShim() {
 
 /* ── Event wiring ───────────────────────────────────────────────── */
 on(fileInput, "change", () => {
-  selectedGame = fileInput?.files?.[0] || null;
-  selectedStoredGame = null;
-  selectedGameCached = false;
-  if (!validateGameSelection(selectedGame)) {
-    if (idleSubtitle) idleSubtitle.textContent = gameFileValidationError(selectedGame);
+  const file = fileInput.files?.[0];
+  const resume = choosingPreviousFile;
+  choosingPreviousFile = false;
+  if (!file) return;
+  if (!validateGameSelection(file)) {
+    fileInput.value = "";
+    selectedGame = null;
+    selectedStoredGame = null;
+    updateIdleOverlay();
+    if (idleSubtitle) idleSubtitle.textContent = gameFileValidationError(file);
     return;
   }
-  if (fileLabel) fileLabel.title = selectedGame ? selectedGame.name : "选择游戏文件";
-  // Update the visible text node inside the label
-  const textNode = fileLabel?.firstChild;
-  if (textNode && textNode.nodeType === 3)
-    textNode.textContent = (selectedGame ? "\uD83D\uDCC2 " + selectedGame.name : "📂 选择游戏文件") + " ";
+  selectedGame = file;
+  selectedStoredGame = null;
+  selectedDownload = false;
   updateIdleOverlay();
-  setStatus(selectedGame ? "已选择：" + selectedGame.name : "请选择本机游戏文件，或打开游戏库。");
+  setStatus("已选择：" + file.name);
+  if (resume && file.name === lastPlayed?.name && (!lastPlayed.size || file.size === lastPlayed.size)) void start();
 });
-
-on(startBtn, "click", () => {
-  start();
-});
-on(idleStartBtn, "click", start);
+on(fileInput, "cancel", () => { choosingPreviousFile = false; });
+on(fileLabel, "click", () => { choosingPreviousFile = false; fileInput.click(); });
+on(startBtn, "click", start);
+on(idleStartBtn, "click", runIdleAction);
 
 on("refreshLibraryBtn", "click", refreshLibrary);
 on("libraryGrid", "click", e => {
@@ -5558,19 +6329,28 @@ runtimeGameInput?.addEventListener("change", e => {
 // ── Saves tab buttons ─────────────────────────────────────────────
 on("refreshSavesBtn", "click", refreshSavesTab);
 on("exportAllSavesBtn", "click", exportSaves);
+on("opfsFileList", "click", async event => {
+  const button = event.target.closest("button[data-storage-action]");
+  if (!button) return;
+  try {
+    if (button.dataset.storageAction === "download") await downloadStoredFile(button.dataset.path);
+    if (button.dataset.storageAction === "delete") await deleteStoredFile(button.dataset.path);
+  } catch (error) { showToast("操作未完成：" + error.message); }
+});
+
 on("savesList", "click", async e => {
   const button = e.target.closest("button[data-save-action]");
   if (!button) return;
   const action = button.dataset.saveAction;
   try {
     if (action === "download-slot") {
-      await downloadSaveSlot(button.dataset.slotDir, button.dataset.game);
+      await withSaveStorage(() => downloadSaveSlot(button.dataset.slotDir, button.dataset.game));
     } else if (action === "drive-upload-slot") {
       await runDriveAction("upload-slot", () => uploadSingleSaveSlotToDrive(button.dataset.slotDir, button.dataset.game));
     } else if (action === "delete-slot") {
       await deleteSaveSlot(button.dataset.slotDir, button.dataset.game);
     } else if (action === "download-file") {
-      await downloadSaveFile(button.dataset.path);
+      await withSaveStorage(() => downloadSaveFile(button.dataset.path));
     } else if (action === "drive-upload-state") {
       await runDriveAction("upload-state", () => uploadSingleSaveStateToDrive(JSON.parse(button.dataset.paths || "[]"), button.dataset.game));
     } else if (action === "delete-pair") {
@@ -5578,6 +6358,7 @@ on("savesList", "click", async e => {
     }
   } catch(err) {
     showToast("操作未完成：" + (err?.message || err));
+    void refreshSavesTab();
     log("Save action failed: " + (err?.message || err), "err");
   }
 });
@@ -5587,44 +6368,29 @@ on("importSaveSlotFile", "change", e => {
 });
 on("deleteAllSavesBtn", "click", async () => {
   if (!confirm("删除全部游戏存档和即时存档吗？\n删除后无法撤销，请先导出备份。")) return;
-  // Delete only save-related OPFS entries (not config files or games)
-  const all = await opfsWalk();
-  for (const { path } of all) {
-    const isSave = SAVE_SUBDIRS.some(sub => path.includes("/" + sub.dir + "/"));
-    if (!isSave) continue;
-    try { await opfsDelete(path); } catch(e) {}
-  }
-  // Also wipe from live FS if running
-  const FS = window.FS;
-  if (FS) {
-    const memstick = _detectedMemstick || detectMemstickDir(FS);
-    for (const { dir, flat } of SAVE_SUBDIRS) {
-      const base = memstick + "/" + dir;
-      if (flat) {
-        // flat: delete all files in the dir
-        let entries; try { entries = FS.readdir(base).filter(n=>n!=="."&&n!==".."); } catch(e){ entries=[]; }
-        for (const name of entries) { try { FS.unlink(base + "/" + name); } catch(e){} }
-      } else {
-        let games; try { games = FS.readdir(base).filter(n=>n!=="."&&n!==".."); } catch(e){ games=[]; }
-        for (const g of games) {
-          const slotDir = base + "/" + g;
-          const files = readSaveSlotFiles(FS, slotDir);
-          for (const {path} of files) { try { FS.unlink(path); } catch(e){} }
-          try { FS.rmdir(slotDir); } catch(e){}
-        }
-      }
-    }
-  }
+  try {
+    const prefixes = PERSIST_ROOTS.flatMap(root => SAVE_SUBDIRS.map(({ dir }) => root + "/" + dir));
+    const displayed = displayedSaveRevisions;
+    await withSaveStorage(() => removeSaveDirectory(prefixes, false, displayed));
+  } catch (error) { showToast("删除未完成。" + error.message); refreshSavesTab(); updateStorageInfo(); return; }
   showToast("全部存档已删除");
   refreshSavesTab(); updateStorageInfo();
 });
 
 // ── Storage panel buttons ────────────────────────────────────────
 on("syncNowBtn", "click", syncPlayerFiles);
+on("stateSlotSelect", "change", () => refreshStateSlot());
+on("stateSlotSave", "click", () => runStateSlotAction(true));
+on("stateSlotLoad", "click", () => runStateSlotAction(false));
+on("fsStateSlotsBtn", "click", () => {
+  setPanelOpen(true, false);
+  activatePanelTab("saves", true);
+});
 on("player-save-files", "click", syncPlayerFiles);
 on("player-pause-game", "click", openCoreMenu);
 on("player-resume-game", "click", returnToGameCanvas);
-for (const id of ["player-render-resolution", "player-show-fps", "player-touch-controls"]) {
+on("player-pad-opacity", "input", event => applyPadOpacity(Number(event.target.value)));
+for (const id of ["player-render-resolution", "player-show-fps", "player-touch-controls", "player-pad-opacity"]) {
   on(id, "change", savePlayerSettings);
 }
 
@@ -5927,6 +6693,7 @@ function setFullscreenMenuOpen(open, focus = true) {
 on("fsMenuToggle", "click", () => setFullscreenMenuOpen(byId("fsMenuToggle")?.getAttribute("aria-expanded") !== "true"));
 on("fsMenuBackdrop", "click", () => setFullscreenMenuOpen(false));
 document.addEventListener("keydown", event => {
+  if (byId("padEditor")?.open) return;
   const panelOpen = document.body.classList.contains("panel-open");
   const menuOpen = byId("fsMenuToggle")?.getAttribute("aria-expanded") === "true";
   if (!panelOpen && !menuOpen) return;
@@ -5958,8 +6725,7 @@ probeWebGLFeatures();
 initializePerformancePanel();
 updateInfoPanel();
 refreshLibrary();
-updateStorageInfo();    // populate OPFS tab with stats on load
-refreshSavesTab();      // populate Saves tab from OPFS on load (no FS needed)
+updateStorageInfo();
 refreshPlayerSettingsUI();
 void restorePlayerSettings();
 
@@ -5970,7 +6736,7 @@ import('./online-games.js').then(({ initOnlineGames }) => initOnlineGames({
     if (started || !validateGameSelection(file)) return;
     selectedGame = file;
     selectedStoredGame = null;
-    selectedGameCached = true;
+    selectedDownload = true;
     updateIdleOverlay();
     setPanelOpen(false);
     start();
@@ -5982,9 +6748,17 @@ import('./online-games.js').then(({ initOnlineGames }) => initOnlineGames({
 });
 
 /* ── PWA: Service Worker registration ──────────────────────────── */
+let offlineRegistration;
 if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("message", event => {
+    if (event.data === "query-player-cache") event.ports[0]?.postMessage({ revision: BUILD_STAMP, cache: PLAYER_CACHE_NAME });
+    if (event.data === "query-core-revision") event.ports[0]?.postMessage(BUILD_STAMP);
+  });
+  const collect = () => navigator.serviceWorker.controller?.postMessage("collect-core-revisions");
+  window.addEventListener("pagehide", collect);
+  window.addEventListener("focus", collect);
   navigator.serviceWorker.addEventListener("controllerchange", () => reloadForCrossOriginIsolation("controllerchange"));
-  navigator.serviceWorker.register("sw.js", { scope: "./" })
+  offlineRegistration = navigator.serviceWorker.register("sw.js", { scope: "./" })
     .then(reg => {
       log("SW registered (scope: " + reg.scope + ")", "ok");
       if (navigator.serviceWorker.controller && !window.crossOriginIsolated) {
@@ -5998,6 +6772,7 @@ if ("serviceWorker" in navigator) {
           }
         });
       });
+      return reg;
     })
-    .catch(err => log("SW registration failed: " + err.message, "warn"));
+    .catch(err => { log("SW registration failed: " + err.message, "warn"); return null; });
 }

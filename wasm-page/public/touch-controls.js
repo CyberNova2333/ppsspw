@@ -6,6 +6,32 @@
   const BUTTONS = Object.freeze({ cross: 0, circle: 1, square: 2, triangle: 3,
     l: 4, r: 5, select: 8, start: 9, up: 12, down: 13, left: 14, right: 15 });
 
+  // SDL listens for keyboard events on the game canvas. Keep physical code and
+  // legacy keyCode together so either browser input path resolves the same key.
+  const keyboard = new Map();
+  function key(code, value, keyCode, location = 0) {
+    keyboard.set('key:' + code, { code, key: value, keyCode, which: keyCode, location });
+  }
+  for (let i = 0; i < 26; i++) {
+    const letter = String.fromCharCode(65 + i);
+    key('Key' + letter, letter.toLowerCase(), 65 + i);
+  }
+  for (let i = 0; i < 10; i++) {
+    key('Digit' + i, String(i), 48 + i);
+    key('Numpad' + i, String(i), 96 + i, 3);
+  }
+  for (let i = 1; i <= 12; i++) key('F' + i, 'F' + i, 111 + i);
+  for (const [code, number] of Object.entries({ ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40,
+    Enter: 13, Escape: 27, Tab: 9, Backspace: 8, Delete: 46, Insert: 45, Home: 36, End: 35, PageUp: 33, PageDown: 34 })) key(code, code, number);
+  key('Space', ' ', 32);
+  for (const [code, value, number] of [['Minus', '-', 189], ['Equal', '=', 187], ['Comma', ',', 188],
+    ['Period', '.', 190], ['Slash', '/', 191], ['Semicolon', ';', 186], ['Quote', "'", 222],
+    ['BracketLeft', '[', 219], ['BracketRight', ']', 221], ['Backslash', '\\', 220], ['Backquote', '`', 192]]) key(code, value, number);
+  for (const [value, number] of [['Shift', 16], ['Control', 17], ['Alt', 18]]) {
+    key(value + 'Left', value, number, 1);
+    key(value + 'Right', value, number, 2);
+  }
+
   function createState({ now = () => performance.now(), index = 0,
     setTimeout: later = root.setTimeout.bind(root), clearTimeout: cancel = root.clearTimeout.bind(root) } = {}) {
     const gamepad = { id: 'PPSSPP Web Screen Controller', index, mapping: 'standard', connected: true,
@@ -14,7 +40,11 @@
     const buttons = new Map();
     const axes = new Map();
     const listeners = new Set();
-    const pressedAt = Array(17).fill(0);
+    const changedAt = Array(17).fill(-Infinity);
+    const raw = Array(17).fill(false);
+    const edges = Array(17).fill(0);
+    const lastPress = Array(17).fill(-Infinity);
+    const consecutive = Array(17).fill(0);
     const owners = Array.from({ length: 17 }, () => new Set());
     const pending = new Map();
 
@@ -23,19 +53,39 @@
       let changed = false;
       gamepad.buttons.forEach((button, i) => {
         const down = held.has(i);
-        if (down && pending.has(i)) { cancel(pending.get(i)); pending.delete(i); }
-        // SDL polls once per frame. Preserve quick taps until at least one frame can observe them.
-        const remaining = 60 - (now() - pressedAt[i]);
-        const releaseNow = immediate === true || (immediate && immediate.has(i));
-        if (!down && button.pressed && !releaseNow && remaining > 0) {
-          if (!pending.has(i)) pending.set(i, later(() => { pending.delete(i); update(); }, Math.ceil(remaining)));
-          return;
+        const force = immediate === true || (immediate && immediate.has(i));
+        if (force) {
+          if (pending.has(i)) { cancel(pending.get(i)); pending.delete(i); }
+          edges[i] = Number(button.pressed !== down);
+          changedAt[i] = -Infinity;
+          consecutive[i] = 0;
+          lastPress[i] = -Infinity;
+        } else if (raw[i] !== down) {
+          if (down) {
+            consecutive[i] = now() - lastPress[i] < 92 ? Math.min(3, consecutive[i] + 1) : 1;
+            if (edges[i] >= 2) consecutive[i] = 3;
+            lastPress[i] = now();
+          }
+          // Preserve a double tap. During a sustained burst, follow the
+          // physical level and discard obsolete transitions when fingers lift.
+          edges[i] = consecutive[i] >= 3 ? Number(button.pressed !== down) : edges[i] + 1;
         }
-        if (!down && pending.has(i)) { cancel(pending.get(i)); pending.delete(i); }
-        if (button.pressed === down) return;
-        if (down) pressedAt[i] = now();
-        else owners[i].clear();
-        Object.assign(button, { pressed: down, touched: down, value: down ? 1 : 0 });
+        raw[i] = down;
+        if (!edges[i]) return;
+        // SDL samples a level each frame. Preserve both edges of successive taps.
+        const hold = consecutive[i] >= 3 ? 24 : 60;
+        const gap = consecutive[i] >= 3 ? 16 : 32;
+        const remaining = (button.pressed ? hold : gap) - (now() - changedAt[i]);
+        const schedule = ms => {
+          if (!pending.has(i)) pending.set(i, later(() => { pending.delete(i); update(); }, Math.ceil(ms)));
+        };
+        if (remaining > 0) { schedule(remaining); return; }
+        const pressed = !button.pressed;
+        edges[i]--;
+        changedAt[i] = force ? -Infinity : now();
+        Object.assign(button, { pressed, touched: pressed, value: pressed ? 1 : 0 });
+        if (edges[i]) schedule(pressed ? hold : gap);
+        else if (!pressed) owners[i].clear();
         changed = true;
       });
       const current = [...axes.values()].at(-1) || [0, 0];
@@ -72,7 +122,14 @@
         if (immediate) owners.forEach((sources, i) => {
           if (sources.delete(source) && !sources.size) canceled.add(i);
         });
-        buttons.delete(source); axes.delete(source); update(canceled);
+        const previous = buttons.get(source);
+        buttons.delete(source);
+        // A lift masked by another physical holder created no falling edge.
+        // Only a finger that actually ended a pulse may retain its ownership.
+        if (!immediate && previous) for (const i of previous) {
+          if ([...buttons.values()].some(indices => indices.has(i))) owners[i].delete(source);
+        }
+        axes.delete(source); update(canceled);
       },
       reset() { buttons.clear(); axes.clear(); pending.forEach(cancel); pending.clear(); owners.forEach(sources => sources.clear()); update(true); },
       subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
@@ -105,6 +162,7 @@
     const pointers = new Map();
     const listeners = [];
     const pulses = new Set();
+    const keySources = new Map();
     const stick = element.querySelector('[data-pad-stick]');
     const buttons = [...element.querySelectorAll('[data-pad-button]')];
     const geometryTargets = [element, canvas, stick, ...element.querySelectorAll('[data-pad-dpad]'), ...buttons]
@@ -122,19 +180,40 @@
     }
     function render() {
       buttons.forEach(button => {
-        const pressed = state.gamepad.buttons[BUTTONS[button.dataset.padButton]].pressed;
+        const binding = button.dataset.padButton;
+        const pressed = keyboard.has(binding) ? [...keySources.values()].includes(binding) : state.gamepad.buttons[BUTTONS[binding]].pressed;
         button.classList.toggle('is-pressed', pressed);
         button.setAttribute('aria-pressed', String(pressed));
       });
+      if (!stick) return;
       stick.style.setProperty('--stick-x', `${state.gamepad.axes[0] * stickRadius}px`);
       stick.style.setProperty('--stick-y', `${state.gamepad.axes[1] * stickRadius}px`);
       stick.classList.toggle('is-pressed', stickPointer !== null);
+    }
+    function setKey(source, binding) {
+      const old = keySources.get(source);
+      const next = keyboard.has(binding) ? binding : undefined;
+      if (old === next) return;
+      keySources.delete(source);
+      const send = (type, id) => {
+        const modifiers = new Set([...keySources.values()].map(key => keyboard.get(key).key));
+        canvas.dispatchEvent(new window.KeyboardEvent(type, { ...keyboard.get(id), bubbles: true, cancelable: true,
+          shiftKey: modifiers.has('Shift'), ctrlKey: modifiers.has('Control'), altKey: modifiers.has('Alt') }));
+      };
+      if (old && ![...keySources.values()].includes(old)) send('keyup', old);
+      if (next) {
+        const first = ![...keySources.values()].includes(next);
+        keySources.set(source, next);
+        if (first) send('keydown', next);
+      }
+      render();
     }
     function releasePointer(id, immediate = false) {
       const pointer = pointers.get(id);
       if (!pointer) return;
       pointers.delete(id);
       if (stickPointer === id) stickPointer = null;
+      setKey(id);
       state.release(id, { immediate });
       if (pointer.control.hasPointerCapture?.(id)) pointer.control.releasePointerCapture(id);
       render();
@@ -143,6 +222,7 @@
       for (const id of [...pointers.keys()]) releasePointer(id, true);
       pulses.forEach(timer => window.clearTimeout(timer));
       pulses.clear();
+      for (const source of [...keySources.keys()]) setKey(source);
       state.reset();
       render();
     }
@@ -166,7 +246,9 @@
     function move(event, pointer) {
       if (pointer.kind === 'button') {
         const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-pad-button]');
-        state.setButtons(event.pointerId, target && element.contains(target) ? [target.dataset.padButton] : [],
+        const binding = target && element.contains(target) ? target.dataset.padButton : null;
+        setKey(event.pointerId, binding);
+        state.setButtons(event.pointerId, binding ? [binding] : [],
           { replaceImmediately: true });
         return;
       }
@@ -229,8 +311,9 @@
       if (event.detail !== 0 || window.performance.now() - lastPointerTime < 500) return;
       onInteraction();
       const source = Symbol('activation');
+      setKey(source, button.dataset.padButton);
       state.setButtons(source, [button.dataset.padButton]);
-      const timer = window.setTimeout(() => { pulses.delete(timer); state.release(source); }, 80);
+      const timer = window.setTimeout(() => { pulses.delete(timer); setKey(source); state.release(source); }, 80);
       pulses.add(timer);
     });
     listen(element, 'contextmenu', event => event.preventDefault());
@@ -266,5 +349,5 @@
       destroy() { destroyed = true; enabled = false; reset(); element.hidden = true; unsubscribe(); listeners.forEach(remove => remove()); },
     };
   }
-  root.PpssppTouchControls = Object.freeze({ BUTTONS, createState, dpadButtons, stickAxes, mount });
+  root.PpssppTouchControls = Object.freeze({ BUTTONS, keyboard, createState, dpadButtons, stickAxes, mount });
 })(globalThis);

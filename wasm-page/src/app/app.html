@@ -4,8 +4,6 @@
     <span class="brand-name">PPSSPW<small>PSP 网页模拟器</small></span>
   </div>
   <div class="hbar-group" id="launchGroup">
-    <label class="btn" id="fileLabel" title="选择本地游戏镜像"><i data-lucide="folder-open"></i><span class="btn-lbl">选择游戏</span><input id="gameFile" aria-label="选择本地 PSP 游戏镜像" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx"></label>
-    <button id="startBtn" aria-label="开始游玩" class="primary" title="开始游玩"><i data-lucide="play"></i><span class="btn-lbl">开始游玩</span></button>
     <label class="btn" id="runtimeIsoLabel" style="display:none" title="载入另一个游戏，然后在模拟器的游戏列表中打开"><i data-lucide="upload"></i><span class="btn-lbl">载入游戏</span><input id="runtimeIsoFile" aria-label="运行时载入游戏镜像" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx"></label>
   </div>
   <div class="hbar-group" id="displayGroup">
@@ -26,10 +24,37 @@
     <button id="fsMenuToggle" type="button" aria-label="打开游玩菜单" aria-controls="fsMenuActions" aria-expanded="false" title="游玩菜单"><span aria-hidden="true">···</span></button>
     <div id="fsMenuActions" class="fullscreen-actions" role="group" aria-label="全屏游玩操作" hidden>
       <button id="fsTouchGamepadToggle" type="button" aria-controls="touchGamepad" aria-pressed="false" disabled><i data-lucide="gamepad-2"></i>屏幕手柄</button>
+      <button id="fsPadEdit" type="button" aria-haspopup="dialog" aria-controls="padEditor"><i data-lucide="settings"></i>编辑键位</button>
+      <button id="fsStateSlotsBtn" type="button" aria-controls="tabSaves"><i data-lucide="save"></i>即时存档与读档</button>
       <button id="fsPanelBtn" type="button" aria-controls="sidePanel" aria-expanded="false"><i data-lucide="panel-right"></i>游戏库与设置</button>
       <button id="fsExitBtn" type="button"><i data-lucide="minimize"></i>退出全屏</button>
     </div>
   </div>
+  <dialog id="padEditor" aria-labelledby="padEditorTitle">
+    <div class="pad-editor-head"><h2 id="padEditorTitle">编辑键位</h2><button type="button" class="btn" id="padCancel">取消</button></div>
+    <div class="pad-editor-body">
+      <div class="pad-editor-workspace">
+        <div class="pad-board-frame" id="padBoardFrame"><div class="pad-preview" id="padPreview" role="group" aria-label="键位布局预览"></div></div>
+        <p>拖动键位调整位置，也可以输入坐标。</p>
+      </div>
+      <div class="pad-inspector">
+        <label>预设名称<input id="padName" maxlength="40" autocomplete="off"></label>
+        <div class="pad-tools"><label>当前控件<select id="padSelection"></select></label><button type="button" class="btn" id="padAdd">新增按钮</button></div>
+        <fieldset id="padProperties">
+          <label>绑定<select id="padBinding" aria-describedby="padBindingHint"></select></label>
+          <small id="padBindingHint" hidden>键盘键沿用模拟器当前的键盘映射。</small>
+          <label>尺寸 <output id="padSizeValue" for="padSize"></output><input id="padSize" type="range" min="32" max="240" step="1"></label>
+          <div class="pad-coordinates">
+            <label>水平 %<input id="padX" type="number" min="0" max="100" step="1"></label>
+            <label>垂直 %<input id="padY" type="number" min="0" max="100" step="1"></label>
+          </div>
+          <button type="button" class="btn" id="padSplit" hidden>拆为四个方向键</button>
+          <button type="button" class="btn" id="padRemove">移除控件</button>
+        </fieldset>
+      </div>
+    </div>
+    <div class="pad-editor-foot"><span id="padEditorStatus" role="status"></span><button type="button" class="btn" id="padCopy" hidden>另存为</button><button type="button" class="btn primary" id="padSave">保存并使用</button></div>
+  </dialog>
   <section class="stage" aria-label="游戏画面">
     <canvas id="canvas" width="1280" height="720" tabindex="0" aria-label="游戏画面，支持键盘、手柄与触控操作"></canvas>
     <div id="touchGamepad" class="touch-gamepad" role="group" aria-label="屏幕手柄，支持多指同时操作" hidden>
@@ -67,13 +92,14 @@
           <h1 class="idle-title">PPSSPW<span>PSP 网页模拟器</span></h1>
           <p class="idle-subtitle" id="idleSubtitle">选择本地 PSP 游戏文件开始游玩。已有游戏和存档可在右上角的「游戏库与设置」中查看。</p>
           <div class="idle-actions">
-            <label class="btn primary" for="gameFile"><i data-lucide="folder-open"></i><span>选择游戏文件</span></label>
-            <button id="idleStartBtn" type="button"><i data-lucide="play"></i><span>开始游玩</span></button>
+            <input id="gameFile" aria-label="选择本地 PSP 游戏镜像" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx" hidden>
+            <button id="idleStartBtn" type="button" class="primary"><span id="idleChooseIcon"><i data-lucide="folder-open"></i></span><span id="idlePlayIcon" hidden><i data-lucide="play"></i></span><span id="idleActionText">选择游戏</span></button>
+            <button id="idleChooseBtn" type="button" hidden>选择其他游戏</button>
           </div>
           <p class="idle-formats">支持 ISO、CSO、CHD、PBP、ELF、PRX<span>请先解压 ZIP / 7z 压缩包，再选择其中的游戏文件。</span></p>
           <div class="play-notes">
             <p><i data-lucide="gamepad-2"></i><span>手机点击全屏可请求锁定横屏。屏幕手柄可在顶部工具栏或「画质与操作」中开关。</span></p>
-            <p><i data-lucide="save"></i><span>离开前先在游戏内保存，再同步存档到本机。</span></p>
+            <p><i data-lucide="save"></i><span>即时保存后，看到「可以刷新」再离开。</span></p>
           </div>
         </div>
         <div class="idle-guide" aria-label="游玩步骤">
@@ -128,6 +154,7 @@
         <div class="panel-intro"><h2>你的游戏库</h2><p>保存在当前浏览器中的游戏。换设备前请另行保留原始文件。</p></div>
         <div class="library-toolbar">
           <label class="btn primary" id="libraryImportLabel"><i data-lucide="folder-plus"></i>添加游戏<input id="libraryImportFile" type="file" accept=".iso,.cso,.chd,.pbp,.elf,.prx" aria-label="向本机游戏库添加游戏"></label>
+          <button id="startBtn" type="button" title="启动模拟器"><i data-lucide="play"></i>启动模拟器</button>
           <button id="refreshLibraryBtn" title="刷新本机游戏库"><i data-lucide="refresh-cw"></i>刷新</button>
           <span class="library-preload-count" id="libraryPreloadCount">0 个预载</span><span class="library-count" id="libraryCount">0 个游戏</span>
           <div class="legacy-integrations" hidden inert aria-hidden="true"><input id="libraryUrlInput" type="url" autocomplete="off" spellcheck="false" aria-label="已停用的网络导入"><button id="libraryDownloadUrlBtn" type="button">网络导入已停用</button></div>
@@ -162,7 +189,15 @@
         </section>
         <section class="settings-section">
           <h3>操作</h3>
+          <div id="compactThemeSetting" class="setting-field" hidden><span>界面配色</span></div>
           <label class="setting-check"><input id="player-touch-controls" type="checkbox" checked><span>显示屏幕手柄</span></label>
+          <label class="setting-field" for="padPreset"><span>按键预设</span><select id="padPreset"><option value="">内置布局</option></select></label>
+          <div class="pad-preset-actions">
+            <button type="button" id="padEdit" class="btn" aria-haspopup="dialog" aria-controls="padEditor">编辑键位</button>
+            <button type="button" id="padDeletePreset" class="btn" disabled>删除预设</button>
+          </div>
+          <p id="padPresetStatus" class="setting-hint" role="status"></p>
+          <label class="setting-field" for="player-pad-opacity"><span>横屏按键不透明度</span><span class="pad-opacity-field"><input id="player-pad-opacity" type="range" min="25" max="100" step="5" value="70"><output id="padOpacityValue" for="player-pad-opacity">70%</output></span></label>
           <p class="setting-hint">开关即时生效。支持多指同时按住方向与动作键；方向区可拖动，左下圆盘为模拟摇杆。</p>
           <p class="setting-hint">手机进入全屏时会请求锁定横屏，退出时恢复系统方向设置。不支持的浏览器请手动旋转手机；全屏时通过顶部「···」打开网页面板。</p>
           <label class="setting-field" for="gamepadSelect"><span>使用的手柄</span><select id="gamepadSelect" class="btn" title="选择使用的手柄"><option value="-1">所有已连接手柄</option></select></label>
@@ -181,7 +216,18 @@
 
     <div class="tab-panel" id="tabSaves" role="tabpanel" aria-labelledby="panelTabSaves" tabindex="0" hidden>
       <div id="savesPanel">
-        <div class="panel-intro inset-intro"><h2>我的存档</h2><p>先在游戏内保存，再同步到本机。重要进度建议导出一份备份。</p></div>
+        <div class="panel-intro inset-intro"><h2>我的存档</h2><p>即时存档记录当前画面和进度。游戏内生成的存档也可以在这里导出备份。</p></div>
+        <section class="state-slots settings-section" aria-labelledby="stateSlotHeading">
+          <h3 id="stateSlotHeading">当前游戏的即时存档</h3>
+          <label for="stateSlotSelect">槽位</label>
+          <select id="stateSlotSelect" disabled><option>等待游戏启动</option></select>
+          <div id="stateSlotPreview" hidden><img alt="所选槽位的存档画面" width="96" height="54" hidden><span></span></div>
+          <div class="player-actions">
+            <button id="stateSlotSave" type="button" disabled>即时保存</button>
+            <button id="stateSlotLoad" type="button" disabled>读取此槽</button>
+          </div>
+          <p id="stateSlotStatus" role="status" aria-live="polite">进入游戏后可保存或读取所选槽位。</p>
+        </section>
         <div class="saves-toolbar">
           <button id="refreshSavesBtn"><i data-lucide="refresh-cw"></i>刷新</button><button id="exportAllSavesBtn"><i data-lucide="download"></i>导出全部</button>
           <label class="btn" id="importSaveSlotLabel" title="导入单个存档槽的 .ppsspp 文件"><i data-lucide="upload"></i>导入存档<input id="importSaveSlotFile" type="file" accept=".ppsspp,.json" aria-label="导入单个存档"></label>
@@ -340,7 +386,7 @@
         <div class="info-group"><h3>关于 PPSSPW</h3><p class="about-text" lang="en">PlayStation Portable Simulator Suitable for Playing on the Web</p><p class="about-text">PPSSPW 是基于 PPSSPP 的非官方网页版本，在浏览器中运行 PSP 游戏，提供中文操作面板、屏幕手柄、画质设置、下载续传和本机存档管理。本站不包含游戏镜像与游戏素材。</p></div>
         <div class="info-group"><h3>原始 PPSSPP</h3><p class="about-text">PPSSPP 由 Henrik Rydgard 创建，众多贡献者共同开发。本项目保留上游署名与许可，并非 PPSSPP 官方发行版。</p><div class="about-links"><a href="https://www.ppsspp.org/" target="_blank" rel="noopener">PPSSPP 官方网站</a><a href="https://github.com/hrydgard/ppsspp" target="_blank" rel="noopener">原始项目源码</a></div></div>
         <div class="info-group"><h3>网页版本与维护者</h3><p class="about-text">模拟器网页构建来自 root-hunter 维护的 ppsspp-wasm；网页外壳、本机存储与播放器功能基于其 ppsspp-web 项目。</p><div class="about-links"><a href="https://github.com/root-hunter/ppsspp-wasm" target="_blank" rel="noopener">模拟器网页分支</a><a href="https://github.com/root-hunter/ppsspp-web" target="_blank" rel="noopener">上游网页源码</a><a href="https://github.com/root-hunter" target="_blank" rel="noopener">上游维护者</a></div></div>
-        <div class="info-group"><h3>许可与资源署名</h3><p class="about-text">本项目原创模块按 AGPLv3（AGPL-3.0-only，适用附加条款）提供，源自上游的模拟器核心与网页基线文件保留 GPL-2.0-or-later 许可，组合程序依 GPLv3 / AGPLv3 第 13 条兼容组合机制发布。PPSSPW 图标与字标为本项目原创，按 AGPLv3 提供。游戏内容的权利属于各自权利人，代码许可不重新授权游戏内容。</p><div class="about-links"><a href="LICENSE" target="_blank" rel="noopener">本项目许可全文</a><a href="LICENSE-ADDITIONAL_TERMS-zh-CN.md" target="_blank" rel="noopener">附加条款（中文）</a><a href="LICENSE-ADDITIONAL_TERMS-en.md" target="_blank" rel="noopener">Additional Terms (EN)</a><a href="UPSTREAM-LICENSE.txt" target="_blank" rel="noopener">上游许可全文</a></div><details class="asset-credits"><summary>随上游保留的图片资源署名</summary><p class="about-text">PSP-3000 设备照片来自 <a href="https://commons.wikimedia.org/wiki/File:PSP-3000-Silver.png" target="_blank" rel="noopener">Evan-Amos / Wikimedia Commons</a>，采用 <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener">CC BY-SA 3.0</a>，上游已调整尺寸并转换为 WebP。</p></details></div>
+        <div class="info-group"><h3>许可与资源署名</h3><p class="about-text">本项目原创模块按 AGPLv3（AGPL-3.0-only，适用附加条款）提供，源自上游的模拟器核心与网页基线文件保留 GPL-2.0-or-later 许可，组合程序依 GPLv3 / AGPLv3 第 13 条兼容组合机制发布。PPSSPW 图标与字标为本项目原创，按 AGPLv3 提供。游戏内容的权利属于各自权利人，代码许可不重新授权游戏内容。</p><div class="about-links"><a href="LICENSE" target="_blank" rel="noopener">本项目许可全文</a><a href="LICENSE-ADDITIONAL_TERMS-zh-CN.md" target="_blank" rel="noopener">附加条款（中文）</a><a href="LICENSE-ADDITIONAL_TERMS-en.md" target="_blank" rel="noopener">Additional Terms (EN)</a><a href="UPSTREAM-LICENSE.txt" target="_blank" rel="noopener">上游许可全文</a><a href="GPL-3.0.txt" target="_blank" rel="noopener">GPLv3 原文</a></div><details class="asset-credits"><summary>随上游保留的图片资源署名</summary><p class="about-text">PSP-3000 设备照片来自 <a href="https://commons.wikimedia.org/wiki/File:PSP-3000-Silver.png" target="_blank" rel="noopener">Evan-Amos / Wikimedia Commons</a>，采用 <a href="https://creativecommons.org/licenses/by-sa/3.0/" target="_blank" rel="noopener">CC BY-SA 3.0</a>，上游已调整尺寸并转换为 WebP。</p></details></div>
       </div>
     </div>
 
