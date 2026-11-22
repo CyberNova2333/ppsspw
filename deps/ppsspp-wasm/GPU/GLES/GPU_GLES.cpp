@@ -140,6 +140,12 @@ u32 GPU_GLES::CheckGPUFeatures() const {
 
 	features |= GPU_USE_16BIT_FORMATS;
 
+#ifdef __EMSCRIPTEN__
+	// WebGL rejects reversed depthRange endpoints. Apply the signed PSP viewport
+	// scale in the projection and use the PSP clipping range for depthRange.
+	features |= GPU_USE_ACCURATE_DEPTH;
+#endif
+
 	if (gl_extensions.GLES3 || !gl_extensions.IsGLES)
 		features |= GPU_USE_TEXTURE_LOD_CONTROL;
 
