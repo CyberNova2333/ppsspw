@@ -40,12 +40,14 @@
     "zh": [
       "ISO 镜像改为按需分段读取（缓存窗口上限 8MiB），避免启动时把整张光盘镜像一次性塞进浏览器内存",
       "支持导入外部 JSON 游戏列表、分块下载暂停与续传、1x–3x 内部渲染分辨率切换及存档导入导出",
-      "附带本地运行诊断面板，方便查看帧率、模拟速度、ISO 读取耗时和音频缓冲情况"
+      "附带本地运行诊断面板，方便查看帧率、模拟速度、ISO 读取耗时和音频缓冲情况",
+      "首页支持继续上次游戏，屏幕手柄可调整不透明度，并可在本机保存按键位置、大小与绑定预设。游玩菜单支持按槽即时存读档，存档写入本机后可刷新继续"
     ],
     "en": [
       "Reads ISO images on demand with an 8MiB cache cap instead of loading the entire disc into browser memory",
       "Supports external JSON game manifests, resumable downloads, 1x–3x resolution scaling, and save import/export",
-      "Includes a local diagnostics panel showing frame rate, ISO read latency, and audio buffer metrics"
+      "Includes a local diagnostics panel showing frame rate, ISO read latency, and audio buffer metrics",
+      "Resume the last game from the home screen and customize touch control opacity, button placement, size and bindings with locally saved presets. Save and load individual slots from the play menu, with confirmation after the save reaches local storage"
     ]
   },
   "quickStart": [
@@ -63,5 +65,5 @@
   "additionalTermsConsent": {
     "CyberNova": true
   },
-  "updatedAt": "2026-11-11"
+  "updatedAt": "2026-11-22"
 }

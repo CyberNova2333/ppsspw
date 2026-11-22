@@ -8,7 +8,7 @@
 - **常见成因与排查**：
   1. 静态网关遗漏了 `Cross-Origin-Opener-Policy: same-origin` 或 `Cross-Origin-Embedder-Policy: require-corp`；
   2. 通过局域网 HTTP IP（非 `localhost` / `127.0.0.1`）访问页面，浏览器安全策略直接禁用隔离上下文与 `SharedArrayBuffer`；
-  3. 仅首次加载由 `wasm-page/public/sw.js`（当前版本 `ppsspp-player-v16`）补注响应头，尚未完成一次刷新接管。
+  3. 仅首次加载由 `wasm-page/public/sw.js`（当前版本 `ppsspp-player-v22`）补注响应头，尚未完成一次刷新接管。
 - **处理方式**：核对 CDN / Nginx 响应头；手机局域网调试改用带有效证书的 HTTPS（可用 `server/serve-player.py --cert ... --key ...`）；查看 `devtools -> Network` 主文档与 worker 脚本响应头是否生效。
 
 ## 2. 启动预览服务 `serve-player.py` 报错地址已占用

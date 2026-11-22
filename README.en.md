@@ -52,7 +52,7 @@ Prerequisite: compiled WASM core artifacts present locally, plus Node.js 24+, `p
 
 ```sh
 # 1. Build Angular assets and validate/package core into wasm-page/dist/ppsspp-web/
-make app-build && python3 scripts/package-player.py
+make app-install app-build-pages
 
 # 2. Launch the COOP/COEP/CORP/CSP local preview server on 127.0.0.1:17881
 python3 server/serve-player.py
@@ -65,7 +65,7 @@ Other deployment and build modes are covered in the documentation site ([ppsspw.
 
 | Mode / Target | When to Use | Guide |
 | --- | --- | --- |
-| Docker Compose preview | Expose prebuilt `wasm-page/dist/ppsspp-web` on `0.0.0.0:17881` | [Deployment, Headers & Manifests](docs-site/en/docs/deployment.md#2-docker-compose-static-preview) |
+| Docker Compose preview | Preview the packaged player on the host at `127.0.0.1:17881` | [Deployment, Headers & Manifests](docs-site/en/docs/deployment.md#2-docker-compose-static-preview) |
 | Full WASM build & EdgeOne CI | Compile from source (`emsdk:6.0.12`) and deploy via GitHub Actions | [Deployment, Headers & Manifests](docs-site/en/docs/deployment.md#3-full-toolchain-build--edgeone-ci-release) |
 | Chunked manifest prep (`create-game-manifest.py`) | Split owned ISOs into 64 KiB–16 MiB chunks with SHA-256 verification | [Deployment, Headers & Manifests](docs-site/en/docs/deployment.md#5-creating-chunked-game-manifests--optional-relay-stack) |
 | Self-hosted Ad Hoc relay (`deploy/relay/`) | Run the Caddy + Docker Compose `PRO`/`PU1`/`PT1` WebSocket relay | [Contracts & Protocol](docs-site/en/docs/contracts.md#3-ad-hoc-websocket-relay-protocol-local_only--true-ui-gate) |

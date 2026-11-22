@@ -13,7 +13,7 @@ Loading a full 1.5 GB PSP ISO into Emscripten `MEMFS` exhausts 32-bit WASM linea
 `game-download.js`, `online-games.js`, and Dedicated Worker `download-worker.js` enforce strict download integrity:
 
 - Only `HTTP 206 Partial Content` responses with empty/`identity` `Content-Encoding` and no cross-origin redirect are accepted.
-- Each chunk's SHA-256 is verified against the manifest (`schemaVersion: 1`, `64 KiB–16 MiB` chunks) before writing via OPFS `createSyncAccessHandle()` to `game-downloads/<fingerprint>/game.bin` and updating `resume.json`.
+- Each chunk's SHA-256 is verified against the manifest (`schemaVersion: 1`, `64 KiB–16 MiB` chunks) before writing via OPFS `createSyncAccessHandle()` to `game-downloads/<fingerprint>/game.bin` and flushing the payload before updating one byte in `resume.bin`. Existing version-one journals remain readable.
 - Concurrent downloads of the same fingerprint are serialized via Web Locks (`PpssppGameStorage.withShared` + exclusive `ppsspp-download-<fingerprint>`).
 
 ## 3. Ad Hoc WebSocket Relay Protocol (`LOCAL_ONLY = true` UI Gate)

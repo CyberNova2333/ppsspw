@@ -52,7 +52,7 @@ flowchart LR
 
 ```sh
 # 1. 构建网页资源并打包校验核心产物至 wasm-page/dist/ppsspp-web/
-make app-build && python3 scripts/package-player.py
+make app-install app-build-pages
 
 # 2. 启动带 COOP/COEP/CORP/CSP 响应头的本地受限预览服务（127.0.0.1:17881）
 python3 server/serve-player.py
@@ -65,7 +65,7 @@ pnpm --dir wasm-page test && python3 -m unittest discover -s server/player-tests
 
 | 使用或部署模式 | 适用场景 | 入口文档 |
 | --- | --- | --- |
-| Docker Compose 静态预览 | 在 `0.0.0.0:17881` 快速暴露已构建好的 `wasm-page/dist/ppsspp-web` | [部署模式与下载清单准备](docs-site/docs/deployment.md#模式二docker-compose-静态预览容器) |
+| Docker Compose 静态预览 | 在宿主机 `127.0.0.1:17881` 预览已打包的播放器 | [部署模式与下载清单准备](docs-site/docs/deployment.md#模式二docker-compose-静态预览容器) |
 | 全量 WASM 工具链编译 & EdgeOne CI | 使用 `emsdk:6.0.12` 完整编译核心并通过 GitHub Actions 发布 | [部署模式与下载清单准备](docs-site/docs/deployment.md#模式三全量工具链构建与-edgeone-pages-ci-发布) |
 | 分块下载清单制作（`create-game-manifest.py`） | 为自持镜像切分 64 KiB–16 MiB 分块并配置 `HTTPS` + `Range 206` | [部署模式与下载清单准备](docs-site/docs/deployment.md#准备在线分块下载清单game-manifest) |
 | 自托管 Ad Hoc 中继（`deploy/relay/`） | 使用 Caddy + Docker Compose 启动带 SQLite 密钥管理的联机中继 | [部署模式与下载清单准备](docs-site/docs/deployment.md#可选部署-ad-hoc-多人中继服务) |

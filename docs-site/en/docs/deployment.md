@@ -6,7 +6,7 @@ PPSSPW separates heavy C++/Emscripten compilation from lightweight static hostin
 
 ```sh
 # Build Angular shell and validate/bundle WASM artifacts into wasm-page/dist/ppsspp-web
-make app-build && python3 scripts/package-player.py
+make app-install app-build-pages
 
 # Serve with mandatory COOP/COEP/CORP/CSP headers on 127.0.0.1:17881
 python3 server/serve-player.py
@@ -17,7 +17,7 @@ python3 server/serve-player.py
 
 ## 2. Docker Compose Static Preview
 
-`docker-compose.yml` mounts `./wasm-page/dist/ppsspp-web` read-only into `python:3.13-slim` and starts `serve-player.py` on `0.0.0.0:17881`:
+`docker-compose.yml` mounts the packaged player read-only at `/app/wasm-page/dist/ppsspp-web` in the container. The service listens on `0.0.0.0:17881` inside the container and is published on `127.0.0.1:17881` on the host.
 
 ```sh
 docker compose up -d
@@ -27,9 +27,11 @@ Note that Docker Compose only serves prebuilt `wasm-page/dist/ppsspp-web` assets
 
 ## 3. Full Toolchain Build & EdgeOne CI Release
 
-`scripts/ci/Dockerfile` pins `node:24.21.0`, `pnpm@12.6.0`, and `emsdk:6.0.12`. Full compilation runs `scripts/ci/build.sh` (`test-sdl-viewport.py`, `test-tabbed-layout.py`, `make wasm-ffmpeg`, `make wasm-release`, `app-build-pages`, `package-player.py`).
+`scripts/ci/Dockerfile` pins Node 24.21.0, pnpm 12.6.0 and Emscripten 6.0.12. Inside this toolchain, `scripts/ci/build.sh` installs the locked dependencies, runs `make test-ci`, then builds the core with `make wasm-release`. The final `make app-build-pages` builds the web UI and invokes the packager. It rejects diagnostic cores by default and copies all five license texts linked from the About panel.
 
-Manual deployment (`.github/workflows/deploy.yml`, `workflow_dispatch`) validates build bounds via `scripts/ci/prepare-deploy.mjs` (blocking unflagged diagnostic cores built with `WASM_FRAME_TIMING` or `WASM_IR_BLOCK_PROFILE`), runs `edgeone makers deploy`, and verifies live headers via `verify-deployment.mjs` using three repository Actions secrets (`EDGEONE_PROJECT_NAME`, `EDGEONE_PAGES_API_TOKEN`, `PLAYER_PUBLIC_ORIGIN`).
+The deploy workflow installs the CLI from the frozen lockfile in `scripts/ci/deploy-tool` and checks its deploy command during dry runs.
+
+During deployment preparation, `scripts/ci/prepare-deploy.mjs` checks that all five texts exist and contain data before cleaning up old manifests, writing the header configuration and assigning a deployment revision. The manual deployment workflow can run this build as a dry run. After publication, its optional live check verifies the deployment revision and HTTP headers.
 
 ## 4. Required HTTP Headers for Any Reverse Proxy
 
@@ -40,7 +42,7 @@ Manual deployment (`.github/workflows/deploy.yml`, `workflow_dispatch`) validate
 | `/*` | `Cross-Origin-Resource-Policy: same-origin` | Restricts unauthorized cross-site embedding |
 | `/*` | `Content-Security-Policy` (`worker-src 'self' blob:; connect-src 'self' blob: https:`) | Allows Worker scripts and HTTPS range chunks |
 | `/build-wasm/*.wasm` | `Content-Type: application/wasm` | Enables `instantiateStreaming` |
-| `/sw.js`, `/build-info.json` | `Cache-Control: no-cache` | Prevents stale Service Worker (`ppsspp-player-v16`) metadata |
+| `/sw.js`, `/build-info.json` | `Cache-Control: no-cache` | Prevents stale Service Worker (`ppsspp-player-v22`) metadata |
 
 ## 5. Creating Chunked Game Manifests & Optional Relay Stack
 

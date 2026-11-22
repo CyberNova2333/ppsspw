@@ -46,11 +46,13 @@
 | 重要代码 | 功能 | 关键符号 | 调用方 / 使用方 |
 | --- | --- | --- | --- |
 | [职责入口](../wasm-page/public/ppsspp-runtime.js) | 启动、浏览器文件与存档的实际运行逻辑 | `start / loadPersistedFiles / mountBrowserGame` | 页面按序载入 |
+| [本机存档](../wasm-page/public/ppsspp-runtime.js) | 跨标签页核对槽位版本，扫描成功后同步，恢复中断的备份导入 | `reserveSaveGroups / persistFilesNow / recoverSaveImport` | 游戏启动、游玩菜单、自动同步与导入 |
 | [栏目导航](../wasm-page/public/ppsspp-runtime.js) | 切换选中面板、焦点和键盘导航 | `activatePanelTab / onPanelTabKeyDown` | 模板中的栏目按钮 |
 | [布局与画布跟踪](../wasm-page/public/ppsspp-runtime.js) | 区分布局与可视区域，向核心通知画布尺寸变化、向手柄通知位置变化 | `syncViewportSize / installCanvasResizeTracking / ppsspp-player-layout` | 浏览器视口、全屏、画布观察器 |
+| [按键预设](../wasm-page/public/pad-presets.js) | 预设草稿、位置与大小、持久化和编辑器预览 | `mount / replaceLayout` | 设置面板与全屏游玩菜单 |
 | [屏幕手柄](../wasm-page/public/touch-controls.js) | 每指针输入、方向拖动、摇杆死区与安全释放 | `createState / mount / dpadButtons / stickAxes` | 运行时输入桥采样 |
 | [8 MiB 分窗读取](../wasm-page/public/browser-files.js) | 256 KiB 分块调度、8 MiB LRU 窗口与零字节存根兜底 | `CACHE_BYTES / BLOCK_BYTES / READ_CONCURRENCY` | 原生 `BrowserFileLoader` 跨线程代理 |
-| [在线清单与续传](../wasm-page/public/game-download.js) | 分块 HTTP Range 校验、Web Locks 与 OPFS 断点写入协调 | `download-worker.js / online-games.js` | 在线清单安装与续传任务 |
+| [在线清单与续传](../wasm-page/public/game-download.js) | 分块 HTTP Range 校验、按块刷盘的续传进度，以及与页面共享的缓存锁和目录 | `download-worker.js / online-games.js` | 在线清单安装与续传任务 |
 | [运行时性能采样](../wasm-page/public/performance.js) | 读取帧边界快照并导出脱敏采样 JSON | `start / exportReport` | 面板诊断开关与离线比对脚本 |
 | [Ad Hoc 中继传输](../wasm-page/public/adhoc-transport.js) | `PRO`/`PU1`/`PT1` WebSocket 联机二进制封装（当前受 `LOCAL_ONLY = true` 隐藏） | `connect / sendPacket` | 联机开启时的原生网口桥 |
 
@@ -75,12 +77,12 @@
 
 | 重要代码 | 功能 | 关键符号 | 调用方 / 使用方 |
 | --- | --- | --- | --- |
-| [职责入口](../scripts/package-player.py) | 把配套核心交给静态网页产物 | `main / diagnostic_metadata` | make pages 或显式打包命令 |
+| [职责入口](../scripts/package-player.py) | 校验配套核心、拒绝诊断包并复制五份许可文本 | `main / diagnostic_metadata / read_required_licenses` | make pages 或显式打包命令 |
 | [窗口尺寸回归入口](../scripts/test-sdl-viewport.py) | 从当前生产源码提取函数和 resize 分支，编译并执行小型 Wasm 测试 | `body / main` | 显式运行；需要 Emscripten SDK 与 Node.js |
 | [栏目模式回归入口](../scripts/test-tabbed-layout.py) | 提取真实布局决策和尺寸回调，分别验证网页与非网页分支 | `main / UseHorizontalTabs / resized` | 显式运行；需要 Emscripten SDK 与 Node.js |
-| [构建验证顺序](../scripts/ci/build.sh) | 完整核心构建前先执行窗口尺寸和栏目模式回归 | `test-sdl-viewport.py / test-tabbed-layout.py / make wasm-release` | 构建任务入口；改动脚本不代表任务已执行 |
+| [构建验证顺序](../scripts/ci/build.sh) | 调用共用回归入口，再编译核心并打包网页 | `make test-ci / make wasm-release / make app-build-pages` | 构建任务入口；改动脚本不代表任务已执行 |
 | [清单生成工具](../scripts/create-game-manifest.py) | 按 64 KiB–16 MiB 切分镜像并计算每块 SHA-256 与 HTTPS 源约束 | `main / schemaVersion` | 部署在线分块镜像前的离线准备 |
-| [发布前门禁](../scripts/ci/prepare-deploy.mjs) | 写入 COOP/COEP/CORP/CSP 与 `.wasm` 头规则，并阻断未放行的诊断构建 | `--allow-diagnostics / WASM_FRAME_TIMING` | EdgeOne 部署准备与校验步骤 |
+| [发布前门禁](../scripts/ci/prepare-deploy.mjs) | 检查随包许可、写入隔离响应头配置并核对部署标识 | `verifyLicenses / prepareDeployment / verifyStaticOutput` | EdgeOne 部署准备与校验步骤 |
 
 打包边界的验证入口为 `server/player-tests/`；窗口尺寸分支由独立编译脚本执行，结果分别记录，不能互相替代。
 
@@ -98,11 +100,12 @@
 
 ## `deps/ppsspp-wasm/SDL/`
 
-这里只追踪窗口尺寸与输入坐标直接关联的分支，不把上游目录整体视为已审核。
+网页端在此处理原生窗口尺寸、输入坐标和针对当前游戏的即时存读档请求。
 
 | 重要代码 | 功能 | 关键符号 | 调用方 / 使用方 |
 | --- | --- | --- | --- |
 | [窗口事件与 DPI](../deps/ppsspp-wasm/SDL/SDLMain.cpp) | 尺寸变化时先更新 DPI，再更新显示边界，拒绝无效尺寸 | `UpdateScreenDPI / SDL_WINDOWEVENT_SIZE_CHANGED` | SDL 事件循环、原生显示与输入换算 |
+| [网页即时存档](../deps/ppsspp-wasm/SDL/WasmStateSlots.cpp) | 在模拟器线程核对当前游戏与槽位，把原生存读档完成结果送回网页 | `ppssppWebStateSlot / SaveState::SaveSlot / SaveState::LoadSlot` | 游玩菜单的槽位选择与本机持久化 |
 
 相关验证：`python scripts/test-sdl-viewport.py` 检查真实分支，但 SDL 调用为替身；还需完整重建并加载新核心，才能验证浏览器原生触点。
 

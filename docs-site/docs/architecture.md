@@ -16,7 +16,7 @@ PPSSPW 将“上游 PPSSPP WASM 源码树”、“前端 Angular 运行时界面
    - `ppsspp-runtime.js`：能力预检（`crossOriginIsolated`、WebGL2）、核心清单挑选、`WEB_NATIVE_TIMING_CONFIG` 注入、OPFS 自动持久化与 `8 ms` 音频泵；
    - `browser-files.js` 与 `game-download.js` / `download-worker.js`：管理本地 8 MiB 分窗读取与在线 `Range 206` 断点下载；
    - `touch-controls.js`：实现多点并发状态、`60 ms` 最短轻触保底、动态摇杆零点以及视口重置时 `cancelAll()` 防卡键；
-   - `sw.js`（`ppsspp-player-v16`）：为常规静态响应补齐隔离响应头，并显式跳过 `Range` 与 `no-store` 请求。
+   - `sw.js`（`ppsspp-player-v22`）：为常规静态响应补齐隔离响应头，并显式跳过 `Range` 与 `no-store` 请求。
 3. **WASM 核心与最小补丁层（`deps/ppsspp-wasm/`）**：基于上游锁定版本（见仓库根 `UPSTREAM.md` 与 `upstream/source-lock.json`），仅在三处关键边界做浏览器适配：
    - `Core/FileLoaders/BrowserFileLoader.cpp`：实现跨线程 `ReadAt` 并阻止主线程阻塞调用；
    - `SDL/SDLMain.cpp`：控制 `EmuThreadStart` pthread 派发及尺寸变化时“先刷新 DPI 再更新显示边界”的顺序；

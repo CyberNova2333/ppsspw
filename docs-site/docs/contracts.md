@@ -28,7 +28,7 @@ PPSSPW 通过三个显式契约隔离浏览器沙盒与原生模拟器的差异�
 | 分块大小（`--chunk-size`） | `64 KiB` 至 `16 MiB`（默认 `4 MiB`） | 工具与网页校验共同拒绝越界分块 |
 | 来源地址协议 | `1` 至 `6` 个来源 URL；仅允许 `https://`（`localhost` / `127.0.0.1` / `[::1]` 例外） | 明文 `http://` 公网源直接被过滤拒绝 |
 | HTTP Range 响应 | 必须返回 `206 Partial Content`、空/`identity` 编码、无跨源跳转 | 服务端回退 `200 OK` 或 `gzip` 传输时立即中止 |
-| 并发与完整性写盘 | `PpssppGameStorage.withShared` + `ppsspp-download-<fingerprint>` 独占 Web Lock；每块通过 SHA-256 才经 `createSyncAccessHandle()` 写入 `game-downloads/<fingerprint>/game.bin` 并更新 `resume.json` | 同指纹多标签并发写入自动阻塞互斥；哈希不一致不提交断点位图 |
+| 并发与完整性写盘 | `PpssppGameStorage.withShared` + `ppsspp-download-<fingerprint>` 独占 Web Lock；每块通过 SHA-256 才经 `createSyncAccessHandle()` 写入 `game-downloads/<fingerprint>/game.bin`，刷盘后按块更新 `resume.bin` 的一个字节，兼容旧版进度文件 | 同指纹多标签并发写入自动阻塞互斥；哈希不一致不提交断点位图 |
 
 ## 3. Ad Hoc 中继协议与当前开关状态
 

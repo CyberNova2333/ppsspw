@@ -18,7 +18,7 @@
 
 反证检查（Falsifying check）：若缺少共享内存仍进入核心启动，或部分核心文件能绕过配套检查，本指南的启动边界便不成立。
 
-后续问题（Next reader question）：在线下载如何恢复分块？可从[8 MiB 分窗读取与断点下载恢复](../modules/windowed-iso-and-download.md)查看 HTTP `Range`、`SHA-256` 校块与 OPFS `resume.json` 状态恢复链路；若想切换联机状态，需同步排查 `LOCAL_ONLY` 前端开关。
+后续问题（Next reader question）：在线下载如何恢复分块？可从[8 MiB 分窗读取与断点下载恢复](../modules/windowed-iso-and-download.md)查看 HTTP `Range`、`SHA-256` 校块与 OPFS 分块进度恢复链路；若想切换联机状态，需同步排查 `LOCAL_ONLY` 前端开关。
 
 覆盖 Angular 到浏览器运行时的接线、启动能力检查、本地与分块游戏挂载、打包预览、性能音频节拍与中继协议边界；PPSSPP 上游 CPU/GPU JIT 细节与第三方依赖实现仍不作逐层架构讲解。
 

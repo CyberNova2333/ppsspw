@@ -8,7 +8,7 @@ PPSSPW 把“构建工具链（Emscripten + Node/pnpm）”与“静态站点分
 
 ```sh
 # 1. 构建前端资源并校验/打包 WASM 核心产物至 wasm-page/dist/ppsspp-web
-make app-build && python3 scripts/package-player.py
+make app-install app-build-pages
 
 # 2. 启动带 COOP/COEP/CORP/CSP 响应头的本地预览服务（默认绑定 127.0.0.1:17881）
 python3 server/serve-player.py
@@ -19,7 +19,7 @@ python3 server/serve-player.py
 
 ## 模式二：Docker Compose 静态预览容器
 
-仓库根目录的 `docker-compose.yml` 定义了一个轻量静态预览容器（使用 `python:3.13-slim` 挂载本地 `./wasm-page/dist/ppsspp-web` 到 `/srv/www` 并绑定 `0.0.0.0:17881`）：
+仓库根目录的 `docker-compose.yml` 将打包目录只读挂载到容器内的 `/app/wasm-page/dist/ppsspp-web`。容器内的服务监听 `0.0.0.0:17881`，宿主机通过 `127.0.0.1:17881` 访问。
 
 ```sh
 # 先保证本地存在已打包的 wasm-page/dist/ppsspp-web，再启动容器
@@ -35,9 +35,11 @@ docker compose up -d
 
 | 构建与发布步骤 | 执行脚本 / 入口 | 核心校验动作 |
 | --- | --- | --- |
-| 1. 源码回归与全量构建 | `scripts/ci/build.sh` | 依次跑 `test-sdl-viewport.py`、`test-tabbed-layout.py`、`make wasm-ffmpeg`、`make wasm-release`、`app-build-pages` 与 `package-player.py` |
-| 2. 产物门禁与头规则生成 | `scripts/ci/prepare-deploy.mjs` | 校验内存/线程范围、`--allow-diagnostics`（默认拒绝带 `WASM_FRAME_TIMING` / `WASM_IR_BLOCK_PROFILE` 的诊断核心）并生成平台配置 |
-| 3. 手动发布与线上验收 | `.github/workflows/deploy.yml` | 由 `workflow_dispatch` 触发 `edgeone makers deploy`，随后运行 `verify-deployment.mjs` 复核线上响应头与资产完整性 |
+| 1. 源码回归与全量构建 | `scripts/ci/build.sh` | 冻结安装依赖后运行 `make test-ci`，再由 `make wasm-release` 编译核心。`make app-build-pages` 构建网页并调用打包器，默认拒绝诊断核心，同时复制「关于」页链接的五份许可文本 |
+| 2. 产物门禁与头规则生成 | `scripts/ci/prepare-deploy.mjs` | 确认五份许可文本齐备且非空后清理旧清单、写入响应头配置并更新部署标识，最后检查静态产物 |
+| 3. 手动发布与线上验收 | `.github/workflows/deploy.yml` | 手动演练运行到产物校验。正式发布后可运行 `verify-deployment.mjs`，核对本次部署标识、隔离响应头和 Wasm MIME |
+
+发布工具及其依赖由 `scripts/ci/deploy-tool/pnpm-lock.yaml` 固定。流水线使用冻结锁文件安装，干跑也会检查部署子命令能否加载。
 
 在 `.github/workflows/deploy.yml` 中，CI 仅向部署及验收步骤按需读取三个私有 Secrets，不将任何凭据写进构建产物或源码：
 

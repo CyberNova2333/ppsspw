@@ -4,7 +4,7 @@ PPSSPW packages an upstream `ppsspp-wasm` + `ppsspp-web` browser PSP emulator wr
 
 ## Runtime Tabs & Capabilities
 
-The active frontend build (`ppsspp-player-v16`) exposes 8 panels in the right sidebar (`wasm-page/src/app/app.html`):
+The active frontend build (`ppsspp-player-v22`) exposes 8 panels in the right sidebar (`wasm-page/src/app/app.html`):
 
 | Tab | Role | Backing Mechanism |
 | --- | --- | --- |

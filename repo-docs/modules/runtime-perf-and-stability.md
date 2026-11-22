@@ -34,6 +34,24 @@ const WEB_NATIVE_TIMING_CONFIG = [
 
 性能分析由 `wasm-page/public/performance.js` 协同完成：核心在仿真帧边界发出只读原子快照，网页端按真实时间归一化计算主机帧率、仿真速度、启动阶段耗时、ISO 读取延迟与音频欠载次数，并支持导出有界采样 JSON（自动剥离游戏名称、原始网址与完整运行日志）。对于《战神》等高负载 3D 游戏或重编译阶段瓶颈，仓库提供了独立离线与无头采样脚本 `scripts/profile-browser.mjs`、`scripts/profile-frame-timing.mjs`、`scripts/profile-ir-blocks.mjs` 与 `scripts/compare-browser-performance.mjs`；需明确区分桌面浏览器与 Android 模拟环境采样结果（例如历史上 Android 模拟环境缺少 3D 物体渲染，相关数据仅作异常排查记录，不计入有效性能基线）。
 
+## 小地图正常、三维景物缺失时如何复验
+
+PSP 允许用负的视口深度缩放来反转远近顺序。旧核心会把这组数值直接交给 WebGL，近端值大于远端值时，浏览器返回 `INVALID_OPERATION`。在已复现的地图中，小地图仍会转动，但围栏、路障和地面标记消失。网页核心在 `GPU_GLES::CheckGPUFeatures()` 启用 `GPU_USE_ACCURATE_DEPTH`，通过投影保留缩放方向，交给 `depthRange` 的则是 PSP 的裁剪范围。[核心实现](../../deps/ppsspp-wasm/GPU/GLES/GPU_GLES.cpp) · [视口换算](../../deps/ppsspp-wasm/GPU/Common/GPUStateUtils.cpp) · [WebGL 深度范围约束](https://registry.khronos.org/webgl/specs/latest/1.0/#VIEWPORT_DEPTH_RANGE)
+
+自动回归使用一个独立的 PSP 小程序。它先画近处的绿块，再画远处的红块，反转视口深度，两块重叠处应保留绿色。Android Firefox 运行打包后的核心，测试从画布截图读取左右对照区与重叠区。两侧正确而重叠区颜色错误时退出码为 1，通过为 0，启动失败或找不到对照区为 2。本次桌面 Chromium 在旧核心上也显示绿色，复验旧版时应保留能重现问题的 Android 图形环境。[场景源码](../../scripts/fixtures/reversed-depth/main.c) · [截图断言](../../scripts/test-webgl-depth.py)
+
+在宿主机准备 PSPSDK、genisoimage、uv、ADB 和 geckodriver，在专用 Android 模拟器中安装 Firefox。为旧版和修复版分别启动配套的播放器预览，使用模拟器可访问的地址。若通过 ADB 反向转发本地预览，先为每个预览端口执行一次 `adb -s "$serial" reverse "tcp:$port" "tcp:$port"`。从仓库根目录构建一次测试镜像，对两个预览分别运行最后一条命令，使用同一份镜像。
+
+```sh
+fixture_src="$PWD/scripts/fixtures/reversed-depth"
+fixture_out="$(mktemp -d)"
+make -C "$fixture_out" -f "$fixture_src/Makefile" VPATH="$fixture_src" reversed-depth.iso
+uv run --script scripts/test-webgl-depth.py "$player_url" "$fixture_out/reversed-depth.iso" \
+  --android-serial "$serial" --geckodriver "$geckodriver" --screenshot "$screenshot"
+```
+
+复验时，为各版核心使用独立的站点存储，以相同网页、镜像、原始即时存档和渲染倍率进入同一机位。先观察固定景物，再用屏幕方向键转向、前进，把变化后的视角存入新槽。等本机同步完成后刷新，只重新选择游戏镜像，载入新槽并核对地标、小地图朝向和存档摘要。Android 模拟器与实体手机各自记录验收结果。
+
 需要查看部署头信息检查或定位相关脚本位置时，请阅读[按职责定位源码](../code-map.md)或前往[8 MiB 分窗读取与断点下载恢复](windowed-iso-and-download.md)。
 
 证据状态：除特别标注外，本页基于当前源码已确认。

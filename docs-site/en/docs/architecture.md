@@ -12,7 +12,7 @@ PPSSPW combines an Angular control shell, pure-browser worker scripts, minimal u
 ## Four-Layer Responsibility Split
 
 1. **Angular UI Shell (`wasm-page/src/`)**: Renders the 8 active tabs + canvas viewport and sequentially loads the 6 public runtime scripts via `PpssppRuntime` (`ppsspp-runtime.ts`).
-2. **Browser Runtime & Workers (`wasm-page/public/`)**: Enforces `crossOriginIsolated` + WebGL2 preflight, manages `browser-files.js` (8 MiB window), `game-download.js` / `download-worker.js` (HTTP 206 + SHA-256 + OPFS), `touch-controls.js` (`60 ms` minimum tap duration, per-pointer D-pad replacement, `cancelAll()` on layout changes), and `sw.js` (`ppsspp-player-v16`).
+2. **Browser Runtime & Workers (`wasm-page/public/`)**: Enforces `crossOriginIsolated` + WebGL2 preflight, manages `browser-files.js` (8 MiB window), `game-download.js` / `download-worker.js` (HTTP 206 + SHA-256 + OPFS), `touch-controls.js` (`60 ms` minimum tap duration, per-pointer D-pad replacement, `cancelAll()` on layout changes), and `sw.js` (`ppsspp-player-v22`).
 3. **Minimal Upstream WASM Patch Set (`deps/ppsspp-wasm/`)**: Pinned upstream provenance (`UPSTREAM.md`, `upstream/source-lock.json`) with scoped edits in `Core/FileLoaders/BrowserFileLoader.cpp`, `SDL/SDLMain.cpp` (`EmuThreadStart` pthread & `UpdateScreenDPI` ordering), and `UI/TabbedDialogScreen.cpp` (`720` UI-unit horizontal tab switch).
 4. **Delivery & Relay Tooling (`scripts/`, `server/`, `deploy/relay/`)**: Handles builds, `prepare-deploy.mjs` security/header gates, `PlayerServer` preview, and optional `relay.py` deployment.
 
