@@ -2530,3 +2530,91 @@ test('cachedCoreRevision and olderPlayerCaches sort generations numerically and 
   const sw = serviceWorker({ caches, self: { registration: { scope }, addEventListener() {} } });
   assert.deepEqual(await sw.olderPlayerCaches(), ['ppsspp-player-v21', 'ppsspp-player-v9']);
 });
+
+test('recoverStagedCommit rolls forward committed moves/deletions and discards unmarked staging', async () => {
+  const root = '/home/web_user/.config/ppsspp';
+  const moved = [], deleted = [];
+  let savedRevs = null, stageRemoved = false, pendingRemoved = false;
+  const stageFiles = new Map([
+    ['pending.json', { getFile: async () => ({ text: async () => JSON.stringify({
+      mode: 'stage',
+      files: [
+        { path: root + '/PSP/PPSSPP_STATE/a.ppst', hasBytes: true },
+        { path: root + '/PSP/PPSSPP_STATE/b.ppst', hasBytes: true },
+        { path: root + '/PSP/PPSSPP_STATE/old.jpg', hasBytes: false },
+      ],
+      revisions: [[root + '/PSP/PPSSPP_STATE/a', 3]],
+    }) }) }],
+    // Index 0 already moved before crash; index 1 still staged.
+    ['1', { move: async (dir, name) => { moved.push([dir.name, name]); } }],
+  ]);
+  const playerDir = {
+    getFileHandle: async name => ({ name }),
+    removeEntry: async name => { if (name === 'import-stage') stageRemoved = true; },
+  };
+  const stageDir = {
+    getFileHandle: async name => {
+      if (!stageFiles.has(name)) throw Object.assign(new Error('missing'), { name: 'NotFoundError' });
+      return stageFiles.get(name);
+    },
+    removeEntry: async name => { if (name === 'pending.json') pendingRemoved = true; },
+  };
+  const ctx = load(['recoverStagedCommit', 'normalizePersistPath'], {
+    PERSIST_ROOTS: [root],
+    opfsDir: async parts => parts.at(-1) === 'import-stage' ? stageDir : playerDir,
+    opfsParent: async path => ({ dir: { name: 'persist-parent' }, name: path.split('/').pop() }),
+    opfsDelete: async path => { deleted.push(path); },
+    writeOpfsHandle: async (h, text) => { if (h.name === 'save-revisions.json') savedRevs = JSON.parse(text); },
+  });
+  await ctx.recoverStagedCommit();
+  assert.deepEqual(moved, [['persist-parent', 'b.ppst']]);
+  assert.deepEqual(deleted, [root + '/PSP/PPSSPP_STATE/old.jpg']);
+  assert.deepEqual(savedRevs, [[root + '/PSP/PPSSPP_STATE/a', 3]]);
+  assert.equal(pendingRemoved, true);
+  assert.equal(stageRemoved, true);
+
+  // Unmarked staging directory (crash before pending.json rename) is cleanly discarded.
+  moved.length = 0; deleted.length = 0; stageRemoved = false; pendingRemoved = false; savedRevs = null;
+  stageFiles.delete('pending.json');
+  await ctx.recoverStagedCommit();
+  assert.deepEqual(moved, []);
+  assert.deepEqual(deleted, []);
+  assert.equal(savedRevs, null);
+  assert.equal(stageRemoved, true);
+});
+
+test('audio shim expands lookahead after underrun bursts and omits unused status postMessage spam', async () => {
+  const timers = new Map();
+  let controls, calls = 0, timerId = 0;
+  const audio = { state: 'running', currentTime: 1, sampleRate: 48000,
+    createBuffer: (channels, frames) => {
+      const data = Array.from({ length: channels }, () => new Float32Array(frames));
+      return { getChannelData: channel => data[channel] };
+    },
+    createGain: () => ({ gain: { value: 1 }, connect() {}, disconnect() {} }),
+  };
+  const ctx = load(['makeScriptProcessorShim'], {
+    Float32Array, Int32Array, SharedArrayBuffer, Atomics,
+    ensureSpShimModule: async () => true, log() {}, audioDebug: { underruns: 0, callbacks: 0, nonsilent: 0 },
+    AudioWorkletNode: class {
+      constructor(_, __, options) { controls = new Int32Array(options.processorOptions.sab, 0, 8); }
+      connect() {} disconnect() {}
+    },
+    setInterval: fn => { timers.set(++timerId, fn); return timerId; },
+    clearInterval: id => timers.delete(id),
+  });
+  const workletSource = source.slice(source.indexOf('const SP_SHIM_WORKLET'), source.indexOf("registerProcessor('ppsspp-sp-shim'"));
+  assert.ok(workletSource.includes('class PPSSPPSpShim'));
+  assert.doesNotMatch(workletSource, /port\.postMessage/);
+  const shim = ctx.makeScriptProcessorShim(audio, 1024, 0, 2);
+  shim.onaudioprocess = event => { calls++; event.outputBuffer.getChannelData(0).fill(0.1); };
+  shim.connect({});
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const baseline = calls;
+  // Simulate a 32-quantum underrun burst (85ms dry spell); lookahead adapts immediately.
+  Atomics.store(controls, 4, 32);
+  for (const pump of timers.values()) pump();
+  assert.equal(ctx.audioDebug.underruns, 32);
+  assert.ok(calls > baseline + 2, 'adaptive lookahead grows proportionally to the underrun burst');
+  shim.disconnect();
+});

@@ -274,7 +274,51 @@ def exercise_storage(page, url, fixture):
     }""")
     boot(page, url, fixture)
     assert_group(page, "complete")
-    print("Reload verified after incomplete scan, disk and rollback quota failures, interrupted import, live write failure and native import")
+
+    # Verify the off-main-thread staged worker fast path runs on real OPFS writes,
+    # discards unmarked staging directories, and rolls forward committed pending.json across reload.
+    stats = page.evaluate("""async root => {
+      const before = saveSyncStats.workerCommits;
+      FS.writeFile(root + '/A.bin', new TextEncoder().encode('worker-v1'));
+      FS.writeFile(root + '/B.bin', new TextEncoder().encode('worker-v1'));
+      const res = await persistFiles(FS, 'worker fast path');
+      return { res, delta: saveSyncStats.workerCommits - before, moved: saveSyncStats.movedFiles };
+    }""", NATIVE_DIR)
+    assert not stats["res"]["failed"] and stats["delta"] >= 1 and stats["moved"] >= 2, stats
+    boot(page, url, fixture)
+    assert_group(page, "worker-v1")
+
+    # Simulate an aborted pre-commit staging directory (no pending.json): reload keeps worker-v1.
+    page.evaluate("""async () => {
+      const dir = await opfsDir(['player', 'import-stage'], true);
+      await writeOpfsHandle(await dir.getFileHandle('0', { create: true }), new TextEncoder().encode('uncommitted'));
+    }""")
+    boot(page, url, fixture)
+    assert_group(page, "worker-v1")
+
+    # Simulate a crash mid-publish after pending.json was renamed: A.bin already moved, B.bin still staged.
+    page.evaluate("""async root => {
+      await opfsPut(root + '/A.bin', new TextEncoder().encode('rolled-v2'));
+      const dir = await opfsDir(['player', 'import-stage'], true);
+      await writeOpfsHandle(await dir.getFileHandle('1', { create: true }), new TextEncoder().encode('rolled-v2'));
+      const revs = await readSaveRevisions();
+      revs.set(root, (revs.get(root) || 0) + 1);
+      await writeOpfsHandle(await dir.getFileHandle('pending.json', { create: true }), JSON.stringify({
+        mode: 'stage',
+        files: [
+          { path: root + '/A.bin', hasBytes: true },
+          { path: root + '/B.bin', hasBytes: true },
+        ],
+        revisions: [...revs],
+      }));
+    }""", NATIVE_DIR)
+    boot(page, url, fixture)
+    assert_group(page, "rolled-v2")
+    assert page.evaluate("""async () => {
+      try { await opfsDir(['player', 'import-stage'], false); return false; }
+      catch (e) { return e.name === 'NotFoundError'; }
+    }""")
+    print("Reload verified after incomplete scan, disk and rollback quota failures, interrupted import, live write failure, staged worker commit/rollforward and native import")
 
 
 def exercise_native_slots(page, url, fixture):
@@ -538,33 +582,33 @@ def benchmark_sync(page, url, fixture):
       setContents(1);
       const seed = await persistFilesNow(FS, 'benchmark seed');
       if (seed.failed) throw Error('benchmark seed failed');
-      const scan = window.fsStatDir, write = window.writeOpfsHandle, encoder = new TextEncoder();
+      const scan = window.fsStatDir;
       const rounds = [];
       try {
         for (let i = 0; i < 3; i++) {
           setContents(2 + i);
-          const row = { scans: 0, scanMs: 0, revisions: 0, manifest: 0, undo: 0, payload: 0 };
+          const before = { ...saveSyncStats };
+          const row = { scans: 0, scanMs: 0 };
           window.fsStatDir = (...args) => {
             const start = performance.now();
             try { return scan(...args); }
             finally { row.scanMs += performance.now() - start; row.scans++; }
-          };
-          window.writeOpfsHandle = (handle, data) => {
-            const bytes = typeof data === 'string' ? encoder.encode(data).length : data.size ?? data.byteLength;
-            if (handle.name === 'save-revisions.json') row.revisions += bytes;
-            else if (handle.name === 'pending.json') row.manifest += bytes;
-            else if (/^\d+$/.test(handle.name)) row.undo += bytes;
-            else if (handle.name.startsWith('fixture_')) row.payload += bytes;
-            return write(handle, data);
           };
           const start = performance.now();
           const result = await persistFilesNow(FS, 'benchmark overwrite');
           row.ms = Math.round(performance.now() - start);
           if (result.failed || result.written !== files.length) throw Error('incomplete overwrite');
           row.scanMs = Number(row.scanMs.toFixed(1));
+          row.workerCommits = saveSyncStats.workerCommits - before.workerCommits;
+          row.fallbackCommits = saveSyncStats.fallbackCommits - before.fallbackCommits;
+          row.stagedBytes = saveSyncStats.stagedBytes - before.stagedBytes;
+          row.movedFiles = saveSyncStats.movedFiles - before.movedFiles;
+          row.metaBytes = saveSyncStats.metaBytes - before.metaBytes;
+          row.stageMs = Number((saveSyncStats.stageMs - before.stageMs).toFixed(1));
+          row.publishMs = Number((saveSyncStats.publishMs - before.publishMs).toFixed(1));
           rounds.push(row);
         }
-      } finally { window.fsStatDir = scan; window.writeOpfsHandle = write; }
+      } finally { window.fsStatDir = scan; }
       return rounds;
     })""")
 

@@ -26,11 +26,11 @@ const WEB_NATIVE_TIMING_CONFIG = [
 
 ## AudioWorklet 音频泵与时钟门控
 
-浏览器主线程和音频线程之间的桥接由 `wasm-page/public/ppsspp-runtime.js` 维护。在支持 `crossOriginIsolated` 与 `SharedArrayBuffer` 的环境中，音频经 `16384` 帧共享环形缓冲区进入 `AudioWorklet`（`SP-shim`），由 `setInterval(pump, 8)` 每 `8 ms` 检查一次时钟游标与缓冲区水位，只有当待消费音频不足 `>=70 ms` 前瞻窗口时才继续推入采样；当缓冲区因抖动出现欠载（underrun）时，自适应补偿会以单个缓冲区步长动态拉高预缓冲上限，并在 3 秒无欠载后逐步回落。若运行环境退化或关闭 Worklet 路径，运行时自动降级到 `32768` 帧 `ScriptProcessor`（`createScriptProcessor(2048, 0, 2)`）路径以保底出声。
+浏览器主线程和音频线程之间的桥接由 `wasm-page/public/ppsspp-runtime.js` 维护。在支持 `crossOriginIsolated` 与 `SharedArrayBuffer` 的环境中，音频经 `16384` 帧共享环形缓冲区进入 `AudioWorklet`（`SP-shim`，工作线程仅通过原子游标交互、不在音频线程派发未监听的状态消息），由 `setInterval(pump, 8)` 每 `8 ms` 检查一次时钟游标与缓冲区水位，只有当待消费音频不足 `>=70 ms` 前瞻窗口时才继续推入采样；当缓冲区因主线程停顿出现欠载（underrun）时，自适应补偿按当次欠载突发量快速拉高预缓冲上限（最高额外 `180 ms`），并在 8 秒无欠载后逐步回落，桌面无欠载场景保持原 `70 ms` 低延迟。若运行环境退化或关闭 Worklet 路径，运行时自动降级到 `32768` 帧 `ScriptProcessor`（`createScriptProcessor(2048, 0, 2)`）路径以保底出声。
 
-## OPFS 接管、ZSTD 分块解压与性能采样边界
+## OPFS 接管、离主线程分阶段提交、ZSTD 分块解压与性能采样边界
 
-持久存档同步与即时存档读写最容易在高频阶段制造主线程 GC 尖峰。为此网页端采用两条减少拷贝的设计：在 `MEMFS` 与站点 `OPFS`（`ppsspp-web/persist`）同步时启用 `canOwn` 缓冲区所有权移交与文件句柄复用，避免大数组在 JS 与 WASM 堆之间反复复制；即时存档读入则在底层改为 1 MiB 块的流式 ZSTD 解压（见 `wasm-page/tests/state-zstd-input.cpp` 与 `UPSTREAM.md`），防止大体积存档一次申请过多线性内存。
+持久存档同步与即时存档读写最容易在高频阶段制造主线程停顿与 GC 尖峰。为此网页端采用三条减少拷贝与主线程阻塞的设计：在 `MEMFS` 与站点 `OPFS`（`ppsspp-web/persist`）启动恢复时启用 `canOwn` 缓冲区所有权移交与文件句柄复用；同步写盘时，在支持 `createSyncAccessHandle()` 与 `FileSystemFileHandle.move()` 的浏览器中将事务写入迁至独立工作线程 `wasm-page/public/save-worker.js`，零拷贝转移内存缓冲写入 `player/import-stage`，以单次重命名 `pending.tmp → pending.json` 确立提交点后再 O(1) 移入正式目录（跳过占旧路径 73%–79% 耗时的整份旧档拷贝，并在同事务内复用目录句柄缓存），不支持该能力的环境自动回退到 `player/import-undo` 旧副本回滚；即时存档读入则在底层改为 1 MiB 块的流式 ZSTD 解压（见 `wasm-page/tests/state-zstd-input.cpp` 与 `UPSTREAM.md`），防止大体积存档一次申请过多线性内存。
 
 性能分析由 `wasm-page/public/performance.js` 协同完成：核心在仿真帧边界发出只读原子快照，网页端按真实时间归一化计算主机帧率、仿真速度、启动阶段耗时、ISO 读取延迟与音频欠载次数，并支持导出有界采样 JSON（自动剥离游戏名称、原始网址与完整运行日志）。对于《战神》等高负载 3D 游戏或重编译阶段瓶颈，仓库提供了独立离线与无头采样脚本 `scripts/profile-browser.mjs`、`scripts/profile-frame-timing.mjs`、`scripts/profile-ir-blocks.mjs` 与 `scripts/compare-browser-performance.mjs`；需明确区分桌面浏览器与 Android 模拟环境采样结果（例如历史上 Android 模拟环境缺少 3D 物体渲染，相关数据仅作异常排查记录，不计入有效性能基线）。
 

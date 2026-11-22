@@ -83,7 +83,7 @@ export async function prepareDeployment({ output = OUTPUT } = {}) {
 export async function verifyStaticOutput(output = OUTPUT) {
   await verifyLicenses(output);
   for (const name of [
-    'index.html', 'download-worker.js', 'game-download.js', 'online-games.js',
+    'index.html', 'download-worker.js', 'save-worker.js', 'game-download.js', 'online-games.js',
     'browser-files.js', 'browser-storage.js', 'touch-controls.js', 'pad-presets.js', 'ppsspp-runtime.js', 'build-info.json',
     'build-wasm/PPSSPPSDL.js', 'build-wasm/PPSSPPSDL.wasm', 'build-wasm/PPSSPPSDL.data',
   ]) {

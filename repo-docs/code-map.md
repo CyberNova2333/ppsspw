@@ -46,7 +46,8 @@
 | 重要代码 | 功能 | 关键符号 | 调用方 / 使用方 |
 | --- | --- | --- | --- |
 | [职责入口](../wasm-page/public/ppsspp-runtime.js) | 启动、浏览器文件与存档的实际运行逻辑 | `start / loadPersistedFiles / mountBrowserGame` | 页面按序载入 |
-| [本机存档](../wasm-page/public/ppsspp-runtime.js) | 跨标签页核对槽位版本，扫描成功后同步，恢复中断的备份导入 | `reserveSaveGroups / persistFilesNow / recoverSaveImport` | 游戏启动、游玩菜单、自动同步与导入 |
+| [本机存档](../wasm-page/public/ppsspp-runtime.js) | 跨标签页核对槽位版本，扫描成功后通过工作线程分阶段提交并在中断后前滚或回滚 | `reserveSaveGroups / persistFilesNow / commitSaveImport / recoverSaveImport` | 游戏启动、游玩菜单、自动同步与导入 |
+| [离线存档工作线程](../wasm-page/public/save-worker.js) | 离主线程以 `createSyncAccessHandle` 写入 `import-stage`，原子重命名 `pending.json` 后以 `move()` 发布 | `stageEntries / publishStaged / writeSync` | `ppsspp-runtime.js` 的 `commitSaveImport` |
 | [栏目导航](../wasm-page/public/ppsspp-runtime.js) | 切换选中面板、焦点和键盘导航 | `activatePanelTab / onPanelTabKeyDown` | 模板中的栏目按钮 |
 | [布局与画布跟踪](../wasm-page/public/ppsspp-runtime.js) | 区分布局与可视区域，向核心通知画布尺寸变化、向手柄通知位置变化 | `syncViewportSize / installCanvasResizeTracking / ppsspp-player-layout` | 浏览器视口、全屏、画布观察器 |
 | [按键预设](../wasm-page/public/pad-presets.js) | 预设草稿、位置与大小、持久化和编辑器预览 | `mount / replaceLayout` | 设置面板与全屏游玩菜单 |

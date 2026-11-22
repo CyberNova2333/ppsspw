@@ -229,3 +229,16 @@ Synced through 124e208514c0040f3e3a5cabc61f845286b9474f，本条对应当前工�
 - 本地预览 `wasm-page/dist/ppsspp-web` 已更新并逐文件核对哈希。指南结构校验与 VitePress 文档站生产构建通过；本轮未执行 Git 提交或云端部署。
 
 Synced through 124e208514c0040f3e3a5cabc61f845286b9474f，本条对应当前工作树。
+
+## 离主线程分阶段存档提交与音频/刷新抖动优化（2026-11-23）
+
+更新[本地文件启动主流程](walkthroughs/one-real-run.md)、[代码地图](code-map.md)和[运行时与稳定性边界](modules/runtime-perf-and-stability.md)。新增独立工作线程 `wasm-page/public/save-worker.js`，使用 `createSyncAccessHandle()` 与 `FileSystemFileHandle.move()` 离主线程完成分阶段提交与目录句柄缓存，消除大存档覆盖时占 73%–79% 耗时的旧档整份拷贝，同时保留 `recoverStagedCommit()` 断电前滚与 `import-undo` 兼容回退；移除 `PPSSPPSpShim` 音频线程无监听状态消息派发，优化立体声位掩码拷贝与欠载突发自适应预缓冲，并在页面隐藏时暂停 `tickFps` 动画回调。
+
+验证分别记录：
+
+- `make test-ci` 全量通过：前端 243 项、预览 9 项、打包 15 项、部署准备 9 项、场景 65 项、SDL 视口 13 项、原生双端分栏策略 38 项；独立中继套件 48 项沿用前一提交基线未改动。
+- 桌面 Chromium 完整存档回归（`scripts/test-save-persistence-browser.py`）全部通过，含离主线程 Worker 提交、未提交 `import-stage` 丢弃与已提交 `pending.json` 断电前滚。同机 A/B 对照：64 小槽覆盖中位耗时由 `2,534.5 ms` 降至 `343.4 ms`（−86.5%），4×8 MiB 大槽覆盖由 `553.2 ms` 降至 `272.2 ms`（−50.8%），25 笔提交全部走 Worker 快路径。
+- Android 11 x86_64 模拟器 Firefox 160 上复用同一核心（`5be4fb7cd1a6`）、原地图和 8.14 MB 大存档，按 `before1`/`after1`/`after2`/`before2` 四轮交错复测：四轮刷新后仅重选镜像即回到保存位置（像素差 `0.253–0.279`，正文与预览哈希一致）。游玩中 1/4 槽同步中位耗时分别由 `691.08 / 4,018.04 ms` 降至 `117.71 / 404.97 ms`（−83.0% / −89.9%），游玩中 4 槽同步期间主线程 8 ms 定时器最大卡顿中位数由 `1,256.14 ms` 降至 `30.94 ms`（−97.5%）；暂停菜单 1/4 槽由 `921.52 / 2,746.15 ms` 降至 `130.38 / 413.24 ms`（−85.9% / −85.0%）。该结论限于该模拟器与固定地图。
+- 本地预览 `wasm-page/dist/ppsspp-web` 已重建并逐文件核对。指南校验与 VitePress 文档站生产构建通过。
+
+Synced through 87d13482cf96cb38772a9743a37a93787706fcf6，本条对应随后提交的优化工作树。

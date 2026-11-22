@@ -11,7 +11,7 @@ async function fixture(t) {
   t.after(() => rm(output, { recursive: true, force: true }));
   const revision = 'a'.repeat(64);
   for (const name of [
-    'index.html', 'download-worker.js', 'game-download.js', 'online-games.js',
+    'index.html', 'download-worker.js', 'save-worker.js', 'game-download.js', 'online-games.js',
     'browser-files.js', 'browser-storage.js', 'touch-controls.js', 'pad-presets.js', 'ppsspp-runtime.js',
     'build-wasm/PPSSPPSDL.js', 'build-wasm/PPSSPPSDL.wasm', 'build-wasm/PPSSPPSDL.data',
     'LICENSE', 'UPSTREAM-LICENSE.txt', 'GPL-3.0.txt',

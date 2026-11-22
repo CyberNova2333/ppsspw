@@ -809,9 +809,55 @@ async function sameStoredContents(current, backup) {
   return true;
 }
 
+// Roll forward an interrupted staged commit once pending.json has been renamed
+// into place, or discard an unmarked staging directory if aborted beforehand.
+async function recoverStagedCommit() {
+  let dir;
+  try { dir = await opfsDir(["player", "import-stage"], false); }
+  catch (error) { if (error.name === "NotFoundError") return; throw error; }
+  let manifest;
+  try { manifest = await (await dir.getFileHandle("pending.json")).getFile(); }
+  catch (error) { if (error.name !== "NotFoundError") throw error; }
+  const text = manifest && await manifest.text();
+  if (text) {
+    const record = JSON.parse(text);
+    if (record?.mode !== "stage" || !Array.isArray(record.files)) throw new Error("存档提交恢复记录无效");
+    for (const item of record.files) {
+      if (normalizePersistPath(item?.path).sourcePath !== item?.path || typeof item.hasBytes !== "boolean") {
+        throw new Error("存档提交恢复路径无效");
+      }
+    }
+    for (const [i, { path, hasBytes }] of record.files.entries()) {
+      if (hasBytes) {
+        let staged;
+        try { staged = await dir.getFileHandle(String(i)); }
+        catch (error) { if (error.name === "NotFoundError") continue; throw error; }
+        const { dir: targetDir, name } = await opfsParent(path, true);
+        if (typeof staged.move === "function") {
+          await staged.move(targetDir, name);
+        } else {
+          await opfsPut(path, await staged.getFile());
+          await dir.removeEntry(String(i));
+        }
+      } else {
+        try { await opfsDelete(path); }
+        catch (error) { if (error.name !== "NotFoundError") throw error; }
+      }
+    }
+    if (Array.isArray(record.revisions)) {
+      const player = await opfsDir(["player"], true);
+      await writeOpfsHandle(await player.getFileHandle("save-revisions.json", { create: true }), JSON.stringify(record.revisions));
+    }
+  }
+  if (manifest) await dir.removeEntry("pending.json");
+  const parent = await opfsDir(["player"], false);
+  await parent.removeEntry("import-stage", { recursive: true });
+}
+
 // Until the marker is removed, numbered files hold the complete pre-import
 // images. Recovery itself is retryable, including after a second interruption.
 async function recoverSaveImport() {
+  await recoverStagedCommit();
   let dir;
   try { dir = await opfsDir(["player", "import-undo"], false); }
   catch (error) { if (error.name === "NotFoundError") return; throw error; }
@@ -861,6 +907,135 @@ async function recoverSaveImport() {
   await parent.removeEntry("import-undo", { recursive: true });
 }
 
+let _saveWorker = null;
+let _saveWorkerReady = null;
+let _saveWorkerDisabled = false;
+let _saveWorkerSeq = 0;
+const _saveWorkerPending = new Map();
+const saveSyncStats = { workerCommits: 0, fallbackCommits: 0, stagedBytes: 0, movedFiles: 0, metaBytes: 0, stageMs: 0, publishMs: 0 };
+
+function disableSaveWorker(reason) {
+  _saveWorkerDisabled = true;
+  _saveWorkerReady = null;
+  if (_saveWorker) {
+    try { _saveWorker.terminate(); } catch (_) {}
+    _saveWorker = null;
+  }
+  for (const [, pending] of _saveWorkerPending) {
+    const err = new Error(reason || "save-worker unavailable");
+    // Never fall back with detached buffers; callers re-read from MEMFS on retry.
+    if (!pending.transferred) err.fallback = true;
+    pending.reject(err);
+  }
+  _saveWorkerPending.clear();
+}
+
+function getSaveWorker() {
+  if (_saveWorkerDisabled || typeof Worker !== "function") return null;
+  if (_saveWorker) return _saveWorker;
+  try {
+    const suffix = PLAYER_CACHE_NAME ? "?v=" + encodeURIComponent(PLAYER_CACHE_NAME) : "";
+    const worker = new Worker("save-worker.js" + suffix);
+    worker.onmessage = event => {
+      const data = event.data;
+      const pending = _saveWorkerPending.get(data?.id);
+      if (!pending) return;
+      _saveWorkerPending.delete(data.id);
+      if (data.ok) {
+        pending.resolve(data);
+        return;
+      }
+      if (pending.restoreEntries && Array.isArray(data.buffers)) {
+        for (let i = 0; i < pending.restoreEntries.length; i++) {
+          if (data.buffers[i]) pending.restoreEntries[i].bytes = data.buffers[i];
+        }
+      }
+      const err = data.name === "QuotaExceededError"
+        ? new DOMException(data.message || "Storage quota exceeded", "QuotaExceededError")
+        : Object.assign(new Error(data.message || "OPFS save worker failed"), { name: data.name || "Error" });
+      if (data.fallback) err.fallback = true;
+      if (data.committed) err.committed = true;
+      if (data.saveFilePath) err.saveFilePath = data.saveFilePath;
+      pending.reject(err);
+    };
+    worker.onerror = event => disableSaveWorker(event?.message || "save-worker error");
+    _saveWorker = worker;
+    return worker;
+  } catch (error) {
+    disableSaveWorker(error?.message);
+    return null;
+  }
+}
+
+function canUseSaveWorker() {
+  return !_saveWorkerDisabled &&
+    typeof Worker === "function" &&
+    typeof FileSystemFileHandle !== "undefined" &&
+    typeof FileSystemFileHandle.prototype?.move === "function" &&
+    opfsPut === _defaultOpfsPut &&
+    opfsDelete === _defaultOpfsDelete &&
+    writeOpfsHandle === _defaultWriteOpfsHandle;
+}
+
+async function ensureSaveWorkerReady() {
+  if (_saveWorkerDisabled) return false;
+  if (_saveWorkerReady) return _saveWorkerReady;
+  _saveWorkerReady = (async () => {
+    try {
+      const reply = await postToSaveWorker({ type: "ping" }, null);
+      if (!reply?.supported) {
+        disableSaveWorker("OPFS staged commit APIs unavailable in worker");
+        return false;
+      }
+      return true;
+    } catch (error) {
+      disableSaveWorker(error?.message);
+      return false;
+    }
+  })();
+  return _saveWorkerReady;
+}
+
+function postToSaveWorker(message, transferEntries) {
+  const worker = getSaveWorker();
+  if (!worker) return Promise.reject(Object.assign(new Error("save-worker unavailable"), { fallback: true }));
+  const id = ++_saveWorkerSeq;
+  const transfer = [];
+  if (transferEntries) {
+    const seen = new Set();
+    for (const entry of transferEntries) {
+      const bytes = entry?.bytes;
+      if (!bytes || !bytes.buffer) continue;
+      if (typeof SharedArrayBuffer !== "undefined" && bytes.buffer instanceof SharedArrayBuffer) continue;
+      if (bytes.byteOffset !== 0 || bytes.byteLength !== bytes.buffer.byteLength) continue;
+      if (seen.has(bytes.buffer)) continue;
+      seen.add(bytes.buffer);
+      transfer.push(bytes.buffer);
+    }
+  }
+  return new Promise((resolve, reject) => {
+    _saveWorkerPending.set(id, {
+      resolve,
+      reject,
+      restoreEntries: transferEntries || null,
+      transferred: transfer.length > 0,
+    });
+    try {
+      worker.postMessage({ id, ...message }, transfer);
+    } catch (error) {
+      _saveWorkerPending.delete(id);
+      reject(Object.assign(error, { fallback: true }));
+    }
+  });
+}
+
+async function runSaveWorker(message, transferEntries) {
+  if (!await ensureSaveWorkerReady()) {
+    throw Object.assign(new Error("save-worker unavailable"), { fallback: true });
+  }
+  return postToSaveWorker(message, transferEntries);
+}
+
 async function commitSaveImport(entries, FS, displayed) {
   if (!entries.length) return;
   const paths = entries.map(entry => entry.path);
@@ -870,10 +1045,133 @@ async function commitSaveImport(entries, FS, displayed) {
   }
   const disk = paths.some(saveGroup) ? await readSaveRevisions() : null;
   await reserveSaveGroups(paths, { checkOnly: true, disk, displayed });
-  const dir = await opfsDir(["player", "import-undo"], true);
-  const manifest = [];
   const keys = new Set(paths.map(saveGroup).filter(Boolean));
   const previous = disk && [...keys].map(key => [key, disk.get(key) ?? null]);
+  const nextDisk = disk ? new Map(disk) : null;
+  if (nextDisk) {
+    for (const key of keys) nextDisk.set(key, (nextDisk.get(key) || 0) + 1);
+  }
+  const nextRevisions = nextDisk ? [...nextDisk] : null;
+  const applyRestoredRevisions = () => {
+    if (!nextDisk) return;
+    restoredSaveRevisions ??= new Map(disk);
+    for (const key of keys) restoredSaveRevisions.set(key, nextDisk.get(key));
+  };
+
+  if (canUseSaveWorker()) {
+    const payload = entries.map(({ path, bytes }) => ({ path, bytes }));
+    if (!FS) {
+      try {
+        const res = await runSaveWorker({
+          type: "stage-commit",
+          rootDir: OPFS_ROOT_DIR,
+          persistDir: OPFS_PERSIST_DIR,
+          entries: payload,
+          revisions: nextRevisions,
+        }, entries);
+        applyRestoredRevisions();
+        saveSyncStats.workerCommits++;
+        saveSyncStats.stagedBytes += res.stagedBytes || 0;
+        saveSyncStats.movedFiles += res.movedFiles || 0;
+        saveSyncStats.metaBytes += res.metaBytes || 0;
+        saveSyncStats.stageMs += res.stageMs || 0;
+        saveSyncStats.publishMs += res.publishMs || 0;
+        return;
+      } catch (error) {
+        if (error.fallback) {
+          disableSaveWorker(error.message);
+        } else if (error.committed) {
+          try { await recoverSaveImport(); }
+          catch (recoveryError) { recoveryError.saveRecoveryPending = true; throw recoveryError; }
+          applyRestoredRevisions();
+          return;
+        } else {
+          throw error;
+        }
+      }
+    } else {
+      const liveBefore = new Map();
+      const importedStats = new Map();
+      let staged = null;
+      try {
+        staged = await runSaveWorker({
+          type: "stage",
+          rootDir: OPFS_ROOT_DIR,
+          persistDir: OPFS_PERSIST_DIR,
+          entries: payload,
+        }, null);
+      } catch (error) {
+        if (error.fallback) {
+          disableSaveWorker(error.message);
+          staged = null;
+        } else {
+          throw error;
+        }
+      }
+      if (staged) {
+        try {
+          for (const { path, bytes } of entries) {
+            liveBefore.set(path, FS.analyzePath(path).exists ? FS.readFile(path) : null);
+            if (bytes === null) {
+              if (liveBefore.get(path) !== null) FS.unlink(path);
+              importedStats.set(path, null);
+              continue;
+            }
+            fsMkdirP(FS, dirname(path));
+            FS.writeFile(path, bytes);
+            importedStats.set(path, persistFingerprint(FS.stat(path)));
+          }
+          const pub = await runSaveWorker({
+            type: "publish",
+            rootDir: OPFS_ROOT_DIR,
+            persistDir: OPFS_PERSIST_DIR,
+            files: staged.files,
+            revisions: nextRevisions,
+          }, null);
+          applyRestoredRevisions();
+          for (const [path, fp] of importedStats) {
+            if (fp === null) _persistedFileState.delete(path);
+            else _persistedFileState.set(path, fp);
+          }
+          saveSyncStats.workerCommits++;
+          saveSyncStats.stagedBytes += staged.stagedBytes || 0;
+          saveSyncStats.movedFiles += pub.movedFiles || 0;
+          saveSyncStats.metaBytes += pub.metaBytes || 0;
+          saveSyncStats.stageMs += staged.stageMs || 0;
+          saveSyncStats.publishMs += pub.publishMs || 0;
+          return;
+        } catch (error) {
+          if (error.committed) {
+            try { await recoverSaveImport(); }
+            catch (recoveryError) { recoveryError.saveRecoveryPending = true; throw recoveryError; }
+            applyRestoredRevisions();
+            for (const [path, fp] of importedStats) {
+              if (fp === null) _persistedFileState.delete(path);
+              else _persistedFileState.set(path, fp);
+            }
+            return;
+          }
+          try {
+            for (const [path, bytes] of liveBefore) {
+              if (bytes) FS.writeFile(path, bytes);
+              else if (FS.analyzePath(path).exists) FS.unlink(path);
+            }
+          } catch (liveError) {
+            liveImportRecoveryFailed = true;
+            throw new Error("运行中的存档回滚失败，请重新载入页面。" + liveError.message);
+          } finally {
+            try { await runSaveWorker({ type: "abort-stage", rootDir: OPFS_ROOT_DIR, persistDir: OPFS_PERSIST_DIR }, null); }
+            catch (_) { try { await recoverStagedCommit(); } catch (_) {} }
+          }
+          throw error;
+        }
+      }
+    }
+  }
+
+  saveSyncStats.fallbackCommits++;
+  const dir = await opfsDir(["player", "import-undo"], true);
+  const manifest = [];
   const liveBefore = new Map();
   const importedStats = new Map();
   let writingPath;
@@ -1001,6 +1299,10 @@ async function opfsDelete(path) {
   const { dir, name } = await opfsParent(path, false);
   await dir.removeEntry(name);
 }
+
+const _defaultWriteOpfsHandle = writeOpfsHandle;
+const _defaultOpfsPut = opfsPut;
+const _defaultOpfsDelete = opfsDelete;
 
 async function opfsClearAll() {
   return globalThis.PpssppGameStorage.withExclusive(() => withSaveStorage(async () => {
@@ -4664,32 +4966,51 @@ super(opts);
 const p        = opts.processorOptions || {};
 this._nCh      = p.channels || 2;
 this._cap      = p.cap      || 65536;
+this._mask     = (this._cap & (this._cap - 1)) === 0 ? this._cap - 1 : 0;
 this._ctrl     = new Int32Array(p.sab, 0, 8);
 this._data     = new Float32Array(p.sab, 32, this._cap * this._nCh);
 this._last     = new Float32Array(this._nCh);
 this._ramp     = 0;
 this._rampFrames = 128;
-this._tick     = 0;
   }
   process(inputs, outputs) {
 const ch = outputs[0];
 if (!ch || !ch[0]) return true;
 const n = ch[0].length;
+const cap = this._cap;
+const mask = this._mask;
+const nCh = this._nCh;
+const data = this._data;
 let r = Atomics.load(this._ctrl, 1);
 const w = Atomics.load(this._ctrl, 0);
-const avail = (w - r + this._cap) % this._cap;
+const avail = mask ? (w - r) & mask : (w - r + cap) % cap;
 const read  = Math.min(n, avail);
 let ramp = this._ramp;
-for (let i = 0; i < read; i++) {
-  const blend = ramp > 0 ? 1.0 - ramp / this._rampFrames : 1.0;
-  for (let c = 0; c < ch.length; c++) {
-    const src = this._data[r * this._nCh + Math.min(c, this._nCh - 1)];
-    const out = ramp > 0 ? this._last[c] * (1.0 - blend) + src * blend : src;
-    ch[c][i] = out;
-    this._last[c] = out;
+if (nCh === 2 && ch.length === 2 && ramp === 0) {
+  const c0 = ch[0], c1 = ch[1];
+  for (let i = 0; i < read; i++) {
+    const idx = r << 1;
+    c0[i] = data[idx];
+    c1[i] = data[idx + 1];
+    r = mask ? (r + 1) & mask : (r + 1) % cap;
   }
-  if (ramp > 0) ramp--;
-  r = (r + 1) % this._cap;
+  if (read > 0) {
+    this._last[0] = c0[read - 1];
+    this._last[1] = c1[read - 1];
+  }
+} else {
+  for (let i = 0; i < read; i++) {
+    const blend = ramp > 0 ? 1.0 - ramp / this._rampFrames : 1.0;
+    const base = r * nCh;
+    for (let c = 0; c < ch.length; c++) {
+      const src = data[base + Math.min(c, nCh - 1)];
+      const out = ramp > 0 ? this._last[c] * (1.0 - blend) + src * blend : src;
+      ch[c][i] = out;
+      this._last[c] = out;
+    }
+    if (ramp > 0) ramp--;
+    r = mask ? (r + 1) & mask : (r + 1) % cap;
+  }
 }
 this._ramp = ramp;
 if (read < n) {
@@ -4704,9 +5025,6 @@ if (read < n) {
 }
 Atomics.store(this._ctrl, 1, r);
 Atomics.add(this._ctrl, 2, read);
-// Report consumed count periodically so main thread can track ring fill.
-if ((++this._tick & 15) === 0)
-  this.port.postMessage({ type: 'status', avail, underruns: Atomics.load(this._ctrl, 4) });
 return true;
   }
 }
@@ -4778,11 +5096,12 @@ function makeScriptProcessorShim(ctx, bufferSize, nIn, nOut) {
   } catch(e) {}
 
   /* Push ONE SDL callback's worth of audio to the worklet ring */
+  const RING_MASK = RING_CAP - 1;
   function pushOne() {
     if (!_handler || !_fakeBuf || !_wn || !_ctrl || !_data) return false;
     let w = Atomics.load(_ctrl, 0);
     let r = Atomics.load(_ctrl, 1);
-    const used = (w - r + RING_CAP) % RING_CAP;
+    const used = (w - r) & RING_MASK;
     const free = RING_CAP - 1 - used;
     if (bufsz > free) {
       return false;
@@ -4790,13 +5109,40 @@ function makeScriptProcessorShim(ctx, bufferSize, nIn, nOut) {
     try { _handler({ outputBuffer: _fakeBuf }); } catch(e) { return false; }
     const measurePeak = (_pushCount++ & 15) === 0;
     let peak = 0;
-    for (let i = 0; i < bufsz; i++) {
-      for (let c = 0; c < nCh; c++) {
-        const sample = _fakeChannels[c][i];
-        _data[w * nCh + c] = sample;
-        if (measurePeak) peak = Math.max(peak, Math.abs(sample));
+    if (nCh === 2) {
+      const ch0 = _fakeChannels[0], ch1 = _fakeChannels[1];
+      if (measurePeak) {
+        for (let i = 0; i < bufsz; i++) {
+          const s0 = ch0[i], s1 = ch1[i];
+          const idx = w << 1;
+          _data[idx] = s0;
+          _data[idx + 1] = s1;
+          const a0 = s0 < 0 ? -s0 : s0, a1 = s1 < 0 ? -s1 : s1;
+          if (a0 > peak) peak = a0;
+          if (a1 > peak) peak = a1;
+          w = (w + 1) & RING_MASK;
+        }
+      } else {
+        for (let i = 0; i < bufsz; i++) {
+          const idx = w << 1;
+          _data[idx] = ch0[i];
+          _data[idx + 1] = ch1[i];
+          w = (w + 1) & RING_MASK;
+        }
       }
-      w = (w + 1) % RING_CAP;
+    } else {
+      for (let i = 0; i < bufsz; i++) {
+        const base = w * nCh;
+        for (let c = 0; c < nCh; c++) {
+          const sample = _fakeChannels[c][i];
+          _data[base + c] = sample;
+          if (measurePeak) {
+            const abs = sample < 0 ? -sample : sample;
+            if (abs > peak) peak = abs;
+          }
+        }
+        w = (w + 1) & RING_MASK;
+      }
     }
     audioDebug.callbacks++;
     audioDebug.rate = SR;
@@ -4822,17 +5168,19 @@ function makeScriptProcessorShim(ctx, bufferSize, nIn, nOut) {
     _workletDropped = Atomics.load(_ctrl, 3);
     const underruns = Atomics.load(_ctrl, 4);
     if (underruns !== _lastUnderruns) {
+      const burst = Math.max(1, underruns - _lastUnderruns);
       _lastUnderruns = underruns;
       _lastUnderrunTime = ctx.currentTime;
-      _adaptiveExtra = Math.min(SR * 0.120, _adaptiveExtra + bufsz);
+      const step = Math.max(bufsz, Math.min(SR * 0.120, burst * 128 + bufsz));
+      _adaptiveExtra = Math.min(SR * 0.180, _adaptiveExtra + step);
       audioDebug.underruns = underruns;
-    } else if (_adaptiveExtra > 0 && ctx.currentTime - _lastUnderrunTime > 3.0) {
+    } else if (_adaptiveExtra > 0 && ctx.currentTime - _lastUnderrunTime > 8.0) {
       _adaptiveExtra = Math.max(0, _adaptiveExtra - bufsz * 0.25);
     }
 
     const writePos = Atomics.load(_ctrl, 0);
     const readPos = Atomics.load(_ctrl, 1);
-    const ringFill = (writePos - readPos + RING_CAP) % RING_CAP;
+    const ringFill = (writePos - readPos) & RING_MASK;
     const targetFill = LOOKAHEAD + _adaptiveExtra;
     const maxFill = MAX_FILL + _adaptiveExtra;
     if (ringFill > maxFill) return;
@@ -5821,22 +6169,33 @@ document.querySelectorAll("#panelTabList .tab").forEach(tab => {
 });
 
 /* ── FPS counter ────────────────────────────────────────────────── */
-let fpsFrames = 0, fpsLast = performance.now();
-(function tickFps() {
+let fpsFrames = 0, fpsLast = performance.now(), fpsRafId = 0, fpsBadgeShown = false;
+function tickFps() {
+  fpsRafId = 0;
+  if (document.hidden) return;
   fpsFrames++;
   const now = performance.now();
   if (now - fpsLast >= 1000) {
     const fps = Math.round(fpsFrames * 1000 / (now - fpsLast));
     fpsFrames = 0; fpsLast = now;
-    if (started && fpsBadge && !fullscreenElement()) {
-      fpsBadge.style.display = "block";
+    const show = !!(started && fpsBadge && !fullscreenElement());
+    if (show) {
+      if (!fpsBadgeShown) { fpsBadge.style.display = "block"; fpsBadgeShown = true; }
       fpsBadge.textContent = fps + " Hz · 页面刷新率";
-    } else if (fpsBadge) {
+    } else if (fpsBadge && fpsBadgeShown) {
       fpsBadge.style.display = "none";
+      fpsBadgeShown = false;
     }
   }
-  requestAnimationFrame(tickFps);
-})();
+  fpsRafId = requestAnimationFrame(tickFps);
+}
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && !fpsRafId) {
+    fpsFrames = 0; fpsLast = performance.now();
+    fpsRafId = requestAnimationFrame(tickFps);
+  }
+});
+if (!document.hidden) fpsRafId = requestAnimationFrame(tickFps);
 
 async function exportDiagnosticReport() {
   const configs = [];

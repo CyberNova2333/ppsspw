@@ -15,7 +15,7 @@ const CACHE_VERSION = "ppsspp-player-v22";
 
 // Replaced by the packager with paths from this Angular build.
 const BUILD_SHELL = {"files":[],"digest":""};
-const VERSIONED_SCRIPTS = ["performance", "browser-storage", "browser-files", "adhoc-transport", "touch-controls", "pad-presets", "ppsspp-runtime"];
+const VERSIONED_SCRIPTS = ["performance", "browser-storage", "browser-files", "adhoc-transport", "touch-controls", "pad-presets", "save-worker", "ppsspp-runtime"];
 const SHELL_FILES = [...new Set(["./", "./index.html", "./manifest.webmanifest", "./day-night-switch.js",
   ...VERSIONED_SCRIPTS.map(name => "./" + name + ".js?v=" + CACHE_VERSION), ...BUILD_SHELL.files])];
 
@@ -175,6 +175,7 @@ self.addEventListener("fetch", event => {
                   pathname.endsWith("/online-games.js") ||
                   pathname.endsWith("/game-download.js") ||
                   pathname.endsWith("/download-worker.js") ||
+                  pathname.endsWith("/save-worker.js") ||
                   pathname.endsWith("/build-info.json") ||
                   pathname.endsWith("/assets-manifest.txt");
 
