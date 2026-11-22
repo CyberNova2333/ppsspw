@@ -68,9 +68,12 @@ class KeyStore:
         return key_id
 
     def active(self, key_id):
+        return self.active_until(key_id) > time.time()
+
+    def active_until(self, key_id):
         with self.connect() as db:
             row = db.execute('SELECT expires, revoked FROM relay_keys WHERE id=?', (key_id,)).fetchone()
-        return bool(row and row[1] is None and (row[0] is None or row[0] > time.time()))
+        return (float("inf") if row[0] is None else row[0]) if row and row[1] is None else 0
 
     def revoke(self, key_id):
         with self.connect() as db:
@@ -111,9 +114,12 @@ class RelayAuth:
             raise AuthError('relay authentication unavailable') from exc
 
     def active(self, key_id):
+        return self.active_until(key_id) > time.time()
+
+    def active_until(self, key_id):
         if self.mode == 'open':
-            return True
+            return float('inf')
         try:
-            return self.store.active(key_id)
+            return self.store.active_until(key_id)
         except (sqlite3.Error, OSError):
-            return False
+            return 0

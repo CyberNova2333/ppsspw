@@ -421,6 +421,7 @@ class FrameReaderTest(unittest.TestCase):
         self.reader = self.incoming.makefile('rb', buffering=0)
         self.handler = object.__new__(AdhocWebSocketHandler)
         self.handler.request = self.incoming
+        self.handler._auth_deadline = lambda: float('inf')
         self.handler.reader = self.reader
         self.handler.alive = True
         self.handler.fragments = bytearray()
@@ -470,6 +471,99 @@ class FrameReaderTest(unittest.TestCase):
         self.handler.alive = False
         with self.assertRaisesRegex(relay.ProtocolError, 'connection stopped'):
             self.handler._read_frame()
+
+
+class RelayWriterAuthTest(unittest.TestCase):
+    def test_one_authorization_read_for_a_burst_and_expiry_before_send(self):
+        import queue
+        from unittest.mock import Mock, patch
+
+        handler = object.__new__(AdhocWebSocketHandler)
+        handler.alive = True
+        handler.auth_lock = threading.Lock()
+        handler.next_auth_check = 0
+        handler.key_id = 'fixture'
+        handler.auth = Mock()
+        handler.auth.active_until.return_value = float('inf')
+        handler.request = Mock()
+        handler.out = queue.Queue()
+        handler.send_lock = threading.Lock()
+        handler.queued_bytes = 512
+        for _ in range(512):
+            handler.out.put((0, b'x', 2))
+        handler.out.put(None)
+        with patch.object(relay.time, 'monotonic', return_value=1):
+            handler._write_loop()
+        handler.auth.active_until.assert_called_once_with('fixture')
+        self.assertEqual(handler.request.sendall.call_count, 512)
+
+        handler.out.put((0, b'x', 2))
+        handler.next_auth_check = 0
+        handler.auth.active_until.return_value = 100.05
+        handler.request.reset_mock()
+        handler.stop = Mock()
+        with patch.object(relay.time, 'time', side_effect=[100, 100.06]), \
+             patch.object(relay.time, 'monotonic', side_effect=[1, 1, 1, 1, 1.06, 1.06]):
+            handler._write_loop()
+        handler.stop.assert_called_once()
+        handler.request.sendall.assert_not_called()
+
+    def test_expiry_shared_by_reader_and_writer_bounds_idle_wait(self):
+        from unittest.mock import Mock, patch
+
+        handler = object.__new__(AdhocWebSocketHandler)
+        handler.auth_lock = threading.Lock()
+        handler.next_auth_check = 0
+        handler.alive = True
+        handler.auth = Mock()
+        handler.key_id = 'fixture'
+        handler.auth.active_until.return_value = 100.25
+        handler.out = Mock()
+        handler.out.get.return_value = None
+        with patch.object(relay.time, 'time', return_value=100), patch.object(relay.time, 'monotonic', return_value=10):
+            handler._write_loop()
+            self.assertEqual(handler.out.get.call_args.kwargs['timeout'], .25)
+            self.assertEqual(handler._auth_deadline(), 10.25)
+            handler.auth.active_until.assert_called_once_with('fixture')
+
+        # An ordinary completed input frame arriving after the known deadline.
+        handler._read_exact = Mock(side_effect=[bytes((130, 128)), bytes(4), b''])
+        with patch.object(relay.time, 'time', return_value=100.26), patch.object(relay.time, 'monotonic', return_value=10.26):
+            with self.assertRaisesRegex(relay.ProtocolError, 'expired'):
+                handler._read_frame()
+            self.assertEqual(handler.auth.active_until.call_count, 2)
+
+
+class PublicationTest(unittest.TestCase):
+    def test_only_public_files_are_served_for_get_and_head(self):
+        from http.client import HTTPConnection
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ('wasm-page/dist/ppsspp-web/index.html', 'wasm-page/public/icons/sample.svg',
+                         'build-wasm/PPSSPPSDL.js', 'build-wasm/notes.txt', 'sample.txt'):
+                file = root / name
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_text('fixture')
+            with WasmThreadingServer(('127.0.0.1', 0), partial(WasmThreadingHandler, web_root=root, wasm_root=root)) as server:
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    for method in ('GET', 'HEAD'):
+                        for path, status in [('/', 200), ('/icons/sample.svg', 200), ('/build-wasm/PPSSPPSDL.js', 200),
+                                             ('/icons/', 404), ('/sample.txt', 404), ('/build-wasm/notes.txt', 404)]:
+                            with self.subTest(method=method, path=path):
+                                client = HTTPConnection(*server.server_address)
+                                try:
+                                    client.request(method, path)
+                                    response = client.getresponse()
+                                    self.assertEqual(response.status, status)
+                                    if method == 'HEAD':
+                                        self.assertEqual(response.read(), b'')
+                                finally:
+                                    client.close()
+                finally:
+                    server.shutdown()
+                    thread.join()
 
 
 if __name__ == '__main__':

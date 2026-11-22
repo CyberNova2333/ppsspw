@@ -200,6 +200,8 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
         self.conn_id = 0
         self.out = queue.Queue(maxsize=256)
         self.queued_bytes = 0
+        self.auth_lock = threading.Lock()
+        self.next_auth_check = 0.0
         self.send_lock = threading.Lock()
         self.reader = getattr(self, 'http_reader', None) or self.request.makefile('rb')
         self.writer = None
@@ -378,6 +380,8 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
         mask = self._read_exact(4)
         data = self._read_exact(size)
         data = bytes(b ^ mask[i % 4] for i, b in enumerate(data))
+        if not self._auth_deadline():
+            raise ProtocolError('relay access expired')
         if opcode == 8:
             if len(data) == 1:
                 raise ProtocolError('invalid close frame')
@@ -430,6 +434,17 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
             except queue.Full:
                 self.stop()
 
+    def _auth_deadline(self):
+        with self.auth_lock:
+            now = time.monotonic()
+            if now >= self.next_auth_check:
+                expires = self.auth.active_until(self.key_id)
+                remaining = expires - time.time()
+                if remaining <= 0:
+                    return 0
+                self.next_auth_check = now + min(1.0, remaining)
+            return self.next_auth_check
+
     def _write_loop(self):
         # A receiving-only PDP socket can have continuous outbound traffic and
         # no client data. Ping by elapsed time, not by queue inactivity, so its
@@ -437,7 +452,8 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
         next_ping = time.monotonic() + HEARTBEAT_INTERVAL
         try:
             while self.alive:
-                if not self.auth.active(self.key_id):
+                deadline = self._auth_deadline()
+                if not deadline:
                     log('access_revoked', key_id=self.key_id)
                     self.stop()
                     return
@@ -446,7 +462,7 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
                     self.request.sendall(self._frame(secrets.token_bytes(4), 9))
                     next_ping = now + HEARTBEAT_INTERVAL
                 try:
-                    item = self.out.get(timeout=max(.001, min(1, next_ping - time.monotonic())))
+                    item = self.out.get(timeout=max(0, min(deadline, next_ping) - time.monotonic()))
                     if item is None:
                         return
                     due, data, opcode = item
@@ -454,11 +470,15 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
                     continue
                 delay = due - time.monotonic()
                 while delay > 0:
-                    time.sleep(min(1, delay))
-                    if not self.alive or not self.auth.active(self.key_id):
+                    time.sleep(max(0, min(deadline - time.monotonic(), delay)))
+                    deadline = self._auth_deadline()
+                    if not self.alive or not deadline:
                         self.stop()
                         return
                     delay = due - time.monotonic()
+                if not self._auth_deadline():
+                    self.stop()
+                    return
                 self.request.sendall(self._frame(data, opcode))
                 if opcode == 8:
                     self.close_sent.set()
@@ -508,6 +528,8 @@ class AdhocWebSocketHandler(socketserver.BaseRequestHandler):
         sizes = {0: 1, 1: 144, 2: 9, 3: 1, 4: 1, 7: 65}
         rx = self.user.rx
         while rx:
+            if not self._auth_deadline():
+                raise ProtocolError('relay access expired')
             opcode = rx[0]
             if opcode not in sizes or (opcode != 1 and not self.user.mac):
                 raise ProtocolError('invalid control opcode or login required')
