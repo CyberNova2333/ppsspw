@@ -57,6 +57,7 @@
   </dialog>
   <section class="stage" aria-label="游戏画面">
     <canvas id="canvas" width="1280" height="720" tabindex="0" aria-label="游戏画面，支持键盘、手柄与触控操作"></canvas>
+    <canvas id="frameflowCanvas" width="1280" height="720" hidden aria-hidden="true"></canvas>
     <div id="touchGamepad" class="touch-gamepad" role="group" aria-label="屏幕手柄，支持多指同时操作" hidden>
       <div class="touch-pad-left">
         <button type="button" class="touch-pad-shoulder" data-pad-button="l" aria-label="左肩键 L">L</button>
@@ -184,8 +185,13 @@
           <h3>画面</h3>
           <label class="setting-field" for="player-render-resolution"><span>渲染分辨率</span><select id="player-render-resolution"><option value="1">1× 原生 · 更轻量</option><option value="2">2× · 更清晰</option><option value="3">3× · 更精细</option></select></label>
           <p class="setting-hint">手机先用 1×；运行流畅后再提高。更高分辨率会增加图形负载。</p>
+          <label class="setting-field" for="player-frameflow"><span>AI 插帧 (GameFI)</span><select id="player-frameflow"><option value="off">关闭</option><option value="lite-2x">2× · Lite（推荐 · 30→60 FPS）</option><option value="std-2x">2× · Std（高画质 · 30→60 FPS）</option><option value="lite-3x">3× · Lite（20→60 FPS）</option></select></label>
+          <p class="setting-hint" id="player-frameflow-status">实时光流插帧，开关即时生效，自动选用 WebGPU 或 WebGL2。</p>
+          <label class="setting-field" for="player-sr"><span>AI 超分 (GameSR 2×)</span><select id="player-sr"><option value="off">关闭</option><option value="sr-lite">2× · Lite（推荐 · 去锯齿锐化）</option><option value="sr-std">2× · Std（高画质 · 精细轮廓）</option></select></label>
+          <p class="setting-hint" id="player-sr-status">实时 2× AI 超分去马赛克，建议渲染分辨率设 1× 或 2×，可与插帧串联。</p>
           <label class="setting-check"><input id="player-show-fps" type="checkbox"><span>在游戏内显示帧率</span></label>
           <div id="gpuSelectWrap" class="setting-field"><label for="gpuSelect">图形设备偏好</label><select id="gpuSelect" class="btn" title="下次启动使用的图形设备偏好"><option value="high-performance">高性能</option><option value="low-power">节能</option><option value="default">自动选择</option></select></div>
+          <p class="setting-hint">浏览器图形后端由进程启动参数控制；如需切换 OpenGL / Vulkan / WebGPU 或独显，<button id="openBackendDiagnosticsBtn" type="button" class="inline-link-btn">前往「系统诊断」打开指定后端新窗口</button>。</p>
         </section>
         <section class="settings-section">
           <h3>操作</h3>
@@ -374,7 +380,15 @@
         </div>
         <div class="info-group"><h3>排查与恢复</h3><p class="about-text">报告包含浏览器、图形与声音设置及近期日志。文件会下载到本机，分享前可先检查内容。</p><div class="diagnostic-actions"><button id="diagnosticReportBtn" type="button">导出诊断报告</button><button id="resetEmulatorSettingsBtn" type="button">重置模拟器设置</button></div><p class="about-text">可在启动前或运行中断后重置。游戏、已有存档和手柄映射会保留。</p></div>
         <div class="info-group"><h3>图形设备</h3><div class="info-row"><span class="info-key">渲染设备</span><span class="info-val" id="iRenderer">—</span></div><div class="info-row"><span class="info-key">厂商</span><span class="info-val" id="iVendor">—</span></div><div class="info-row"><span class="info-key">图形接口版本</span><span class="info-val" id="iVersion">—</span></div><div class="info-row"><span class="info-key">着色器版本</span><span class="info-val" id="iGlsl">—</span></div><div class="info-row"><span class="info-key">纹理尺寸上限</span><span class="info-val" id="iMaxTex">—</span></div><div class="info-row"><span class="info-key">各向异性过滤上限</span><span class="info-val" id="iAniso">—</span></div></div>
-        <div class="info-group"><h3>图形能力</h3><div class="info-row"><span class="info-key">WebGL 2</span><span class="info-val" id="iWebgl2">—</span></div><div class="info-row"><span class="info-key">模板纹理扩展</span><span class="info-val" id="iStencil">—</span></div><div class="info-row"><span class="info-key">批量绘制扩展</span><span class="info-val" id="iMultiDraw">—</span></div></div>
+        <div class="info-group"><h3>图形能力</h3><div class="info-row"><span class="info-key">WebGL 2</span><span class="info-val" id="iWebgl2">—</span></div><div class="info-row"><span class="info-key">WebGPU</span><span class="info-val" id="iWebgpu">—</span></div><div class="info-row"><span class="info-key">模板纹理扩展</span><span class="info-val" id="iStencil">—</span></div><div class="info-row"><span class="info-key">批量绘制扩展</span><span class="info-val" id="iMultiDraw">—</span></div></div>
+        <div class="info-group" id="backendLauncherGroup">
+          <h3>以特定后端打开新窗口</h3>
+          <p class="about-text">若当前处于软件渲染或缺少所需图形接口，可使用独立配置打开指定后端新窗口。各后端使用独立本机存储与存档。</p>
+          <label class="setting-field" for="backendWindowSelect"><span>目标图形后端</span><select id="backendWindowSelect"><option value="opengl">硬件 OpenGL（ANGLE GL · 推荐）</option><option value="webgpu">WebGPU + GL 合成（Vulkan + Intel 核显）</option><option value="vulkan">纯 Vulkan 后端（Vulkan + ANGLE Vulkan）</option><option value="nvidia">NVIDIA 独显后端（ANGLE Vulkan）</option><option value="software">软件渲染后端（SwiftShader 对照）</option></select></label>
+          <div class="diagnostic-actions"><button id="openBackendWindowBtn" type="button" class="primary">打开新窗口</button></div>
+          <p id="backendWindowStatus" class="about-text backend-window-hint" role="status"></p>
+          <pre id="backendWindowCmd" class="backend-window-cmd" hidden></pre>
+        </div>
         <div class="info-group"><h3>浏览器环境</h3><div class="info-row"><span class="info-key">跨源隔离</span><span class="info-val" id="iCOI">—</span></div><div class="info-row"><span class="info-key">共享内存</span><span class="info-val" id="iSAB">—</span></div><div class="info-row"><span class="info-key">逻辑处理器数量</span><span class="info-val" id="iHWC">—</span></div><div class="info-row"><span class="info-key">向量指令支持</span><span class="info-val" id="iSIMD">—</span></div></div>
         <div class="info-group"><h3>声音</h3><div class="info-row"><span class="info-key">音频状态</span><span class="info-val" id="iACtx">—</span></div><div class="info-row"><span class="info-key">采样率</span><span class="info-val" id="iASR">—</span></div><div class="info-row"><span class="info-key">音频回调次数</span><span class="info-val" id="iACB">0</span></div><div class="info-row"><span class="info-key">音量峰值</span><span class="info-val" id="iAPeak">0</span></div></div>
       </div>

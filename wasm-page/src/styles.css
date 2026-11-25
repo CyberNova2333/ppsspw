@@ -465,9 +465,9 @@ body.browser-fullscreen #fpsBadge,
 body.browser-fullscreen #stageMini {
   display: none !important;
 }
-.stage:is(:fullscreen, :-webkit-full-screen) canvas,
-body.browser-fullscreen canvas,
-canvas:is(:fullscreen, :-webkit-full-screen) {
+.stage:is(:fullscreen, :-webkit-full-screen) #canvas,
+body.browser-fullscreen #canvas,
+#canvas:is(:fullscreen, :-webkit-full-screen) {
   width: min(var(--viewport-w), calc(var(--app-h) * 16 / 9)) !important;
   height: min(var(--app-h), calc(var(--viewport-w) * 9 / 16)) !important;
   max-width: var(--viewport-w) !important;
@@ -478,7 +478,7 @@ canvas:is(:fullscreen, :-webkit-full-screen) {
   object-fit: contain;
   background: #09090b;
 }
-body.panel-open canvas {
+body.panel-open #canvas {
   width: min(100%, calc((var(--app-h) - var(--h) - (var(--stage-pad) * 2)) * 16 / 9));
 }
 
@@ -496,9 +496,10 @@ body.emulator-started #idleOverlay { opacity: 0; visibility: hidden; pointer-eve
 
 canvas.idle-motion-canvas {
   position: absolute;
-  inset: 0;
-  width: 100% !important;
-  height: 100% !important;
+  top: 0;
+  left: 0;
+  width: 100%;
+  min-height: 100%;
   max-width: none !important;
   max-height: none !important;
   aspect-ratio: auto !important;
@@ -886,7 +887,7 @@ body.panel-open #panelBackdrop { display: block; }
       linear-gradient(180deg, rgba(12,92,171,.06), transparent 22%),
       #09090b;
   }
-  canvas {
+  #canvas {
     width: min(var(--viewport-w), calc((var(--app-h) - var(--h)) * 16 / 9));
     max-width: var(--viewport-w);
     max-height: calc(var(--app-h) - var(--h));
@@ -2086,4 +2087,52 @@ html.dn-color-shift * {
     color 0.7s cubic-bezier(0.4, 0, 0.2, 1),
     border-color 0.7s cubic-bezier(0.4, 0, 0.2, 1),
     fill 0.7s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+#canvas.frameflow-hidden {
+  opacity: 0 !important;
+}
+#frameflowCanvas {
+  position: absolute;
+  display: block;
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 0;
+  background: #09090b;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  object-fit: contain;
+}
+#frameflowCanvas[hidden] {
+  display: none !important;
+}
+.inline-link-btn {
+  display: inline;
+  padding: 0 2px;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.inline-link-btn:hover {
+  background: transparent;
+  color: var(--accent-hover);
+}
+.backend-window-hint {
+  margin-top: 8px;
+}
+.backend-window-cmd {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

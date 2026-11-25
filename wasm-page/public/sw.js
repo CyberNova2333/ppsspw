@@ -15,12 +15,12 @@ const CACHE_VERSION = "ppsspp-player-v22";
 
 // Replaced by the packager with paths from this Angular build.
 const BUILD_SHELL = {"files":[],"digest":""};
-const VERSIONED_SCRIPTS = ["performance", "browser-storage", "browser-files", "adhoc-transport", "touch-controls", "pad-presets", "save-worker", "ppsspp-runtime"];
+const VERSIONED_SCRIPTS = ["performance", "browser-storage", "browser-files", "adhoc-transport", "touch-controls", "pad-presets", "frameflow-bridge", "save-worker", "ppsspp-runtime"];
 const SHELL_FILES = [...new Set(["./", "./index.html", "./manifest.webmanifest", "./day-night-switch.js",
   ...VERSIONED_SCRIPTS.map(name => "./" + name + ".js?v=" + CACHE_VERSION), ...BUILD_SHELL.files])];
 
 // Extensions considered immutable build artifacts → cache-first
-const IMMUTABLE_EXTS = /\.(wasm|js|data|mem|zim|meta|png|svg|ico|webp|json|txt|css|woff2)$/i;
+const IMMUTABLE_EXTS = /\.(wasm|js|data|mem|zim|meta|png|svg|ico|webp|json|bin|txt|css|woff2)$/i;
 
 // ── Install ──────────────────────────────────────────────────────────────────
 self.addEventListener("install", event => {
@@ -167,6 +167,8 @@ self.addEventListener("fetch", event => {
                   pathname.endsWith("/index.html") ||
                   pathname.endsWith("/manifest.webmanifest") ||
                   pathname.endsWith("/ppsspp-runtime.js") ||
+                  pathname.endsWith("/frameflow-bridge.js") ||
+                  (pathname.includes("/frameflow/") && pathname.endsWith(".js")) ||
                   pathname.endsWith("/touch-controls.js") ||
                   pathname.endsWith("/pad-presets.js") ||
                   pathname.endsWith("/performance.js") ||

@@ -11,7 +11,18 @@ from pathlib import Path
 import re
 import socket
 import ssl
+import sys
 from urllib.parse import unquote, urlsplit
+
+_SERVER_DIR = str(Path(__file__).resolve().parent)
+if _SERVER_DIR not in sys.path:
+    sys.path.insert(0, _SERVER_DIR)
+
+from edge_launcher import (
+    edge_launcher_supported,
+    handle_open_edge_post,
+    maybe_serve_local_edge_html,
+)
 
 
 def cdn_origin(value):
@@ -50,9 +61,15 @@ class PlayerHandler(SimpleHTTPRequestHandler):
                       '.js': 'text/javascript; charset=utf-8', '.data': 'application/octet-stream',
                       '.webmanifest': 'application/manifest+json'}
 
-    def __init__(self, *args, cdn_origins=(), **kwargs):
+    def __init__(self, *args, cdn_origins=(), edge_launcher=False, repo_root=None, url_scheme='http', **kwargs):
         self.cdn_origins = tuple(dict.fromkeys(cdn_origins))
+        self.edge_launcher = edge_launcher
+        self.repo_root = Path(repo_root) if repo_root else Path(__file__).resolve().parents[1]
+        self.url_scheme = url_scheme
         super().__init__(*args, **kwargs)
+
+    def do_POST(self):
+        return handle_open_edge_post(self, self.repo_root, self.server.server_port, self.url_scheme)
 
     def list_directory(self, path):
         self.send_error(404)
@@ -65,6 +82,9 @@ class PlayerHandler(SimpleHTTPRequestHandler):
         if any(part.startswith('.') for part in parts) or not candidate.is_relative_to(root):
             self.send_error(404)
             return None
+        injected = maybe_serve_local_edge_html(self, candidate, root)
+        if injected is not None:
+            return injected
         return super().send_head()
 
     def end_headers(self):
@@ -101,14 +121,21 @@ def main():
     parser.add_argument('--connect-origin', '--cdn-origin', dest='connect_origins',
                         action='append', default=[], type=cdn_origin,
                         help='额外允许的连接 origin，可重复；默认允许 HTTPS，用于本地 HTTP 测试')
+    parser.add_argument('--edge-launcher', action='store_true',
+                        help='允许本机回环页通过 POST /__local/open-edge 启动指定图形后端的新浏览器窗口')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1] / 'wasm-page/dist/ppsspp-web'
     if not (root / 'index.html').is_file():
         parser.error('请先执行 pnpm --dir wasm-page run build:pages')
     if bool(args.cert) != bool(args.key):
         parser.error('--cert 与 --key 必须同时提供')
+    if args.edge_launcher and not edge_launcher_supported(args.bind):
+        parser.error('--edge-launcher 仅支持本机回环地址与 Linux 桌面下的 Edge / Chrome / Chromium')
+    scheme = 'https' if args.cert else 'http'
     server = PlayerServer((args.bind, args.port), functools.partial(
-        PlayerHandler, directory=str(root), cdn_origins=args.connect_origins))
+        PlayerHandler, directory=str(root), cdn_origins=args.connect_origins,
+        edge_launcher=args.edge_launcher, repo_root=Path(__file__).resolve().parents[1],
+        url_scheme=scheme))
     if args.cert:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(args.cert, args.key)

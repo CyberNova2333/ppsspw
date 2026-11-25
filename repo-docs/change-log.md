@@ -242,3 +242,15 @@ Synced through 124e208514c0040f3e3a5cabc61f845286b9474f，本条对应当前工�
 - 本地预览 `wasm-page/dist/ppsspp-web` 已重建并逐文件核对。指南校验与 VitePress 文档站生产构建通过。
 
 Synced through 87d13482cf96cb38772a9743a37a93787706fcf6，本条对应随后提交的优化工作树。
+
+## FrameFlow（GameFI 插帧与 GameSR 超分）接入与本机图形后端启动入口（2026-11-24）
+
+同步更新[代码地图](code-map.md)。新增 `wasm-page/public/frameflow-bridge.js` 与 `wasm-page/public/frameflow/`（内置 `GameFI-Std`/`GameFI-Lite` 光流插帧与 `GameSR-Std`/`GameSR-Lite` 2× 超分模型及 WebGPU/WebGL2 双后端运行时），在 `app.html`、`ppsspp-runtime.ts`、`ppsspp-runtime.js` 与 `sw.js` 接入立即生效的「AI 插帧 (GameFI)」与「AI 超分 (GameSR 2×)」开关及纯客户端模型离线缓存，保留软件渲染拦截与硬件后端自动选路；同步接入 `server/edge_launcher.py`、`scripts/open-edge.py` 及系统诊断中的本机图形后端新窗口启动入口，并优化待机欢迎屏背景动效过渡与低功耗休眠恢复。
+
+验证分别记录：
+
+- `make test` 全量通过：网页前端测试 243/243、玩家服务器预览测试 10/10（含 `/__local/open-edge` 同源与参数校验）、打包测试 15/15、部署准备测试 9/9。
+- `pnpm --dir wasm-page run build:pages && python3 scripts/package-player.py` 重建并打包网页产物通过；Intel Xe-LPG 无头 Edge 157 实机页面验收通过，确认 `GameFI-Lite` / `GameFI-Std` / `GameSR-Lite` / `GameSR-Std` 四组权重元数据解析及网页开关状态显示正常，未出现页面脚本错误。
+- `repo-docs` 结构及源码定位校验与 `pnpm --dir docs-site run docs:build` 文档站构建通过；本轮未重编 `deps/ppsspp-wasm` 原生核心。
+
+Synced through afb8fe313765589de1c3e8934d72778ac6374949，本条对应随后提交的工作树。

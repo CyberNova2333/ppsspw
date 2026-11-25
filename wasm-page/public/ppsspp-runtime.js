@@ -2930,17 +2930,129 @@ function applyPlayerSettings(text, settings) {
   return text;
 }
 
+const FRAMEFLOW_PREF_KEY = "ppsspp_frameflow_preset";
+const VALID_FRAMEFLOW_PRESETS = new Set(["off", "lite-2x", "std-2x", "lite-3x", "std-3x"]);
+const GAMESR_PREF_KEY = "ppsspp_gamesr_preset";
+const VALID_GAMESR_PRESETS = new Set(["off", "sr-lite", "sr-std"]);
+
+function loadFrameflowPreset() {
+  const saved = preferences.getItem(FRAMEFLOW_PREF_KEY) || "off";
+  return VALID_FRAMEFLOW_PRESETS.has(saved) ? saved : "off";
+}
+
+function loadGamesrPreset() {
+  const saved = preferences.getItem(GAMESR_PREF_KEY) || "off";
+  return VALID_GAMESR_PRESETS.has(saved) ? saved : "off";
+}
+
+function updateFrameflowStatusText(stats) {
+  const statusEl = byId("player-frameflow-status");
+  if (!statusEl) return;
+  if (stats?.softwareBlocked) {
+    statusEl.textContent = "检测到软件渲染器（未启用硬件 GPU 加速），已禁用 AI 插帧以避免降帧。";
+    const sel = byId("player-frameflow");
+    if (sel && sel.value !== "off") sel.value = "off";
+    preferences.removeItem(FRAMEFLOW_PREF_KEY);
+    return;
+  }
+  if (!stats || stats.preset === "off") {
+    statusEl.textContent = stats?.error
+      ? "GameFI 初始化失败：" + stats.error
+      : "实时光流插帧，开关即时生效，自动选用最佳硬件加速后端。";
+    return;
+  }
+  if (stats.loading) {
+    statusEl.textContent = "正在加载 GameFI (" + stats.label + ") 模型…";
+    return;
+  }
+  if (stats.thermalBypass) {
+    statusEl.textContent = "GameFI (" + stats.label + ") · GPU 负载过高已自动直通";
+    return;
+  }
+  if (stats.menuPassthrough) {
+    statusEl.textContent = "GameFI (" + stats.label + ") · 菜单直通（" + (stats.backend || "").toUpperCase() + "）";
+    return;
+  }
+  if (stats.bypassing) {
+    statusEl.textContent = "GameFI (" + stats.label + ") · 原生高帧率直通（" + stats.sourceFps + " FPS）";
+    return;
+  }
+  const backend = (stats.backend || "").toUpperCase() + (stats.precision ? " " + stats.precision : "");
+  const fpsPart = stats.outputFps > 0 ? " · " + stats.sourceFps + "→" + stats.outputFps + " FPS" : " · 已就绪";
+  const msPart = stats.avgGpuMs > 0 ? " · " + stats.avgGpuMs + " ms" : "";
+  const tierPart = stats.modelDowngraded ? " · 自动切 Lite 保流畅" : (stats.perfTier === 1 ? " · 节能档" : "");
+  statusEl.textContent = "GameFI (" + stats.label + ") · " + backend + fpsPart + msPart + tierPart;
+}
+
+function updateGamesrStatusText(stats) {
+  const statusEl = byId("player-sr-status");
+  if (!statusEl) return;
+  if (stats?.softwareBlocked) {
+    statusEl.textContent = "检测到软件渲染器（未启用硬件 GPU 加速），已禁用 AI 超分。";
+    const sel = byId("player-sr");
+    if (sel && sel.value !== "off") sel.value = "off";
+    preferences.removeItem(GAMESR_PREF_KEY);
+    return;
+  }
+  if (!stats || !stats.srPreset || stats.srPreset === "off") {
+    statusEl.textContent = stats?.srError
+      ? "GameSR 初始化失败：" + stats.srError
+      : "实时 2× AI 超分去马赛克，建议渲染分辨率设 1× 或 2×，可与插帧串联。";
+    return;
+  }
+  if (stats.srLoading) {
+    statusEl.textContent = "正在加载 GameSR (" + stats.srLabel + ") 模型…";
+    return;
+  }
+  const backend = (stats.backend || "").toUpperCase() + (stats.precision ? " " + stats.precision : "");
+  const dimPart = stats.width > 0 && stats.srOutW > 0 ? " · " + stats.width + "×" + stats.height + "→" + stats.srOutW + "×" + stats.srOutH : " · 已就绪";
+  const msPart = stats.avgSrMs > 0 ? " · " + stats.avgSrMs + " ms" : "";
+  statusEl.textContent = "GameSR (" + stats.srLabel + ") · " + backend + dimPart + msPart;
+}
+
+function ensureFrameflowSubscription(bridge) {
+  if (!ensureFrameflowSubscription.subscribed) {
+    ensureFrameflowSubscription.subscribed = true;
+    bridge.subscribe((stats) => {
+      updateFrameflowStatusText(stats);
+      updateGamesrStatusText(stats);
+    });
+  }
+}
+
+function applyFrameflowSetting(preset) {
+  const bridge = globalThis.PpssppFrameFlow;
+  if (!bridge) return;
+  ensureFrameflowSubscription(bridge);
+  void bridge.setPreset(preset, { powerPreference: gpuSelectEl?.value || "high-performance" });
+}
+
+function applyGamesrSetting(preset) {
+  const bridge = globalThis.PpssppFrameFlow;
+  if (!bridge?.setSrPreset) return;
+  ensureFrameflowSubscription(bridge);
+  void bridge.setSrPreset(preset, { powerPreference: gpuSelectEl?.value || "high-performance" });
+}
+
 function refreshPlayerSettingsUI() {
   const settings = loadPlayerSettings();
   const resolution = byId("player-render-resolution");
+  const frameflow = byId("player-frameflow");
+  const srSelect = byId("player-sr");
   const fps = byId("player-show-fps");
   const touch = byId("player-touch-controls");
+  const ffPreset = loadFrameflowPreset();
+  const srPreset = loadGamesrPreset();
   if (resolution) resolution.value = String(settings.resolution);
+  if (frameflow) frameflow.value = ffPreset;
+  if (srSelect) srSelect.value = srPreset;
   if (fps) fps.checked = settings.showFps;
   if (touch) touch.checked = settings.touch;
   const slider = byId("player-pad-opacity");
   if (slider) slider.value = String(settings.padOpacity);
   applyPadOpacity(settings.padOpacity);
+  applyFrameflowSetting(ffPreset);
+  applyGamesrSetting(srPreset);
   updateTouchControls();
 }
 
@@ -5937,9 +6049,114 @@ function probeWebGLFeaturesWithPref(powerPreference) {
 
 function probeWebGLFeatures() { probeWebGLFeaturesWithPref(gpuSelectEl?.value || "high-performance"); }
 
+async function probeWebGPUInfo(preference = gpuSelectEl?.value || "high-performance") {
+  const el = byId("iWebgpu");
+  if (!el) return;
+  if (typeof navigator === "undefined" || !navigator.gpu) {
+    setInfoVal("iWebgpu", "不可用", "warn");
+    return;
+  }
+  try {
+    const pref = preference === "low-power" ? "low-power" : "high-performance";
+    const adapter = (await navigator.gpu.requestAdapter({ powerPreference: pref }))
+      || (await navigator.gpu.requestAdapter());
+    if (!adapter) {
+      setInfoVal("iWebgpu", "无适配器", "warn");
+      return;
+    }
+    const info = adapter.info || {};
+    const text = [info.vendor, info.architecture, info.description].filter(Boolean).join(" ");
+    const soft = !!(info.isFallbackAdapter || adapter.isFallbackAdapter
+      || /swiftshader|llvmpipe|softpipe|lavapipe|basic render|d3d11 warp/i.test(text));
+    const f16 = adapter.features?.has?.("shader-f16") ? " · f16" : "";
+    const label = [info.vendor, info.architecture].filter(Boolean).join(" ") || (soft ? "软件适配器" : "硬件适配器");
+    setInfoVal("iWebgpu", (soft ? "软件" : "可用") + " · " + label + f16, soft ? "warn" : "good");
+  } catch (_) {
+    setInfoVal("iWebgpu", "检测失败", "warn");
+  }
+}
+
+function backendWindowCommand(backend) {
+  return "python3 scripts/open-edge.py --backend " + backend;
+}
+
+function updateBackendWindowUi(message) {
+  const select = byId("backendWindowSelect");
+  const btn = byId("openBackendWindowBtn");
+  const hint = byId("backendWindowStatus");
+  const cmd = byId("backendWindowCmd");
+  if (!select || !btn || !hint || !cmd) return;
+  const backend = select.value || "opengl";
+  const localEdge = document.documentElement.hasAttribute("data-local-edge");
+  cmd.textContent = backendWindowCommand(backend);
+  cmd.hidden = localEdge;
+  btn.textContent = localEdge ? "打开新窗口" : "复制启动命令";
+  if (message) {
+    hint.textContent = message;
+  } else {
+    hint.textContent = localEdge
+      ? "使用独立浏览器配置目录启动对应图形后端，可与当前窗口同时运行。"
+      : "当前服务未开启本机窗口启动器（--edge-launcher），可在 ppsspw 目录运行上方命令：";
+  }
+}
+
+function initializeBackendWindowLauncher() {
+  const select = byId("backendWindowSelect");
+  const btn = byId("openBackendWindowBtn");
+  const shortcut = byId("openBackendDiagnosticsBtn");
+  on(shortcut, "click", () => {
+    activatePanelTab("info", true);
+    select?.focus({ preventScroll: true });
+  });
+  on(select, "change", () => updateBackendWindowUi());
+  on(btn, "click", async () => {
+    const backend = select?.value || "opengl";
+    const localEdge = document.documentElement.hasAttribute("data-local-edge");
+    if (!localEdge) {
+      const command = backendWindowCommand(backend);
+      try {
+        await navigator.clipboard?.writeText(command);
+        updateBackendWindowUi("已复制启动命令：" + command);
+        showToast("已复制指定后端启动命令", 3500);
+      } catch (_) {
+        updateBackendWindowUi("请在本机 ppsspw 目录执行：" + command);
+      }
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const response = await fetch("/__local/open-edge", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-PPSSPW-Action": "open-edge",
+        },
+        body: JSON.stringify({ backend }),
+      });
+      let payload = null;
+      try { payload = await response.json(); } catch (_) {}
+      if (!response.ok) {
+        throw new Error(payload?.error || ("无法打开新窗口 · " + response.status));
+      }
+      const label = payload?.label || backend;
+      updateBackendWindowUi("已请求打开「" + label + "」新窗口（独立本机存储与存档）。");
+      log("Requested local backend window: " + backend);
+    } catch (error) {
+      const msg = error?.message || String(error);
+      updateBackendWindowUi(msg);
+      showToast(msg, 5000);
+      log("Backend window launch failed: " + msg, "warn");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  updateBackendWindowUi();
+}
+
 on(gpuSelectEl, "change", () => {
   log('GPU selector changed to "' + gpuSelectEl.value + '" — re-probing WebGL...');
   probeWebGLFeaturesWithPref(gpuSelectEl.value);
+  void probeWebGPUInfo(gpuSelectEl.value);
 });
 
 /* ── Error handlers ─────────────────────────────────────────────── */
@@ -6752,6 +6969,24 @@ on("player-pad-opacity", "input", event => applyPadOpacity(Number(event.target.v
 for (const id of ["player-render-resolution", "player-show-fps", "player-touch-controls", "player-pad-opacity"]) {
   on(id, "change", savePlayerSettings);
 }
+on("player-frameflow", "change", () => {
+  const raw = byId("player-frameflow")?.value || "off";
+  const preset = VALID_FRAMEFLOW_PRESETS.has(raw) ? raw : "off";
+  if (preset === "off") preferences.removeItem(FRAMEFLOW_PREF_KEY);
+  else preferences.setItem(FRAMEFLOW_PREF_KEY, preset);
+  applyFrameflowSetting(preset);
+  const status = byId("player-settings-status");
+  if (status) status.textContent = "AI 插帧设置已立即生效。";
+});
+on("player-sr", "change", () => {
+  const raw = byId("player-sr")?.value || "off";
+  const preset = VALID_GAMESR_PRESETS.has(raw) ? raw : "off";
+  if (preset === "off") preferences.removeItem(GAMESR_PREF_KEY);
+  else preferences.setItem(GAMESR_PREF_KEY, preset);
+  applyGamesrSetting(preset);
+  const status = byId("player-settings-status");
+  if (status) status.textContent = "AI 超分设置已立即生效。";
+});
 
 on("exportSavesBtn", "click", exportSaves);
 
@@ -7081,6 +7316,8 @@ syncFullscreenOverlays();
 log("Page loaded. crossOriginIsolated=" + window.crossOriginIsolated, window.crossOriginIsolated ? "ok" : "warn");
 log("Build: " + BUILD_STAMP, "dim");
 probeWebGLFeatures();
+void probeWebGPUInfo();
+initializeBackendWindowLauncher();
 initializePerformancePanel();
 updateInfoPanel();
 refreshLibrary();

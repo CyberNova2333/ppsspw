@@ -130,6 +130,67 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(preview.cdn_origin('http://localhost:17881'), 'http://localhost:17881')
         self.assertEqual(preview.cdn_origin('http://[::1]:17881/'), 'http://[::1]:17881')
 
+    def test_edge_launcher_requires_same_origin_headers_and_valid_backend(self):
+        import json
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / 'public'
+            root.mkdir()
+            (root / 'index.html').write_text('<html lang="zh-CN">游戏</html>', encoding='utf-8')
+            repo_root = Path(temporary) / 'repo'
+            repo_root.mkdir()
+            server = preview.PlayerServer(('127.0.0.1', 0), functools.partial(
+                preview.PlayerHandler, directory=str(root), edge_launcher=True, repo_root=repo_root))
+            worker = threading.Thread(target=server.serve_forever, daemon=True)
+            worker.start()
+            base = f'http://127.0.0.1:{server.server_port}'
+            try:
+                with self.client.open(base + '/', timeout=3) as response:
+                    self.assertIn('<html data-local-edge ', response.read().decode('utf-8'))
+                req_bad = urllib.request.Request(base + '/__local/open-edge', data=b'{}', method='POST')
+                with self.assertRaises(urllib.error.HTTPError) as err_forbidden:
+                    self.client.open(req_bad, timeout=3)
+                self.assertEqual(err_forbidden.exception.code, 403)
+                err_forbidden.exception.close()
+
+                headers = {
+                    'Content-Type': 'application/json',
+                    'Origin': base,
+                    'Sec-Fetch-Site': 'same-origin',
+                    'X-PPSSPW-Action': 'open-edge',
+                }
+                req_invalid = urllib.request.Request(
+                    base + '/__local/open-edge',
+                    data=json.dumps({'backend': 'unknown'}).encode('utf-8'),
+                    headers=headers,
+                    method='POST',
+                )
+                with self.assertRaises(urllib.error.HTTPError) as err_bad:
+                    self.client.open(req_invalid, timeout=3)
+                self.assertEqual(err_bad.exception.code, 400)
+                err_bad.exception.close()
+
+                with patch('edge_launcher.subprocess.Popen') as mock_popen:
+                    req_ok = urllib.request.Request(
+                        base + '/__local/open-edge',
+                        data=json.dumps({'backend': 'opengl'}).encode('utf-8'),
+                        headers=headers,
+                        method='POST',
+                    )
+                    with self.client.open(req_ok, timeout=3) as response:
+                        self.assertEqual(response.status, 202)
+                        payload = json.loads(response.read().decode('utf-8'))
+                        self.assertEqual(payload['backend'], 'opengl')
+                        self.assertTrue(payload['ok'])
+                    mock_popen.assert_called_once()
+                    cmd = mock_popen.call_args.args[0]
+                    self.assertEqual(cmd[-4:], ['--port', str(server.server_port), '--backend', 'opengl'])
+            finally:
+                server.shutdown()
+                server.server_close()
+                worker.join()
+
 
 if __name__ == '__main__':
     unittest.main()

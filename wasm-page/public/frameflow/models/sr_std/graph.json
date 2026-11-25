@@ -1,0 +1,138 @@
+{
+ "meta": {
+  "model": "GameSR-Std",
+  "task": "sr",
+  "scale": 2,
+  "format_version": 1,
+  "weights": "model.bin/.json",
+  "inputs": {
+   "A": "[B,3,H,W] in [0,1] BGR"
+  },
+  "outputs": [
+   "render"
+  ]
+ },
+ "ops": [
+  {
+   "in": [
+    "A"
+   ],
+   "out": [
+    "h0"
+   ],
+   "w": [
+    "stem.0.weight",
+    "stem.0.bias",
+    "stem.1.weight"
+   ],
+   "stride": 1,
+   "op": "conv"
+  },
+  {
+   "in": [
+    "h0"
+   ],
+   "out": [
+    "b0_1"
+   ],
+   "w": [
+    "body.0.c1.0.weight",
+    "body.0.c1.0.bias",
+    "body.0.c1.1.weight"
+   ],
+   "stride": 1,
+   "op": "conv"
+  },
+  {
+   "in": [
+    "b0_1"
+   ],
+   "out": [
+    "b0_2"
+   ],
+   "w": [
+    "body.0.c2.0.weight",
+    "body.0.c2.0.bias",
+    "body.0.c2.1.weight"
+   ],
+   "stride": 1,
+   "op": "conv"
+  },
+  {
+   "in": [
+    "b0_2",
+    "h0"
+   ],
+   "out": [
+    "h1"
+   ],
+   "op": "add"
+  },
+  {
+   "in": [
+    "h1"
+   ],
+   "out": [
+    "b1_1"
+   ],
+   "w": [
+    "body.1.c1.0.weight",
+    "body.1.c1.0.bias",
+    "body.1.c1.1.weight"
+   ],
+   "stride": 1,
+   "op": "conv"
+  },
+  {
+   "in": [
+    "b1_1"
+   ],
+   "out": [
+    "b1_2"
+   ],
+   "w": [
+    "body.1.c2.0.weight",
+    "body.1.c2.0.bias",
+    "body.1.c2.1.weight"
+   ],
+   "stride": 1,
+   "op": "conv"
+  },
+  {
+   "in": [
+    "b1_2",
+    "h1"
+   ],
+   "out": [
+    "h2"
+   ],
+   "op": "add"
+  },
+  {
+   "in": [
+    "h2"
+   ],
+   "out": [
+    "delta_lr"
+   ],
+   "w": [
+    "head.weight",
+    "head.bias"
+   ],
+   "stride": 1,
+   "op": "conv2d"
+  },
+  {
+   "in": [
+    "A",
+    "delta_lr"
+   ],
+   "out": [
+    "render"
+   ],
+   "scale": 2,
+   "output": true,
+   "op": "render_sr"
+  }
+ ]
+}

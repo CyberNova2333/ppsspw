@@ -1,0 +1,160 @@
+{
+ "meta": {
+  "model": "GameSR-Std",
+  "task": "sr",
+  "scale": 2,
+  "format_version": 1,
+  "train_step": 20000,
+  "cfg": {
+   "name": "GameSR-Std",
+   "ch": 16,
+   "num_pairs": 2,
+   "scale": 2
+  },
+  "dtype": "f16",
+  "bytes_per_elem": 2,
+  "endian": "little",
+  "n_tensors": 17,
+  "n_params": 11548,
+  "render_sampling": "bilinear"
+ },
+ "tensors": {
+  "stem.0.weight": {
+   "shape": [
+    16,
+    3,
+    3,
+    3
+   ],
+   "offset": 0,
+   "dtype": "f16"
+  },
+  "stem.0.bias": {
+   "shape": [
+    16
+   ],
+   "offset": 432,
+   "dtype": "f16"
+  },
+  "stem.1.weight": {
+   "shape": [
+    16
+   ],
+   "offset": 448,
+   "dtype": "f16"
+  },
+  "body.0.c1.0.weight": {
+   "shape": [
+    16,
+    16,
+    3,
+    3
+   ],
+   "offset": 464,
+   "dtype": "f16"
+  },
+  "body.0.c1.0.bias": {
+   "shape": [
+    16
+   ],
+   "offset": 2768,
+   "dtype": "f16"
+  },
+  "body.0.c1.1.weight": {
+   "shape": [
+    16
+   ],
+   "offset": 2784,
+   "dtype": "f16"
+  },
+  "body.0.c2.0.weight": {
+   "shape": [
+    16,
+    16,
+    3,
+    3
+   ],
+   "offset": 2800,
+   "dtype": "f16"
+  },
+  "body.0.c2.0.bias": {
+   "shape": [
+    16
+   ],
+   "offset": 5104,
+   "dtype": "f16"
+  },
+  "body.0.c2.1.weight": {
+   "shape": [
+    16
+   ],
+   "offset": 5120,
+   "dtype": "f16"
+  },
+  "body.1.c1.0.weight": {
+   "shape": [
+    16,
+    16,
+    3,
+    3
+   ],
+   "offset": 5136,
+   "dtype": "f16"
+  },
+  "body.1.c1.0.bias": {
+   "shape": [
+    16
+   ],
+   "offset": 7440,
+   "dtype": "f16"
+  },
+  "body.1.c1.1.weight": {
+   "shape": [
+    16
+   ],
+   "offset": 7456,
+   "dtype": "f16"
+  },
+  "body.1.c2.0.weight": {
+   "shape": [
+    16,
+    16,
+    3,
+    3
+   ],
+   "offset": 7472,
+   "dtype": "f16"
+  },
+  "body.1.c2.0.bias": {
+   "shape": [
+    16
+   ],
+   "offset": 9776,
+   "dtype": "f16"
+  },
+  "body.1.c2.1.weight": {
+   "shape": [
+    16
+   ],
+   "offset": 9792,
+   "dtype": "f16"
+  },
+  "head.weight": {
+   "shape": [
+    12,
+    16,
+    3,
+    3
+   ],
+   "offset": 9808,
+   "dtype": "f16"
+  },
+  "head.bias": {
+   "shape": [
+    12
+   ],
+   "offset": 11536,
+   "dtype": "f16"
+  }
+ }
+}

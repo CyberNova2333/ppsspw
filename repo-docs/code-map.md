@@ -56,6 +56,7 @@
 | [在线清单与续传](../wasm-page/public/game-download.js) | 分块 HTTP Range 校验、按块刷盘的续传进度，以及与页面共享的缓存锁和目录 | `download-worker.js / online-games.js` | 在线清单安装与续传任务 |
 | [运行时性能采样](../wasm-page/public/performance.js) | 读取帧边界快照并导出脱敏采样 JSON | `start / exportReport` | 面板诊断开关与离线比对脚本 |
 | [Ad Hoc 中继传输](../wasm-page/public/adhoc-transport.js) | `PRO`/`PU1`/`PT1` WebSocket 联机二进制封装（当前受 `LOCAL_ONLY = true` 隐藏） | `connect / sendPacket` | 联机开启时的原生网口桥 |
+| [AI 画面增强桥接](../wasm-page/public/frameflow-bridge.js) | 观察 `#canvas` WebGL2 提交并在 `#frameflowCanvas` 异步驱动 FrameFlow 运行时执行 GameFI 插帧与 GameSR 2× 超分（屏蔽软件渲染） | `PpssppFrameFlow / setPreset / setSrPreset` | `ppsspp-runtime.js` 设置项与 `wasm-page/public/frameflow/` 模型资源 |
 
 相关验证：`wasm-page/tests/runtime.test.mjs`、`wasm-page/tests/orientation.test.mjs`、`wasm-page/tests/touch-controls.test.mjs`；模拟器核心仍需单独验收。
 
@@ -84,6 +85,7 @@
 | [构建验证顺序](../scripts/ci/build.sh) | 调用共用回归入口，再编译核心并打包网页 | `make test-ci / make wasm-release / make app-build-pages` | 构建任务入口；改动脚本不代表任务已执行 |
 | [清单生成工具](../scripts/create-game-manifest.py) | 按 64 KiB–16 MiB 切分镜像并计算每块 SHA-256 与 HTTPS 源约束 | `main / schemaVersion` | 部署在线分块镜像前的离线准备 |
 | [发布前门禁](../scripts/ci/prepare-deploy.mjs) | 检查随包许可、写入隔离响应头配置并核对部署标识 | `verifyLicenses / prepareDeployment / verifyStaticOutput` | EdgeOne 部署准备与校验步骤 |
+| [独立图形后端浏览器入口](../scripts/open-edge.py) | 使用独立临时浏览器配置按指定图形后端拉起本地 PPSSPW 预览窗口 | `build_launch_env / launch_browser` | 开发者本机命令或 `edge_launcher` 后台调用 |
 
 打包边界的验证入口为 `server/player-tests/`；窗口尺寸分支由独立编译脚本执行，结果分别记录，不能互相替代。
 
@@ -96,6 +98,7 @@
 | [职责入口](../server/serve-player.py) | 只暴露打包目录并设置线程所需响应头 | `PlayerServer / PlayerHandler / main` | 打包后的人工预览 |
 | [Ad Hoc 中继核心](../server/relay.py) | 处理 `PRO`/`PU1`/`PT1` 二进制帧分发、连接上限与网络损伤参数 | `RELAY_MAX_CONNECTIONS / RELAY_LATENCY_MS` | 自托管联机中继容器与中继单测 |
 | [中继鉴权与命令行管理](../server/relay_auth.py) | 管理 `open`/`keys` 鉴权模式与本地 SQLite 哈希密钥签发吊销 | `KeyStore / RelayAuth / relay_admin.py` | 中继服务握手鉴权与运维 CLI |
+| [本机后端启动器](../server/edge_launcher.py) | 为本地回环服务提供同源 `POST /__local/open-edge` 校验并调度 `open-edge.py` | `handle_open_edge_post / validate_backend_ready` | `serve-player.py` / `serve.py` 本地调试扩展 |
 
 相关验证：`server/player-tests/`。本轮只检查可读证据，业务测试没有执行。
 

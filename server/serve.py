@@ -9,9 +9,20 @@ import os
 import subprocess
 import threading
 import signal
+import sys
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 from functools import partial
+
+_SERVER_DIR = str(Path(__file__).resolve().parent)
+if _SERVER_DIR not in sys.path:
+    sys.path.insert(0, _SERVER_DIR)
+
+from edge_launcher import (
+    edge_launcher_supported,
+    handle_open_edge_post,
+    maybe_serve_local_edge_html,
+)
 
 
 from relay_auth import RelayAuth
@@ -27,11 +38,16 @@ class WasmThreadingServer(TrackedServerMixin, ThreadingHTTPServer):
 class WasmThreadingHandler(SimpleHTTPRequestHandler):
     """Publish the packaged player, public assets and named development core outputs."""
 
-    def __init__(self, *args, web_root=None, wasm_root=None, **kwargs):
+    def __init__(self, *args, web_root=None, wasm_root=None, edge_launcher=False, url_scheme="http", **kwargs):
         self.web_root = os.path.abspath(web_root)
         self.wasm_root = os.path.abspath(wasm_root)
         self.angular_root = os.path.join(self.web_root, "wasm-page", "dist", "ppsspp-web")
+        self.edge_launcher = edge_launcher
+        self.url_scheme = url_scheme
         super().__init__(*args, directory=self.web_root, **kwargs)
+
+    def do_POST(self):
+        return handle_open_edge_post(self, self.web_root, self.server.server_port, self.url_scheme)
 
     def log_request(self, code="-", size="-"):
         self.log_message("%s %s %s", self.command, urlparse(self.path).path, code)
@@ -70,6 +86,9 @@ class WasmThreadingHandler(SimpleHTTPRequestHandler):
         if self.published_file is None:
             self.send_error(404)
             return None
+        injected = maybe_serve_local_edge_html(self, self.published_file, self.angular_root)
+        if injected is not None:
+            return injected
         return super().send_head()
 
     def translate_path(self, path):
@@ -132,11 +151,16 @@ def main():
     parser.add_argument("--wasm-root", "--dir", dest="wasm_root", default=default_wasm_root, help="ppsspp-wasm checkout root containing build-wasm/ and build-wasm-release/.")
     parser.add_argument("--adhoc-ws", action="store_true", help="Enable the browser WebSocket ad hoc lobby server.")
     parser.add_argument("--adhoc-ws-port", type=int, default=SERVER_PORT, help="WebSocket ad hoc lobby port.")
+    parser.add_argument("--edge-launcher", action="store_true", help="Allow loopback launcher requests to open backend windows.")
     args = parser.parse_args()
+
+    if args.edge_launcher and not edge_launcher_supported(args.bind):
+        parser.error("--edge-launcher requires loopback --bind and a Linux desktop Chromium/Edge browser")
 
     web_root = os.path.abspath(args.web_root)
     wasm_root = os.path.abspath(args.wasm_root)
-    handler = partial(WasmThreadingHandler, web_root=web_root, wasm_root=wasm_root)
+    handler = partial(WasmThreadingHandler, web_root=web_root, wasm_root=wasm_root,
+                      edge_launcher=args.edge_launcher, url_scheme="https" if args.https else "http")
 
     server = WasmThreadingServer((args.bind, args.port), handler)
 

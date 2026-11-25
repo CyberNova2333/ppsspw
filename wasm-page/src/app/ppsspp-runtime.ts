@@ -82,6 +82,7 @@ export class PpssppRuntime {
     await this.loadScript(`adhoc-transport.js?v=${RUNTIME_ASSET_VERSION}`, 'adhoc-transport');
     await this.loadScript(`touch-controls.js?v=${RUNTIME_ASSET_VERSION}`, 'touch-controls');
     await this.loadScript(`pad-presets.js?v=${RUNTIME_ASSET_VERSION}`, 'pad-presets');
+    await this.loadScript(`frameflow-bridge.js?v=${RUNTIME_ASSET_VERSION}`, 'frameflow-bridge');
     await this.loadScript(`ppsspp-runtime.js?v=${RUNTIME_ASSET_VERSION}`, 'ppsspp-runtime');
   }
 

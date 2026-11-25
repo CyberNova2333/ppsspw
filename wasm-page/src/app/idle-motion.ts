@@ -4,12 +4,12 @@
  * PPSSPW 待机欢迎屏背景动效引擎
  *
  * - 暗色模式 (Dark Mode)：经典光点网格（96 个节点、光点连线、鼠标引力场、呼吸透明度、点击增亮）
- * - 亮色模式 (Light Mode)：PSP XMB 纯净流体光波丝带（多束谐波流体丝带、柔和微光粒子、鼠标流体挠曲与波纹涟漪）
+ * - 亮色模式 (Light Mode)：PSP XMB 纯净流体光波丝带（多束谐波流体丝带、柔和微光粒子、鼠标流体挠曲与平滑高斯波纹）
  *
  * 特性：
- * 1. 深度适配系统及按钮切换的白天/黑夜主题；
- * 2. 挂载于 #idleOverlay 内部背景层，严格位于引导卡片与按钮之下（z-index: 0），绝不遮挡文字；
- * 3. 游戏启动后或待机层隐藏时立即休眠并暂停 requestAnimationFrame，释放 GPU/CPU。
+ * 1. 深度适配系统与昼夜切换开关，暗/亮模式交叉淡入淡出过渡；
+ * 2. 挂载于 #idleOverlay 内部背景层，严格位于引导卡片与按钮之下（z-index: 0），覆盖完整滚动高度；
+ * 3. 游戏启动后、标签页隐藏或系统启用减弱动态效果时真正停止 requestAnimationFrame，零后台消耗，并在恢复待机时自动续播。
  */
 
 type ThemeMode = 'dark' | 'light';
@@ -57,8 +57,6 @@ export function mountIdleMotion(): () => void {
     c.style.position = 'absolute';
     c.style.top = '0';
     c.style.left = '0';
-    c.style.width = '100%';
-    c.style.height = '100%';
     c.style.pointerEvents = 'none';
     c.style.zIndex = '0';
     c.style.background = 'transparent';
@@ -71,7 +69,6 @@ export function mountIdleMotion(): () => void {
     c.style.display = 'block';
   }
 
-  // 创建并注入背景 Canvas
   let canvas = idle.querySelector<HTMLCanvasElement>('canvas.idle-motion-canvas');
   if (!canvas) {
     canvas = document.createElement('canvas');
@@ -86,21 +83,38 @@ export function mountIdleMotion(): () => void {
   const ctx = canvas.getContext('2d');
   if (!ctx) return () => {};
 
+  const reducedMotion: MediaQueryList | null =
+    typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  const colorSchemeMedia: MediaQueryList | null =
+    typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+
   let animId = 0;
   let isRunning = true;
+  let lastFrameTime = 0;
+  let pressTimer = 0;
   let width = 0;
   let height = 0;
   let dpr = 1;
 
   const pointer = { x: -9999, y: -9999, active: false, pressed: false };
 
-  // ==========================================
-  // 暗色模式状态与初始化
-  // ==========================================
   const DARK_COUNT = 96;
   const DARK_LINK = 104;
   const DARK_PULL = 170;
   let darkNodes: DarkNode[] = [];
+
+  const LIGHT_MOTE_COUNT = 24;
+  let lightMotes: LightMote[] = [];
+  const ripples: Ripple[] = [];
+
+  function getCurrentTheme(): ThemeMode {
+    const docTheme = document.documentElement.dataset['theme'];
+    if (docTheme === 'dark') return 'dark';
+    if (docTheme === 'light') return 'light';
+    return colorSchemeMedia?.matches ? 'dark' : 'light';
+  }
+
+  let themeMix = getCurrentTheme() === 'light' ? 1 : 0;
 
   function seedDark() {
     darkNodes = [];
@@ -109,29 +123,26 @@ export function mountIdleMotion(): () => void {
     for (let i = 0; i < DARK_COUNT; i++) {
       const cx = ((i % cols) + 0.5) / cols;
       const cy = (Math.floor(i / cols) + 0.5) / rows;
+      const x = (cx + (Math.random() - 0.5) * 0.2) * width;
+      const y = (cy + (Math.random() - 0.5) * 0.24) * height;
+      const phase = Math.random() * Math.PI * 2;
+      const speed = 0.1 + Math.random() * 0.16;
       darkNodes.push({
-        x: (cx + (Math.random() - 0.5) * 0.2) * width,
-        y: (cy + (Math.random() - 0.5) * 0.24) * height,
+        x,
+        y,
         vx: (Math.random() - 0.5) * 0.18,
         vy: (Math.random() - 0.5) * 0.18,
         r: 0.8 + Math.random() * 1.1,
-        phase: Math.random() * Math.PI * 2,
-        speed: 0.1 + Math.random() * 0.16,
+        phase,
+        speed,
         offx: 0,
         offy: 0,
-        px: 0,
-        py: 0,
-        a: 0
+        px: x,
+        py: y,
+        a: 0.22 + 0.78 * (0.5 + 0.5 * Math.sin(phase)),
       });
     }
   }
-
-  // ==========================================
-  // 亮色模式状态与初始化 (PSP XMB 纯净流体光波丝带 + 柔和光尘)
-  // ==========================================
-  const LIGHT_MOTE_COUNT = 24;
-  let lightMotes: LightMote[] = [];
-  const ripples: Ripple[] = [];
 
   function seedLight() {
     lightMotes = [];
@@ -140,63 +151,101 @@ export function mountIdleMotion(): () => void {
       lightMotes.push({
         x: Math.random() * width,
         y: height * 0.3 + Math.random() * (height * 0.6),
-        vx: 0.12 + Math.random() * 0.25, // 顺着流体方向自左向右轻柔流动
+        vx: 0.12 + Math.random() * 0.25,
         vy: (Math.random() - 0.5) * 0.12,
         r: 1.2 + Math.random() * 1.8,
         phase: Math.random() * Math.PI * 2,
         speed: 0.25 + Math.random() * 0.45,
         alpha: baseAlpha,
-        baseAlpha
+        baseAlpha,
       });
     }
+  }
+
+  function measureTargetSize() {
+    const nextW = idle?.clientWidth || 0;
+    const nextH = Math.max(idle?.clientHeight || 0, idle?.scrollHeight || 0);
+    const nextDpr = Math.min(window.devicePixelRatio || 1, 2);
+    return { nextW, nextH, nextDpr };
   }
 
   function resize() {
     if (!canvas || !idle) return;
     applyCanvasStyles(canvas);
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
-    width = idle.clientWidth;
-    height = idle.clientHeight;
-    if (width <= 0 || height <= 0) return;
+    const { nextW, nextH, nextDpr } = measureTargetSize();
+    if (nextW <= 0 || nextH <= 0) return;
+
+    const oldW = width;
+    const oldH = height;
+    dpr = nextDpr;
+    width = nextW;
+    height = nextH;
+
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    seedDark();
-    seedLight();
-  }
+    if (darkNodes.length === 0) {
+      seedDark();
+    } else if (oldW > 0 && oldH > 0 && (oldW !== width || oldH !== height)) {
+      const sx = width / oldW;
+      const sy = height / oldH;
+      for (let i = 0; i < darkNodes.length; i++) {
+        const n = darkNodes[i];
+        n.x *= sx;
+        n.y *= sy;
+        n.px = n.x + n.offx;
+        n.py = n.y + n.offy;
+      }
+    }
 
-  function getCurrentTheme(): ThemeMode {
-    const docTheme = document.documentElement.dataset['theme'];
-    if (docTheme === 'dark') return 'dark';
-    if (docTheme === 'light') return 'light';
-    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    if (lightMotes.length === 0) {
+      seedLight();
+    } else if (oldW > 0 && oldH > 0 && (oldW !== width || oldH !== height)) {
+      const sx = width / oldW;
+      const sy = height / oldH;
+      for (let i = 0; i < lightMotes.length; i++) {
+        lightMotes[i].x *= sx;
+        lightMotes[i].y *= sy;
+      }
+    }
   }
 
   function isEmulatorStarted(): boolean {
-    return document.body.classList.contains('emulator-started') || Boolean(idle?.hidden) || idle?.style.display === 'none';
+    return (
+      document.body.classList.contains('emulator-started') ||
+      Boolean(idle?.hidden) ||
+      idle?.style.display === 'none'
+    );
   }
 
-  // ==========================================
-  // 暗色模式渲染循环 (经典光点星空网格)
-  // ==========================================
-  function renderDark(t: number) {
+  function isReducedMotion(): boolean {
+    return Boolean(reducedMotion?.matches);
+  }
+
+  function shouldAnimate(): boolean {
+    return isRunning && !isEmulatorStarted() && !document.hidden && !isReducedMotion();
+  }
+
+  function renderDark(t: number, dt: number) {
     if (!ctx) return;
-    ctx.clearRect(0, 0, width, height);
 
     const isPressed = pointer.pressed;
     const boost = isPressed ? 1.3 : 1.0;
+    const ease = dt > 0 ? 1 - Math.pow(1 - 0.12, dt) : 0;
 
     for (let i = 0; i < darkNodes.length; i++) {
       const n = darkNodes[i];
-      n.x += n.vx;
-      n.y += n.vy;
-      if (n.x < -20) n.x = width + 20;
-      else if (n.x > width + 20) n.x = -20;
-      if (n.y < -20) n.y = height + 20;
-      else if (n.y > height + 20) n.y = -20;
+      if (dt > 0) {
+        n.x += n.vx * dt;
+        n.y += n.vy * dt;
+        if (n.x < -20) n.x = width + 20;
+        else if (n.x > width + 20) n.x = -20;
+        if (n.y < -20) n.y = height + 20;
+        else if (n.y > height + 20) n.y = -20;
+      }
 
       let tx = 0;
       let ty = 0;
@@ -211,14 +260,15 @@ export function mountIdleMotion(): () => void {
           ty = (dy / d) * k;
         }
       }
-      n.offx += (tx - n.offx) * 0.12;
-      n.offy += (ty - n.offy) * 0.12;
+      if (ease > 0) {
+        n.offx += (tx - n.offx) * ease;
+        n.offy += (ty - n.offy) * ease;
+      }
       n.px = n.x + n.offx;
       n.py = n.y + n.offy;
       n.a = 0.22 + 0.78 * (0.5 + 0.5 * Math.sin((t / 1000) * n.speed + n.phase));
     }
 
-    // 绘制连线
     ctx.lineWidth = 1;
     for (let i = 0; i < darkNodes.length; i++) {
       for (let j = i + 1; j < darkNodes.length; j++) {
@@ -244,7 +294,6 @@ export function mountIdleMotion(): () => void {
       }
     }
 
-    // 绘制光点
     for (let i = 0; i < darkNodes.length; i++) {
       const n = darkNodes[i];
       let near = 0;
@@ -261,25 +310,18 @@ export function mountIdleMotion(): () => void {
     }
   }
 
-  // ==========================================
-  // 亮色模式渲染循环 (PSP XMB 纯净流体多谐波光波丝带)
-  // ==========================================
-  function renderLight(t: number) {
+  function renderLight(t: number, dt: number) {
     if (!ctx) return;
-    ctx.clearRect(0, 0, width, height);
 
     const time = t * 0.001;
-    const stepX = 14;
+    const stepX = 8;
 
-    // 1. 渲染主光波丝带（多条谐波织丝形成 3D 丝带曲面效果）
+    // 1. 渲染主光波丝带（平滑多谐波曲面，带二维高斯包络交互波纹）
     const ribbonCount = 8;
     const baseY = height * 0.62;
-
-    // 存储首尾波浪点坐标以生成渐变充气曲面
     const topWave: { x: number; y: number }[] = [];
     const botWave: { x: number; y: number }[] = [];
 
-    // 计算采样点并绘制丝带多股发丝
     for (let k = 0; k < ribbonCount; k++) {
       const phi = k * 0.24;
       const strandAlpha = 0.06 + (1 - Math.abs(k - ribbonCount / 2) / (ribbonCount / 2)) * 0.16;
@@ -288,14 +330,12 @@ export function mountIdleMotion(): () => void {
       let isFirst = true;
 
       for (let x = 0; x <= width + stepX; x += stepX) {
-        // 多谐波正弦组合，展现 PSP XMB 特有的波带张力
         let y =
           baseY +
           Math.sin(x * 0.0022 + time * 0.8 + phi) * 36 +
           Math.cos(x * 0.0046 - time * 1.1 + phi * 1.2) * 18 +
           Math.sin(x * 0.008 + time * 1.5) * 8;
 
-        // 鼠标流体引力凸起（靠近光标产生平滑膨胀高斯扰动）
         if (pointer.active) {
           const dx = Math.abs(x - pointer.x);
           if (dx < 220) {
@@ -304,12 +344,15 @@ export function mountIdleMotion(): () => void {
           }
         }
 
-        // 点击产生的涟漪影响波峰
         for (let ri = 0; ri < ripples.length; ri++) {
           const rip = ripples[ri];
-          const distToRipple = Math.abs(x - rip.x);
-          if (Math.abs(distToRipple - rip.r) < 32) {
-            y += Math.sin((distToRipple - rip.r) * 0.2) * (rip.alpha * 24);
+          const dx = x - rip.x;
+          const dy = baseY - rip.y;
+          const radial = Math.hypot(dx, dy);
+          const u = radial - rip.r;
+          if (Math.abs(u) < 90) {
+            const env = Math.exp(-(u * u) / (2 * 26 * 26)) * Math.exp(-(dy * dy) / (2 * 260 * 260));
+            y += Math.sin(u * 0.11) * env * (rip.alpha * 22);
           }
         }
 
@@ -329,7 +372,6 @@ export function mountIdleMotion(): () => void {
       ctx.stroke();
     }
 
-    // 在丝带外缘之间填充轻盈的淡蓝羽化渐变
     if (topWave.length > 0 && botWave.length > 0) {
       ctx.beginPath();
       ctx.moveTo(topWave[0].x, topWave[0].y);
@@ -349,7 +391,7 @@ export function mountIdleMotion(): () => void {
       ctx.fill();
     }
 
-    // 2. 渲染背景次级辅助波浪（增加景深与层次感）
+    // 2. 渲染次级辅助波浪
     const secBaseY = height * 0.72;
     ctx.beginPath();
     let secFirst = true;
@@ -366,20 +408,21 @@ export function mountIdleMotion(): () => void {
     ctx.lineWidth = 1.2;
     ctx.stroke();
 
-    // 3. 渲染轻柔漂浮的微光粒子（不绘制生硬的几何图标，纯粹自然光尘）
+    // 3. 渲染微光粒子
     for (let i = 0; i < lightMotes.length; i++) {
       const m = lightMotes[i];
-      m.x += m.vx;
-      m.y += m.vy + Math.sin(time * m.speed + m.phase) * 0.25;
+      if (dt > 0) {
+        m.x += m.vx * dt;
+        m.y += (m.vy + Math.sin(time * m.speed + m.phase) * 0.25) * dt;
 
-      if (m.x > width + 20) {
-        m.x = -20;
-        m.y = height * 0.3 + Math.random() * (height * 0.6);
+        if (m.x > width + 20) {
+          m.x = -20;
+          m.y = height * 0.3 + Math.random() * (height * 0.6);
+        }
+        if (m.y < -20) m.y = height + 20;
+        else if (m.y > height + 20) m.y = -20;
       }
-      if (m.y < -20) m.y = height + 20;
-      else if (m.y > height + 20) m.y = -20;
 
-      // 呼吸光晕
       const pulse = 0.5 + 0.5 * Math.sin(time * m.speed * 2 + m.phase);
       const alpha = (m.baseAlpha * (0.6 + 0.4 * pulse)).toFixed(3);
 
@@ -389,11 +432,13 @@ export function mountIdleMotion(): () => void {
       ctx.fill();
     }
 
-    // 4. 绘制点击产生的水波涟漪
+    // 4. 绘制点击产生的平滑扩散涟漪
     for (let i = ripples.length - 1; i >= 0; i--) {
       const r = ripples[i];
-      r.r += 3.6;
-      r.alpha *= 0.94;
+      if (dt > 0) {
+        r.r += 3.2 * dt;
+        r.alpha *= Math.pow(0.945, dt);
+      }
       if (r.r >= r.maxR || r.alpha < 0.01) {
         ripples.splice(i, 1);
         continue;
@@ -406,65 +451,131 @@ export function mountIdleMotion(): () => void {
     }
   }
 
-  // ==========================================
-  // 主循环
-  // ==========================================
-  function step(t: number) {
-    if (!isRunning) return;
-    animId = requestAnimationFrame(step);
+  function drawFrame(t: number, dt: number) {
+    if (!ctx || width <= 0 || height <= 0) return;
+    ctx.clearRect(0, 0, width, height);
 
-    if (isEmulatorStarted()) {
-      if (canvas) canvas.style.opacity = '0';
-      return;
+    const darkAlpha = 1 - themeMix;
+    const lightAlpha = themeMix;
+
+    if (darkAlpha > 0.001) {
+      ctx.save();
+      ctx.globalAlpha = darkAlpha;
+      renderDark(t, dt);
+      ctx.restore();
     }
-    if (canvas) canvas.style.opacity = '1';
-
-    if (Math.abs((canvas?.width || 0) / dpr - (idle?.clientWidth || 0)) > 2) {
-      resize();
-    }
-
-    const theme = getCurrentTheme();
-    if (theme === 'dark') {
-      renderDark(t);
-    } else {
-      renderLight(t);
+    if (lightAlpha > 0.001) {
+      ctx.save();
+      ctx.globalAlpha = lightAlpha;
+      renderLight(t, dt);
+      ctx.restore();
     }
   }
 
-  // ==========================================
-  // 事件监听
-  // ==========================================
-  const onPointerMove = (e: PointerEvent) => {
-    if (!idle) return;
+  function step(t: number) {
+    if (!shouldAnimate()) {
+      animId = 0;
+      lastFrameTime = 0;
+      return;
+    }
+
+    const dt = lastFrameTime ? Math.min(Math.max((t - lastFrameTime) / 16.6667, 0.1), 2.5) : 1;
+    lastFrameTime = t;
+
+    const { nextW, nextH, nextDpr } = measureTargetSize();
+    if (Math.abs(width - nextW) > 1 || Math.abs(height - nextH) > 1 || Math.abs(dpr - nextDpr) > 0.01) {
+      resize();
+    }
+
+    const targetMix = getCurrentTheme() === 'light' ? 1 : 0;
+    if (Math.abs(targetMix - themeMix) > 0.001) {
+      const stepAmt = dt / 26;
+      themeMix = targetMix > themeMix ? Math.min(1, themeMix + stepAmt) : Math.max(0, themeMix - stepAmt);
+    } else {
+      themeMix = targetMix;
+    }
+
+    drawFrame(t, dt);
+
+    if (shouldAnimate()) {
+      animId = requestAnimationFrame(step);
+    } else {
+      animId = 0;
+      lastFrameTime = 0;
+    }
+  }
+
+  function syncPlayback() {
+    if (!isRunning || !canvas || !idle) return;
+    if (isEmulatorStarted()) {
+      if (animId) {
+        cancelAnimationFrame(animId);
+        animId = 0;
+      }
+      lastFrameTime = 0;
+      canvas.style.opacity = '0';
+      return;
+    }
+
+    canvas.style.opacity = '1';
+
+    if (isReducedMotion()) {
+      if (animId) {
+        cancelAnimationFrame(animId);
+        animId = 0;
+      }
+      lastFrameTime = 0;
+      resize();
+      themeMix = getCurrentTheme() === 'light' ? 1 : 0;
+      drawFrame(0, 0);
+      return;
+    }
+
+    if (!document.hidden) {
+      if (!animId) {
+        lastFrameTime = 0;
+        animId = requestAnimationFrame(step);
+      }
+    } else if (animId) {
+      cancelAnimationFrame(animId);
+      animId = 0;
+      lastFrameTime = 0;
+    }
+  }
+
+  const updatePointerCoords = (e: PointerEvent) => {
     const rect = idle.getBoundingClientRect();
-    pointer.x = e.clientX - rect.left;
-    pointer.y = e.clientY - rect.top;
+    pointer.x = e.clientX - rect.left + idle.scrollLeft;
+    pointer.y = e.clientY - rect.top + idle.scrollTop;
+  };
+
+  const onPointerMove = (e: PointerEvent) => {
+    if (!idle || isEmulatorStarted() || isReducedMotion()) return;
+    updatePointerCoords(e);
     pointer.active = true;
   };
 
   const onPointerDown = (e: PointerEvent) => {
-    if (!idle) return;
-    const rect = idle.getBoundingClientRect();
-    pointer.x = e.clientX - rect.left;
-    pointer.y = e.clientY - rect.top;
+    if (!idle || isEmulatorStarted() || isReducedMotion()) return;
+    updatePointerCoords(e);
     pointer.active = true;
     pointer.pressed = true;
 
-    // 亮色模式添加水波涟漪
     if (getCurrentTheme() === 'light') {
+      if (ripples.length >= 12) ripples.shift();
       ripples.push({
         x: pointer.x,
         y: pointer.y,
         r: 8,
         maxR: 240,
-        alpha: 0.36
+        alpha: 0.36,
       });
     }
 
-    document.body.classList.add('psp-press');
-    setTimeout(() => {
+    if (pressTimer) window.clearTimeout(pressTimer);
+    pressTimer = window.setTimeout(() => {
+      pressTimer = 0;
       pointer.pressed = false;
-      document.body.classList.remove('psp-press');
     }, 450);
   };
 
@@ -473,32 +584,96 @@ export function mountIdleMotion(): () => void {
     pointer.pressed = false;
   };
 
-  const onWindowResize = () => {
+  const onResizeOrScroll = () => {
     resize();
+    if (isReducedMotion() && !isEmulatorStarted()) {
+      themeMix = getCurrentTheme() === 'light' ? 1 : 0;
+      drawFrame(0, 0);
+    }
   };
 
-  window.addEventListener('resize', onWindowResize, { passive: true });
+  const onVisibilityChange = () => syncPlayback();
+  const onReducedChange = () => syncPlayback();
+  const onSchemeChange = () => {
+    ripples.length = 0;
+    if (isReducedMotion() && !isEmulatorStarted()) {
+      themeMix = getCurrentTheme() === 'light' ? 1 : 0;
+      drawFrame(0, 0);
+    }
+  };
+
+  window.addEventListener('resize', onResizeOrScroll, { passive: true });
   idle.addEventListener('pointermove', onPointerMove, { passive: true });
   idle.addEventListener('pointerdown', onPointerDown, { passive: true });
   idle.addEventListener('pointerleave', onPointerLeave, { passive: true });
+  document.addEventListener('visibilitychange', onVisibilityChange);
 
-  // 监听主题属性变更以即时刷新
+  if (reducedMotion) {
+    if (typeof reducedMotion.addEventListener === 'function') {
+      reducedMotion.addEventListener('change', onReducedChange);
+    } else if (typeof reducedMotion.addListener === 'function') {
+      reducedMotion.addListener(onReducedChange);
+    }
+  }
+  if (colorSchemeMedia) {
+    if (typeof colorSchemeMedia.addEventListener === 'function') {
+      colorSchemeMedia.addEventListener('change', onSchemeChange);
+    } else if (typeof colorSchemeMedia.addListener === 'function') {
+      colorSchemeMedia.addListener(onSchemeChange);
+    }
+  }
+
+  let resizeObserver: ResizeObserver | null = null;
+  if (typeof ResizeObserver === 'function') {
+    resizeObserver = new ResizeObserver(() => onResizeOrScroll());
+    resizeObserver.observe(idle);
+  }
+
   const themeObserver = new MutationObserver(() => {
     ripples.length = 0;
+    if (isReducedMotion() && !isEmulatorStarted()) {
+      themeMix = getCurrentTheme() === 'light' ? 1 : 0;
+      drawFrame(0, 0);
+    }
   });
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
+  const bodyObserver = new MutationObserver(() => syncPlayback());
+  bodyObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
+  const idleObserver = new MutationObserver(() => syncPlayback());
+  idleObserver.observe(idle, { attributes: true, attributeFilter: ['hidden', 'style'] });
+
   resize();
-  animId = requestAnimationFrame(step);
+  syncPlayback();
 
   return () => {
     isRunning = false;
-    cancelAnimationFrame(animId);
-    window.removeEventListener('resize', onWindowResize);
+    if (animId) cancelAnimationFrame(animId);
+    if (pressTimer) window.clearTimeout(pressTimer);
+    window.removeEventListener('resize', onResizeOrScroll);
     idle.removeEventListener('pointermove', onPointerMove);
     idle.removeEventListener('pointerdown', onPointerDown);
     idle.removeEventListener('pointerleave', onPointerLeave);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+    if (reducedMotion) {
+      if (typeof reducedMotion.removeEventListener === 'function') {
+        reducedMotion.removeEventListener('change', onReducedChange);
+      } else if (typeof reducedMotion.removeListener === 'function') {
+        reducedMotion.removeListener(onReducedChange);
+      }
+    }
+    if (colorSchemeMedia) {
+      if (typeof colorSchemeMedia.removeEventListener === 'function') {
+        colorSchemeMedia.removeEventListener('change', onSchemeChange);
+      } else if (typeof colorSchemeMedia.removeListener === 'function') {
+        colorSchemeMedia.removeListener(onSchemeChange);
+      }
+    }
+    resizeObserver?.disconnect();
     themeObserver.disconnect();
+    bodyObserver.disconnect();
+    idleObserver.disconnect();
     if (canvas && canvas.parentNode) {
       canvas.parentNode.removeChild(canvas);
     }
